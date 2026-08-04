@@ -1,0 +1,1375 @@
+LEDGEX / ADU.X
+
+Business Plan 2.1.4
+Professional-first automated property intelligence for distributed residential development
+
+      CONTROL
+
+      Business Plan 2.1.4, prepared August 2026, is the current commercial master. Spec v1.6 and Rules v1.3 implement its
+      subscription commerce and Base-product dependency contract. Checklist v1.2 and Audit v1.1 remain unchanged. No later
+      implementation remap is deferred.
+
+Package manifest and governing map
+
+ #        Artifact                                      Job                                                           Rev           Status
+
+ 01       Business Plan 2.1.4                           Commercial master: product, subscription model, disclosures   2.1.4         Controlling
+
+ 02       Backend Architecture Blueprint                Design rationale and scaling posture                          v1.1          Controlling rationale
+
+ 03       Engineering Reference Spec                    Executable schema, API, runtime and CI contract               v1.6          Build contract
+
+ 04       Implementation Rules                          Repository-root operational restatement                       v1.3          Operational control
+
+ 05       San José Data Source Checklist                Field-by-field source and maturity planning instrument        v1.2          Unchanged reference
+
+ 06       Municipal Data & API Audit                    35-city evidence, rights and strategy record                  v1.1          Unchanged reference
+
+ 07       Appendices I / J / K                          Evidence, source register and launch-condition records        2.1.4         Controlling
+
+ 08       Appendix H                                    Revision history, terminology and control close               2.1.4         Controlling
+
+     READING RULE
+     The Plan controls commercial boundaries; Spec v1.6 controls executable behavior; Rules v1.3 restates both for implementation. A conflict requires
+     a new controlled revision.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                1
+DOCUMENT CONTROL
+
+Aligned successor package
+This revision closes the three defects identified in 2.1.3: deferred commerce remapping, Base value depending on
+uncleared 3DEP geometry, and the unexplained removal of the San José homeowner-demand stress test.
+
+ Artifact                                               Status                                 Required treatment
+
+ Business Plan 2.1.3                                    Superseded                             Immediate predecessor; retain unaltered as historical evidence.
+
+ Business Plan 2.1.2 and earlier                        Superseded                             Historical records; no current commercial authority.
+
+ Spec v1.6 / Rules v1.3                                 Current                                Executable subscription, review-mode and dependency contracts.
+
+ Checklist v1.2                                         Current unchanged reference            Source planning and maturity evidence remain unchanged.
+
+ Municipal Audit v1.1                                   Current unchanged record               Municipal evidence, rights and strategy record.
+
+ Blueprint v1.1                                         Current rationale                      Use for design reasoning; Spec v1.6 wins on executable behavior.
+
+Closed implementation sequence
+ • Approximately 25 free or heavily subsidized validation users, then limited free access and approximately-$20 Base.
+
+ • Plan version, disclosure acceptance, entitlement, subscription and provider-captured billing are first-class records.
+
+ • Property File outcomes are never file-level price or settlement classes.
+
+ • Base Core launches only when its evidence and rights gates clear; geometry remains an independent conditional module.
+
+ • Future limits, higher tiers and features remain evidence-led and undefined.
+
+   CONTROL CONSEQUENCE
+
+   A coding agent can implement commerce from Spec v1.6 without inventing full-file prices, partial-file prices, credits, allowances,
+   overages or per-file settlement. Checklist v1.2 and Audit v1.1 were not revised.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                      2
+LEDGEX / ADU.X
+
+LedgeX Vision and Early-Stage Business Plan 2.1.4
+
+Building the automated intelligence layer for distributed residential development
+
+   DECISION
+
+   LedgeX begins with professional users in incorporated San José. After an approximately 25-user free or heavily subsidized cohort, access is
+   led by a limited free tier and an initial Base subscription at approximately $20 per month. Base Core is the integrated automated screening
+   file; placement and geometry-derived conclusions are conditional modules. Every request remains composed, partial or refused, with no
+   human delivery path.
+
+The calculator is the wedge. The automated pipeline is the asset.
+
+LedgeX gives a customer one preliminary screening surface showing what an ADU could plausibly look like on a parcel,
+which known rules and constraints affect the concept, and approximately what the scenario could cost. Base Core retains
+coherent paid value through integration, provenance and unavailable-information treatment even when conditional
+placement is refused.
+
+Document control
+
+ Exact artifact                           LedgeX Vision and Early-Stage Business Plan 2.1.4
+
+ Revision                                 2.1.4 - August 2026
+
+ Research baseline                        Municipal Data & API Audit - Internal Strategy v1.1
+
+ Supersedes                               Business Plan 2.1.3; prior revisions remain unaltered
+
+ Companion documents                      Spec v1.6 · Rules v1.3 · Checklist v1.2 · Audit v1.1
+
+ Owner                                    Veritas Land Consultants Inc.
+
+   DISCIPLINED CLAIM
+   No customer, subscription, conversion rate, retention result, licence clearance or operating result is asserted until corresponding dated
+   evidence exists.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                     3
+01 / DOCUMENT MAP
+
+How to use this plan
+This plan carries the original LedgeX vision forward under the audit's commercial and evidence controls, restated for a fully
+automated production and delivery model.
+
+ §        Section                                           What it settles
+
+ 02       Company vision                                    What LedgeX is building and why the wedge matters
+
+ 03       The problem                                       Fragmented property, planning and project information
+
+ 04       The automated operating model                     Zero per-file human review; what people do instead
+
+ 05       Three outcomes                                    Composed, partial, refused — and what each means commercially
+
+ 06       Confidence system                                 Deterministic High / Medium / Low, separate from missing data
+
+ 07       Jurisdiction model                                Four tiers plus the A* commercial-restriction status
+
+ 08       San José — Phase 1                                The launch jurisdiction and its documented conditions
+
+ 09       Initial product and scope boundary                Asset type, use cases, output, exclusions
+
+ 10       Professional-first commercial strategy            Payer sequence, pricing, pre-purchase disclosure
+
+ 11       Exception wedge and product contract              Record-to-ground conflict, provenance, refusal
+
+ 12       Compounding data asset                            What still compounds under automation, and what no longer does
+
+ 13       Market aggregation and future customers           Builders first; lenders later, after evidence
+
+ 14       Validation design                                 Track A and the repurposed Track B
+
+ 15       Economics and unit measurement                    The eleven measures that replace manual hours
+
+ 16       Data rights and liability architecture            Rights gates, provenance, disclosure limits
+
+ 17       Operating plan                                    30 / 60 / 90 days sequenced by evidence
+
+ 18       Management priors and diligence                   What is inapplicable, what is open, what is decided
+
+ 19       Capital discipline and long-term vision           What not to build before the evidence clears
+
+ I        Customer and evidence register                    No name or artifact asserted without dated evidence
+
+ J        Source register and research scope                Material claims, live links and access dates
+
+ K        San José launch conditions                        Per-resource licence, cadence and exclusion record
+
+ H        Change record and controlled glossary             Current terminology and revision history
+
+ —        Change log and unresolved launch                  Closing control statement
+          dependencies
+
+     READING RULE
+
+     This is a business plan with an evidence boundary, not a list of achievements. Forecasts are labelled
+     assumptions. Expected execution artifacts remain pending until Appendix I contains a received date and ﬁle
+     location. No actual LedgeX customer, sale, private permission, operating cost or conversion rate is asserted.
+     This document is not an oﬀer to sell securities, investment advice or a promise of future company value,
+     revenue, ﬁnancing, product access or regulatory outcome.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                    4
+02 / COMPANY VISION
+
+The intelligence layer for distributed residential development
+LedgeX begins with a high-utility parcel-level underwriting platform designed to help a professional evaluate whether an ADU or
+redevelopment concept may work financially. The longer-term thesis is conditional: if paid use, source controls and outcome
+validation support it, LedgeX could aggregate fragmented property, feasibility, project-intent and outcome data into a
+standardised market layer. The early product may succeed as a focused vertical software product. Any venture-scale path would
+require repeated use, validated local exceptions and real user intent before supporting standardised project inventory, enterprise
+intelligence, transaction routing or future financing infrastructure.
+
+   CORE SEQUENCE
+   Credible automated Property File → paid professional use observed → repeat analysis → structured exceptions → validated
+   outcomes → possible standardised inventory → potential later lender or transaction infrastructure.
+
+The company is deliberately not claiming that the full sequence exists today. Each step is an evidence question. The next
+commercial milestone is payment and repeat use for the automated Property File, supported by measured exception frequency,
+accuracy, refusal rate and cost.
+
+Strategic principles
+• Utility before scale: the first output must help a professional make or avoid a real decision.
+• Evidence before feature breadth: add capabilities when they reduce a named uncertainty.
+• Provenance before polish: every fact has a date, source and exact endpoint or document.
+• Refusal before categorical conclusions: conflicts and gaps are named, never silently resolved and never quietly filled.
+• Automation before headcount: a file that requires a person to finish is not a product; it is a service with a software wrapper.
+  LedgeX is building the former.
+• Professional payment before consumer volume: a small number of paid workflows is more informative than unpriced
+  attention.
+
+03 / THE PROBLEM
+
+The information exists; the organised market does not
+Millions of residential parcels contain potential additional housing capacity, but the market cannot price that capacity efficiently.
+Relevant information is fragmented across county parcel records, city zoning and permit systems, state ADU rules, hazard and
+environmental maps, property-tax records, contractor estimates, rent and sales data, lender standards and owner assumptions.
+
+A professional evaluating a property must assemble the file manually, determine which source controls, reconcile what a record
+says against what geometry and permit history suggest, and translate the result into a financial decision. The work is slow,
+inconsistent and difficult to reconstruct later.
+
+The result
+• Builders and designers spend scarce pre-bid time on poorly qualified properties.
+• Agents and investors cannot consistently price development optionality.
+• Homeowners cannot distinguish a useful screening signal from a determination that requires professional review.
+• Lenders lack standardised project inventory and a visible chain of assumptions.
+• Potentially viable housing projects remain unpriced, delayed or abandoned.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                            5
+   PRODUCT QUESTION
+   Can LedgeX turn fragmented public inputs into a dated, source-linked Property File that is produced entirely by machine, is
+   faster to obtain, is safer to explain because it refuses rather than guesses, and is valuable enough for a professional to pay for
+   repeatedly?
+
+04 / THE AUTOMATED OPERATING MODEL
+
+Fully automated production and delivery
+   THE CONTROLLING OPERATING STATEMENT
+   There is zero per-file human review before delivery. A Property File is composed and delivered by machine within a single
+   request. No person reads, checks, completes, approves or releases an individual customer file. There is no review queue, no
+   escalation path, no pending state and no deferred order. This replaces the Concierge delivery model described in Business Plan 2.1
+   §05, which is superseded and must not be reintroduced without a new controlling revision.
+
+This is the single largest change from Business Plan 2.1, and it changes staffing, operations, pricing, turnaround and unit
+economics simultaneously. Each is restated below. The change is not cosmetic and is not a cost optimisation of an existing
+workflow — it is a different product with a different boundary.
+
+What automation does and does not mean
+ Automation does                                                                 Automation does not
+
+ Retrieve, normalise, reconcile and compose machine-readable                     Make the underlying government records more accurate, more current
+ government and public data with complete provenance for every field.            or more complete than they are.
+
+ Apply documented, dated, cited local and state rules deterministically.         Interpret ambiguous code, exercise professional judgement, or resolve
+                                                                                 a question that the published rule does not answer.
+
+ Produce a result immediately, at any volume, at any hour.                       Substitute for professional legal, title, surveying, engineering,
+                                                                                 appraisal or inspection advice. It does not, and the product must
+                                                                                 never imply that it does.
+
+ Refuse clearly and cheaply when the evidence does not support a                 Guarantee that a delivered conclusion is correct. Confidence is a
+ conclusion.                                                                     disclosure mechanism, not a warranty.
+
+ Record exactly what was retrieved, from where, when, and under what             Clear a licence, obtain a permission, or replace counsel review.
+ licence.
+
+   PROFESSIONAL-ADVICE BOUNDARY
+   Nothing in the automated Property File is a survey, title report, appraisal, legal determination, engineering opinion, inspection or
+   permit approval, and the product must never be described or marketed as replacing any of them. Automation changes how quickly
+   and consistently public information is assembled. It does not change what that information can support. Where a question requires
+   a licensed professional, the correct product behaviour is to say so and refuse the conclusion.
+
+Where human work remains
+People remain essential but never produce, approve, supplement or deliver an individual ﬁle. Build-time
+and aggregate human work never gates delivery; support only logs reports against immutable ﬁles.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                             6
+ Internal human               What it covers                                                Relationship to a customer file
+ activity
+
+ Source review                Locating endpoints, confirming licences, verifying            Build time. A source cannot be activated until this is
+                              schemas, recording terms and access dates before a            complete.
+                              source is ever switched on.
+
+ Rule maintenance             Reading municipal and state code, authoring dated             Build time. Rules are versioned data with effective dates,
+                              and cited rule packs, reviewing another author's rule         reviewed before release.
+                              before it merges.
+
+ Exception analysis           Closing detected exceptions against a truth set as            Aggregate and retrospective. Never gates or delays a file.
+                              confirmed, false positive or unresolved; tuning
+                              per-jurisdiction tolerances.
+
+ Golden-parcel testing        Hand-verifying a small set of parcels per jurisdiction        Build time quality floor. Runs in CI, not per order.
+                              and confirming expected output, including expected
+                              refusals.
+
+ Quality measurement          Reviewing refusal rate, partial rate, support rate,           Aggregate. Informs the roadmap, not any single delivery.
+                              correction rate and cost per file; deciding what to fix.
+
+ Post-delivery support        Recording a customer-reported problem against a               After delivery only; logs the report without
+                              delivered file.                                               reviewing, supplementing or altering the ﬁle.
+
+   POST-DELIVERY SUPPORT CONSTRAINT
+
+   Support may record a customer-reported problem without reviewing or supplementing the ﬁle. It may not
+   change the delivered Property File or create a fact. A delivered ﬁle is an immutable, dated record of what the
+   system believed and could evidence at composition. Where contact reveals a genuine error, the remedy is a
+   source, crosswalk, rule or detector change that makes the pipeline produce the correct answer for every future
+   ﬁle, followed by an automated reissue with a new composition date. A hand-typed correction is prohibited.
+
+Consequences restated across the business
+
+ Dimension                      Business Plan 2.1 (superseded)                                   Business Plan 2.1.4
+
+ Staffing                       Concierge staff scaling with file volume.                        No delivery staff. Engineering, source and rule maintenance
+                                                                                                 only.
+
+ Operations                     Review queue, tasks and manual escalation.                       One automated request cycle ending composed, partial or
+                                                                                                 refused.
+
+ Commercial model               Manual effort priced and measured.                               Limited free tier; approximately $20 monthly Base access.
+                                                                                                 Outcomes do not set a file charge.
+
+ Turnaround                     Hours to days, dependent on a person.                            Within one request; no state in which a customer waits on a
+                                                                                                 person.
+
+ Unit economics                 Manual hours per file against a cost prior.                      Conversion, captured subscription payment, repeat parcel use,
+                                                                                                 retention, section use and delivery cost.
+
+   HONEST STATEMENT OF WHAT WAS GIVEN UP
+   The automated model still forfeits manual verification and its resolution corpus. Revision 2.1.3 also gives up file-level price discrimination. The trade
+   is simpler access and better repeat-use evidence, while coverage and safety remain bounded by the same machine and rights gates.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                     7
+05 / THREE OUTCOMES
+
+Composed, partial, refused
+Every Property File request finishes in exactly one of three states within a single request. There is no pending review,
+escalation queue or deferred customer order.
+
+ Outcome           Condition                                            Customer receives                                   Commercial treatment
+
+ Composed          Available evidence supports the required file;       Integrated Property File with provenance, dates,    Included within applicable Base
+                   every offered conclusion resolves.                   rights and confidence.                              access. No individual full-file price.
+
+ Partial           A useful file can be delivered, but named sections   A file naming each missing input and refusing       Included within applicable Base
+                   or conclusions lack required usable evidence.        every dependent conclusion.                         access. Never marketed as
+                                                                                                                            equivalent to composed.
+
+ Refused           The system cannot safely produce the requested       Plain-language refusal: reason, attempted sources   Subscription status does not alter
+                   file because jurisdiction, parcel, rights or         and available next step.                            the refusal. No lower-confidence
+                   coverage fails.                                                                                          substitute.
+
+    NO PENDING STATE
+    If the system cannot answer now, it says so now. A subscription never creates an exception to source rights, confidence rules, missing-input
+    treatment or conclusion refusal.
+
+Access disclosure and outcome independence
+•   Before signup, identify the limited free scope, Base scope, current usage policy and known jurisdiction or feature limits.
+
+•   Do not define Base as unlimited. No fixed allowance, credit allocation, overage price or API-use limit is established in this revision; limits
+    may be set only after observing actual behavior and delivery costs.
+
+•   Composed, partial and refused determine what is delivered, never the amount charged for an individual file.
+
+    COMMERCIAL INTEGRITY
+    Captured subscription payment proves paid access only. It does not prove that every file generated during the period was individually worth the
+    subscription price.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                         8
+06 / CONFIDENCE SYSTEM
+
+Deterministic High, Medium and Low
+Confidence is a disclosure mechanism. It tells a professional how much weight a field or conclusion can bear. It is calculated by
+documented, deterministic rules — not by a model, not by judgement, and not by a score whose derivation cannot be reproduced.
+
+The three levels, in customer-facing language
+ Level         What the customer is told                                          What it does not mean
+
+ High Drawn directly from a current authoritative source, with no                 It does not mean the underlying record is correct, or that no
+ material disagreement between sources.
+                                                                                  professional verification is needed. Government records can be
+                                                                                  wrong.
+
+ Medium        Supported, but with a stated qualification — the source is         It does not mean the value is probably wrong. It means the
+               older than its usual refresh, or a secondary source was            qualification is disclosed so it can be weighed.
+               used, or two sources differ in a way that does not change
+               the outcome.
+
+ Low           Supported only weakly — a materially stale source, an              It does not mean data is missing. Missing data is not a confidence
+               unresolved disagreement between sources, or a value near           level at all — see below.
+               a rule boundary where a small input change flips the
+               answer.
+
+   THE DISTINCTION THAT MATTERS MOST
+   High, Medium and Low do not mean “good, uncertain and missing.” All three levels describe evidence that exists and was
+   retrieved. Data that is missing, inaccessible, legally restricted or unavailable is a different category entirely and is never expressed
+   as Low confidence. Conflating the two would let an absent record masquerade as a weak answer, which is precisely the failure the
+   product exists to prevent.
+
+How missing evidence is handled
+Where evidence is missing, inaccessible, legally restricted or unavailable, the system applies the following response, in order:
+
+1. Omit the unsupported fact. It is recorded as unavailable, with the reason, and shown as such.
+2. Downgrade the dependent conclusion where the remaining evidence still permits it — using a weaker but valid source,
+   lowering confidence, and naming the substitution.
+3. Refuse the dependent conclusion where it cannot be supported. The refusal is stated by name with the missing input
+   identified. It is never silently dropped.
+4. Refuse the complete file where the missing evidence prevents the core product from being produced at all.
+
+   THE CASCADE IS THE SAFETY ARGUMENT
+   If recorded map history cannot be retrieved, SB 9 eligibility is not quietly absent from the file and it certainly is not computed as
+   though no prior lot split occurred — it is refused, by name, with the missing input stated. Automated delivery is only defensible
+   if every unmet input propagates visibly to every conclusion that required it. A partial file that looks complete is worse than no file.
+
+Confidence record-keeping
+• Every confidence result retains its confidence rule ID — which documented rule produced the grade — and the identifiers of
+  the supporting evidence.
+• Every fact retains its source, exact endpoint, retrieval date, source publication date, stated cadence and observed licence, so any
+  grade can be reconstructed as of its date.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                           9
+• Confidence rules are versioned. A file produced today can be reproduced later with the rule version that was in force.
+
+   WHAT CONFIDENCE IS NOT
+   The confidence system improves disclosure. It does not clear a data licence, does not replace counsel review, does not
+   constitute professional advice, and is not a guarantee of accuracy. A High-confidence field drawn from a source whose
+   commercial terms are unconfirmed is still blocked from sale. Confidence and rights are independent gates and are never traded off
+   against each other.
+
+07 / JURISDICTION MODEL
+
+Four tiers and the A* restriction
+Jurisdictions are not binary. Expansion means moving a city up a tier as machine access and rights allow — and the product must
+be able to refuse a jurisdiction outright rather than degrade quietly into guesswork.
+
+ Tier          Machine access character             Product posture                                                Audit examples
+
+ Tier 1        Machine-readable core parcel,        Full automated Property File may be offered. Includes          San José. Los Altos Hills.
+               zoning and permit sources.           permit-dependent conclusions and, once its engineering gate    Belmont and Foster City in the
+                                                    clears, record-to-ground detection.                            deferred county.
+
+ Tier 2        Machine-readable core                Deliver a partial file and refuse permit-dependent             Approximately ten Santa Clara
+               sources but no usable permit         conclusions by name. Pre-purchase warning required.            cities.
+               feed.
+
+ Tier 3        Limited bulk or viewer-based         Deliver a clearly labelled partial file with freshness and     Saratoga. Redwood City. San
+               machine access to some core          coverage warnings. Batch cadence must never be described       Bruno.
+               layers.                              as real time. Permit history marked unavailable; all
+                                                    permit-dependent conclusions refused.
+
+ Tier 4        No dependable                        Refuse the jurisdiction. There is no machine-readable core     Monte Sereno. Morgan Hill.
+               machine-readable core data.          to compose from, and no manual path exists under this          Several San Mateo towns.
+                                                    operating model.
+
+A* — a commercial restriction, not a tier
+
+   A* STATUS
+   A* is a separate commercial-restriction status that sits alongside the tier, not inside it. An A* source may be technically
+   excellent and fully machine-readable, while its commercial reuse is not cleared. LedgeX does not sell a file using an A* source
+   until written permission or legal confirmation has been obtained. Technical quality never overrides a rights position. Audit
+   examples include Los Gatos and the Palo Alto Permit View terms.
+
+Three decisions, kept separate
+A jurisdiction or a source is assessed on three independent axes. Collapsing them is the error that produced the Sanborn exposure
+identified in the audit.
+
+ Decision                       Question                                  Who answers it                   Failure if collapsed
+
+ Source quality                 Is the data accurate, current and         Engineering and source review,   A clean licence on bad data produces
+                                complete enough to rely on?               against golden parcels.          confidently wrong files.
+
+ Technical availability         Can a machine retrieve it on a            Engineering, at build time.      A viewer that renders in a browser is
+                                dependable contract?                                                       not an API; treating it as one produces a
+                                                                                                           fragile pipeline.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                           10
+ Decision                       Question                                  Who answers it                        Failure if collapsed
+
+ Commercial-use                 May we use it in a paid product and       Recorded terms, written               Public visibility treated as
+ permission                     this output channel?                      confirmation, and counsel where       commercial permission. This is how a
+                                                                          unclear.                              third-party rights claim reaches a
+                                                                                                                shipped product.
+
+   DEFAULT DENY
+   Where a licence is silent, ambiguous or simply not yet observed, the source is treated as restricted until a written clearance is
+   recorded with a date. Silence is not permission. This rule is enforced in the engineering stack at the output boundary, not merely
+   documented here.
+
+08 / SAN JOSÉ — PHASE 1 LAUNCH JURISDICTION
+
+Incorporated San José
+   SCOPE STATEMENT
+   The Phase 1 launch jurisdiction is the incorporated City of San José. It is not Santa Clara County as a whole, and county
+   coverage is not implied, offered or included. The city boundary is irregular and encloses unincorporated county pockets. A
+   parcel with a San José mailing address may be governed by county zoning, county permitting and a different ADU rule set. Where
+   the city and county boundary layers disagree, or where a parcel resolves to unincorporated county, the system refuses rather than
+   applying San José rules.
+
+San José currently supports the Tier 1 / A+ technical posture because its required core sources — parcels, zoning and active
+building permits — are machine-readable on documented public contracts. It is the only city in Santa Clara County graded A+ in
+the municipal audit on the strength of a documented public permit feed, and that is why it is the launch jurisdiction.
+
+Currently documented conditions
+These are the conditions recorded as of the July 2026 research baseline. They are research and engineering findings, not
+guarantees, and every one must be re-verified with a preserved snapshot at the moment of production use. Endpoints, terms and
+schemas change without notice.
+
+ Condition                      Status as documented                                   Consequence for the customer file
+
+ Parcel and zoning              Published under CC BY, updated weekly.                 Available. Attribution is attached automatically to every file
+ sources                        Usable with attribution.                               containing these fields.
+
+ Active-permits source          Published under CC0, updated daily. Usable             Available. This is the strongest single asset in the Phase 1 stack
+                                without restriction.                                   and the basis of the Tier 1 posture.
+
+ Permit-under-inspection        Licensing still requires resource-specific             Blocked by default deny until written confirmation is
+ and planning-permit            confirmation. Recorded as portal terms; not            recorded. Entitlement and inspection detail are unavailable and
+ series                         yet cleared.                                           any conclusion depending on them is refused.
+
+ Manual recorder                Ownership, recorded sale history and recorded          Excluded from automated customer files. Consequently, SB 9
+ workflows                      map / subdivision history are per-parcel manual        eligibility must be refused on the prior-lot-split disqualifier
+                                lookups with no machine contract.                      rather than assuming no prior split.
+
+ Utility will-serve             Available capacity requires a per-parcel               Excluded. The field is omitted and any conclusion requiring
+ workflows                      will-serve letter request. No machine route            confirmed utility capacity is refused.
+                                exists.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                11
+ Condition                      Status as documented                                    Consequence for the customer file
+
+ Old permit workflows           Historic and closed permit records beyond the           Excluded. Until the earliest record date is measured,
+                                machine-readable series require a                       record-to-ground conflict must be suppressed for structures
+                                public-records workflow. The series' earliest           predating the series — an absent old permit and an unpermitted
+                                record date is not yet measured.                        structure are otherwise indistinguishable.
+
+ 3DEP footprint accuracy        USGS 3DEP is stated to be free of use                   Building footprint, buildable envelope, ADU placement and
+ gate                           restrictions, but coverage, extraction                  record-to-ground geometry are unavailable until the gate clears.
+                                repeatability and accuracy remain                       Files compose without them and say so.
+                                unvalidated. The gate is unresolved.
+
+   THE HONEST READ ON THE LAUNCH JURISDICTION
+   San José is the strongest jurisdiction available and still has named gaps: assessor characteristics, ownership, recorded maps and
+   code-enforcement history are excluded, and geometry remains behind an engineering gate. A Base subscriber may therefore receive a
+   partial file or refused placement. Subscription status never fills a missing input, and the access disclosure must say so before signup.
+
+09 / INITIAL PRODUCT AND SCOPE BOUNDARY
+
+Base Core plus conditional scenario modules
+The paid Base product is not a basic zoning, permit or public-record lookup. Base Core integrates parcel, zoning, permit and known
+constraint information with provenance, confidence, rights controls and explicit unavailable-information treatment in one coherent
+preliminary Property File.
+
+ Base Core                           Launchable paid value independent of LD-4: integrated records, known constraints, provenance, confidence, rights and
+                                     named gaps.
+
+ Placement module                    Conceptual ADU placement only when required parcel, structure and rule geometry clears. No fallback; otherwise refuse
+                                     placement.
+
+ Cost module                         Transparent range from disclosed inputs. May use validated geometry-derived inputs or disclosed user assumptions;
+                                     refuse if neither is sufficient.
+
+ Free tier                           Limited parcel and zoning information sufficient to demonstrate the product; not the complete integrated Property File.
+
+ Base subscription                   Approximately $20 per month initially. Not unlimited; no fixed allowance, credits, overage or API-use limit is set.
+
+ Boundary                            Preliminary screening only; never a survey, drawing, site plan, certification, permit determination, quote, appraisal or
+                                     advice.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                    12
+10 / PROFESSIONAL-FIRST COMMERCIAL STRATEGY
+
+Sell the integrated screening surface
+The primary early payer remains the builder or designer who evaluates multiple parcels. Base Core earns its paid position through one
+coherent evidence trail and workflow: parcel, zoning, permits, known constraints, provenance, confidence, rights and named gaps.
+Conditional placement and cost modules can improve screening, but Base launch does not depend on LD-4 geometry.
+
+ Customer                       Role                                  Commercial logic
+
+ Builder / designer             Primary early payer                   Repeated parcel screening, exception research and client-ready preliminary Property
+                                                                      Files.
+
+ Agent / investor               Distribution / repeat use             Property optionality and sourcing; won on integrated screening, not generic eligibility.
+
+ Homeowner                      Top-of-funnel                         Limited free parcel and zoning information with the same evidence and liability
+                                                                      discipline.
+
+ Lender                         Later possible payer                  Deferred until information quality, compliance and partner requirements are established.
+
+Subscription architecture to validate - not forecast
+
+•   Validation cohort: approximately the first 25 users receive free or heavily subsidized access.
+
+•   Limited free tier after the cohort: parcel and zoning information sufficient to demonstrate the product, but not the complete integrated
+    Property File.
+
+•   Base subscription: approximately $20 per month initially for access to the integrated automated Property File.
+
+•   Base is not unlimited. Usage limits may be established after observing customer behavior and delivery costs; no allowance, credit system,
+    overage price or API-use limit is set here.
+
+•   Do not create higher-priced tiers yet. Future tiers and features require observed usage, demand, delivery cost and captured
+    willingness-to-pay evidence.
+
+    BASE PRODUCT VALUE
+    Core value is integration and defensible screening. Conceptual placement and geometry-derived scenarios add value only when their own
+    declared dependencies clear.
+
+Customer terms and access controls
+Disclose tier scope, current usage policy, known unavailable sections and automatic outcome rules before subscription. Terms, attribution, permitted-use
+and privacy controls remain unchanged in force.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                     13
+• Permitted use: customer redistribution limits reflect the most restrictive licence among the sources used. A file containing a
+  restricted-source field cannot be sold into a channel that licence does not permit.
+
+   FREE-TIER RULE
+   Limited free information can still create reliance. It carries the same provenance, cautious wording, confidence, rights, omission and
+   refusal rules as Base. The difference is scope, never truth or safety discipline.
+
+11 / EXCEPTION WEDGE AND PRODUCT CONTRACT
+
+Record-to-ground conflict is the opening to validate
+Generic parcel normalisation and statewide ADU eligibility are available elsewhere. The candidate wedge is exception detection:
+reconcile what public records, geometry and permit history show, identify a record-to-ground conflict, and disclose it with its
+evidence and confidence.
+
+ Capability                     Market status           LedgeX position
+
+ Parcel normalisation           Commodity               Buy or use available layers; do not call this the moat. Normalised parcel data is purchasable
+                                                        at national scale; cited vendor prices are dated historical examples, not current quotes.
+
+ ADU eligibility                Occupied                Statewide, free California eligibility and design screening already exists and is distributed
+                                                        through the two-county agent channel. Do not compete on generic eligibility alone; the gap
+                                                        must be proven through customer evidence that statewide eligibility output is insufficient for
+                                                        professional use.
+
+ Record-to-ground               Opening to              Geometry and permit history, with cautious wording and explicit refusal where inputs are
+ conflict                       validate                missing. Currently blocked by the 3DEP gate and by the unmeasured permit-series
+                                                        depth.
+
+ Financing context              Opening to              Expose project exceptions, assumptions, DSCR, combined LTV and borrower-cash effects
+                                validate                with visible inputs.
+
+The product contract
+• Every fact is dated, source-linked and tied to an exact endpoint or document.
+• Every calculation exposes inputs, assumptions and method.
+• Every conflict is named rather than silently reconciled.
+• Every unmet input propagates by name to every conclusion that required it.
+• Every high-risk conclusion can refuse, and a refusal is reported to the customer rather than escalated to a person.
+• The output never presents GIS or derived ADU mathematics as a survey, title report, appraisal, legal determination or permit
+  approval.
+
+   LANGUAGE CONTROL
+   Use precise language: “No permit record was located in the sources searched as of [date].” Never make a categorical statement
+   about a structure's legal status based only on public records or derived geometry. Never describe a scheduled bulk download as
+   real time. Never describe a source as commercially cleared merely because it is publicly accessible.
+
+Six independent detectors
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                             14
+The exception engine is built as six independently shippable detectors rather than one geometry-centred pipeline. This matters
+commercially: the highest-value detector sits behind the unresolved 3DEP gate, and if that gate never clears the remaining five
+still constitute a measurable exception product.
+
+ Detector                           Detects                                                        Dependency at launch
+
+ Record-to-ground                   Structure present in geometry with no corresponding            Blocked — 3DEP gate and unmeasured
+                                    permit record.                                                 permit-series depth.
+
+ Cross-source disagreement          City and county disagree on zoning, geometry or                Available.
+                                    characteristics.
+
+ Staleness                          A controlling fact is older than its decision relevance.       Available.
+
+ Rule boundary                      The parcel sits near a threshold where the answer flips.       Available.
+
+ Coverage gap                       A field that should exist could not be retrieved.              Available. The most important detector under an
+                                                                                                   automated model.
+
+ Rights gap                         The fact exists but cannot be used in this channel.            Available.
+
+12 / COMPOUNDING DATA ASSET AND PRODUCT VISION
+
+What compounds, and what no longer does
+Business Plan 2.1 identified the durable asset as a corpus of manual resolution steps accumulated through Concierge delivery.
+That asset is forfeited by this revision and this section is restated honestly rather than quietly re-pointed at something else.
+
+What still compounds
+• Customer reports and outcome data may identify discrepancies, but corrected property facts enter only
+   through approved machine retrieval or deterministic derivation - never by hand.
+• Verified feasibility assumptions and realised project outcomes — actual permit outcomes, approved unit sizes, realised
+  rents and valuations, projects pursued versus abandoned.
+• Contractor cost performance observed over time, replacing purchased cost bands.
+• The rule corpus itself — dated, cited, versioned local rules with their source text, which is expensive to assemble and
+  improves with every jurisdiction.
+• Observed source failures and schema drift by jurisdiction, logged as structured data. This directly reduces the marginal
+  cost of the next jurisdiction.
+• Exception truth sets built by internal analysis, which tune detectors and reduce false-positive rate over time.
+
+The integrated interface is the paid product
+A user enters an address and receives Base Core: a coherent screening surface integrating parcel, zoning, permit and known constraint
+information with source provenance, confidence, rights controls and explicit unavailable-information treatment. This is the minimum paid
+product. It does not require a hypothetical placement to be useful.
+
+   CONDITIONAL MODULES
+   Placement ships only when required geometry and rule inputs clear; otherwise it is refused without fallback. Cost ranges use disclosed validated
+   geometry-derived inputs or disclosed user assumptions. Missing inputs refuse the dependent cost conclusion. Neither module weakens the
+   screening-only boundary.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                          15
+      BOUNDARY
+      LD-4 blocks conceptual placement and geometry-dependent conclusions, not Base Core. No substitute footprint or inferred siting geometry
+      is permitted. A refused placement is named within a composed or partial file under the ordinary dependency rules.
+
+13 / MARKET AGGREGATION AND FUTURE CUSTOMERS
+
+Build the terminal before building the marketplace
+Most companies attempting to organise the ADU market begin with a marketplace: connecting homeowners to builders,
+ 1.      Provide immediate automated preliminary screening utility.
+
+ 2.      Convert appropriate users from limited free access to Base.
+
+ 3.      Observe additional-parcel evaluation, repeat use and early retention.
+
+ 4.      Capture structured project intent, section use and exceptions.
+
+ 5.      Validate the system through actual project outcomes.
+
+ 6.      Consider future customer products only after demand and quality evidence exists.
+
+The evidence test is whether LedgeX becomes a repeat screening terminal. Subscription payment is one signal of access value;
+additional parcels, retained use and section engagement reveal whether the workflow itself is useful.
+
+Why lenders may eventually become customers
+
+A lender needs potential projects that can be compared consistently. If information quality, compliance review and partner requirements
+support the use case, LedgeX could later provide a standardized project profile containing preliminary feasibility, proposed ADU type and
+size, disclosed construction-budget assumptions, rent and value scenarios, combined LTV, borrower-cash and debt-service context,
+confidence classifications and major exceptions. This remains a conditional future use case, not a promised tier.
+
+LedgeX need not originate or fund loans in the early stage. Licensed partners can handle regulated activity while LedgeX remains the
+intelligence and workflow layer.
+
+      A CONSTRAINT THE AUTOMATED MODEL ADDS
+
+      A lender-facing product requires consistent coverage. Tier 2 and Tier 3 jurisdictions produce partial files and Tier 4 is refused. A lender
+      evaluating a multi-jurisdiction portfolio will encounter that unevenness directly. Resolve this diligence issue before any lender product is
+      defined.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                         16
+14 / VALIDATION DESIGN
+
+Two tracks, two jobs, one commercial milestone
+Track A tests exception frequency and accuracy. Track B tests whether the subscription-led product earns actual conversion,
+repeat parcel evaluation and early retention without weakening the automated evidence contract.
+
+ Track           Market                    Job                                                  Primary measures
+
+ Track A         San José                  Exception-frequency and accuracy validation on       Hit rate; false positives; composition time; coverage; partial and
+                                           automated output.                                    refusal rates.
+
+ Track B         San José                  Free-to-Base subscription validation and             Captured subscription conversion; additional parcels; repeat
+                                           product-usage learning.                              use; retention; section use; placement/cost value; requested
+                                                                                                capabilities.
+
+Track B controls
+
+•   Begin with approximately 25 free or heavily subsidized validation users; record cohort status and access terms.
+
+•   Measure free-to-Base conversion using provider-captured subscription payment only.
+
+•   Measure additional parcels after the first file, returns during the early period and retained access.
+
+•   Measure repeated section use and whether placement and cost information improve screening.
+
+•   Record requested capabilities; do not create a later tier from stated interest alone.
+
+•   Stated willingness, accepted prices, authorizations, deposits, commitments and unpaid intentions are not captured subscription payment.
+
+    THRESHOLD DISCIPLINE
+    No empirical conversion, retention or usage threshold is asserted. Any initial decision threshold is a management prior and must follow the
+    existing revision-number, threshold-reset and evidence-record rules.
+
+    HISTORICAL DEMAND CONSTRAINT RESTORED
+    The 2.1.2 homeowner stress test remains: 488 permits × 20% share × $300 = approximately $29,280. It closed the one-time homeowner-file thesis;
+    it is not a subscription forecast, demand denominator or proof of Base conversion.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                         17
+15 / ECONOMICS AND UNIT MEASUREMENT
+
+What replaces manual hours and file-level pricing
+
+      DEMAND CONSTRAINT AND SUPERSEDED TEST
+      Historical stress test: 488 San José permits × 20% share × $300 = approximately $29,280. This closes the one-time homeowner-file model. Permit
+      activity is not the eligible-parcel denominator and does not establish subscription demand, conversion, ARR or professional willingness to pay.
+
+The eleven replacement measures
+These are measures, not validated thresholds. Initial decision thresholds remain management priors until evidence supports a reset.
+
+ #        Measure                                   Definition                                             Why it matters
+
+ 1        Automated cost / composition              Source calls, compute and storage attributable to      Tests delivery-cost trajectory.
+                                                    a request.
+
+ 2        Source / API calls                        External retrieval count per composition.              Primary cost and latency driver.
+
+ 3        Composition time                          Request to terminal outcome.                           Customer-visible automation promise.
+
+ 4        Subscription processing cost              Fees per captured subscriber billing event.            Tests approximately-$20 Base economics.
+
+ 5        Storage / delivery cost                   Retention, object storage and egress per account       Prices reconstruction and usage load.
+                                                    and file.
+
+ 6        Support-request rate                      Customer contacts per delivered file or active         Quality proxy for unassisted output.
+                                                    account.
+
+ 7        Correction rate                           Support contacts revealing a data or logic error.      Triggers pipeline repair.
+
+ 8        Partial-file rate                         Share of compositions delivered partial, by missing    Shows where coverage affects value.
+                                                    section.
+
+ 9        Refusal rate                              Share of requests refused, by reason.                  Shows where access cannot create utility.
+
+ 10       Free-to-Base conversion                   Eligible users with captured Base subscription         Central paid-access signal.
+                                                    payment.
+
+ 11       Repeat use / early retention              Additional parcels, return activity, retained access   Tests recurring workflow value.
+                                                    and section reuse.
+
+      A captured subscription is not allocated as an inferred price per file. Outcome mix and product usage remain separate measurements.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                            18
+   NO INVENTED THRESHOLDS
+   No pass/fail threshold is set for any measure above, because setting one without evidence would manufacture a false gate. All
+   eleven are recorded as open management decisions in §18 and must be reviewed against the first measured sample — defined
+   as the first 50 attempted compositions, including refusals and partials, not the first 50 sales. Thresholds set at that review must
+   be entered under a new revision number with the evidence that justified them.
+
+Forecasts versus measured results
+
+   SEPARATION RULE
+   No revenue forecast or actual customer, subscription, conversion, retention, private permission or operating result is asserted. Figures are
+   measured M-ID observations, labelled management assumptions or explicit stress tests.
+
+Low automated cost does not prove a viable subscription. The economic load falls on support and correction rates, outcome mix, free-to-Base
+conversion, repeat parcel evaluation, early retention, section use and delivery cost. These must be observed together rather than collapsed
+into an accepted price per file.
+
+16 / DATA RIGHTS AND LIABILITY ARCHITECTURE
+
+Trust must be visible in the product surface
+ Input / output                Control
+
+ Retrieved fact                Exact source, field, date and licence. Quote and attribute. Never silently paraphrase.
+
+ Derived calculation           Geometry, setbacks, coverage and finance mathematics. Expose inputs, method and editable assumptions.
+
+ LedgeX conclusion             Screening result, deterministic confidence and exception. Label as an estimate; refuse when the supporting evidence
+                               is absent.
+
+ Omission                      Recorded with its reason and shown to the customer. Never silent.
+
+ Refusal                       Recorded with its code, reason and remedy, and reported to the customer. Never escalated to a person.
+
+Data-rights gates
+• Do not use the Santa Clara County building-footprint layer while it asserts Sanborn rights. Public visibility is not
+  commercial permission and the dependency is excluded from the proposed stack entirely.
+• USGS 3DEP is the intended independent source for footprint extraction, but coverage, extraction repeatability and accuracy
+  must be measured before the geometry tier ships. Rights are clear; accuracy is not. These are two different gates and must not
+  be conflated.
+• Free footprint alternatives carrying share-alike terms are rejected on rights grounds, not quality grounds. Contaminating
+  a proprietary derived database is plausibly a worse commercial outcome than the position being avoided.
+• Santa Clara's approximately $52,535 paid data combination is derived from the FY25 county master fee schedule, not a
+  real-time API, and is excluded from the initial production stack. San Mateo County remains a second-stage market until its
+  commercial-use language is cleared; its approximately $915 assessor combination is a static, order-based control file, not a
+  real-time API.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                         19
+• Commercial imagery is a deferred capability, not a promised paid tier. Vendor terms restricting database creation or resale require review
+before redistribution use.
+
+• Per-resource confirmation remains required for the San José inspection and planning-permit series before either may be used in a commercial
+output.
+
+Launch controls
+• Obtain an errors and omissions quote before launch; treat underwriting questions as product requirements. Coverage terms
+  may impose architectural requirements not yet anticipated.
+• Obtain limited public-records counsel guidance on which datasets the relevant California public-records authority reaches,
+  and on the commercial-use posture of each launch source.
+• Publish customer terms, disclaimers and privacy controls before the first sale.
+• Retain raw responses and calculation inputs so every output can be reconstructed as of its date.
+• Define deterministic refusal conditions for missing permits, conflicting geometry, stale records and rights uncertainty. Under
+  the automated model these are refusals, not review triggers.
+
+The risk of the underlying data
+
+   GOVERNMENT DATA RISK
+   Public records are frequently incomplete, outdated, internally inconsistent, temporarily unavailable, or in disagreement with one
+   another. Export cadence is not factual freshness: a parcel file can export daily while the underlying geometry or assessor
+   characteristic has not been re-observed for years. Endpoints, schemas and licence terms change without notice. Automation does
+   not reduce this risk; it makes it faster and more consistent to encounter.
+
+How the outcome model limits the resulting exposure. Partial and refused outcomes exist precisely to prevent unsupported
+
+17 / OPERATING PLAN
+
+30 / 60 / 90 days - sequenced by evidence
+
+ Window              Build / test                                                                  Exit evidence
+
+ Days 1-30           Source ingest, jurisdiction resolver, permit-depth test, 3DEP test, first     Live source ledger; measured geometry result or failure;
+                     automated Property Files, E&O/counsel scope and customer terms.               first outcome mix.
+
+ Days 31-60          Confidence rules, detectors, composer, rights gate, refusal cascade,          Quality queries; first captured Base subscription; parcel
+                     limited-free and Base access instrumentation, Track B cohort activity.        and section-use telemetry.
+
+ Days 61-90          Review cohort conversion, additional parcels, early retention, feature use,   Go / revise / reposition decision supported by measured
+                     support, correction and delivery cost. Set priors under a new revision.       subscription and product-use evidence.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                   20
+First 60 days - dependency order
+
+1.      Resolve San José addresses to APN and jurisdiction, including unincorporated-pocket refusal; retain raw and normalized records.
+
+2.      Ingest the CC BY parcel and zoning series and CC0 active-permit series with licences and timestamps preserved.
+
+3.      Measure the earliest permit-series record date; do not assume record-to-ground coverage.
+
+4.      Extract and validate 3DEP footprints; publish measured error. A negative result changes product scope.
+
+5.      Build confidence rules, available detectors and a golden parcel set including expected refusals.
+
+6.      Close launch gates: E&O terms, counsel guidance, customer terms and clearance for each unconfirmed source.
+
+7.      Run the approximately 25-user free or subsidized cohort, then limited free and approximately-$20 Base; record outcomes, captures and use.
+
+8.      Purchase no assessor file, imagery subscription or lender infrastructure before the gates clear.
+
+18 / MANAGEMENT PRIORS AND DILIGENCE
+
+Decided, inapplicable and open
+     THRESHOLD STATUS
+     No numerical threshold in this section is empirically validated as of August 2026. Priors are pre-evidence devices used to force an
+     explicit decision, not proof that a market or product has failed. Any threshold change must be entered under a new revision
+     number before the next measurement window is reviewed, and must cite the evidence that justified the reset. Retroactive
+     movement is prohibited.
+
+Carried forward
+ Signal                                Management prior                           Response
+
+ Exception-detection hit rate          Below approximately 5%                     Reprice screening, narrow the claim or stop the exception wedge.
+
+ Professional payment                  Free alternative is sufficient             Move up-market to underwriting workflows or discontinue the offer.
+
+ False-positive risk                   Above buyer tolerance                      Do not ship structure-status conclusions.
+
+ 3DEP validation                       Coverage or accuracy fails                 Reopen source strategy; assume no geometry fallback. The geometry tier
+                                                                                  does not ship.
+
+Marked inapplicable by this revision
+ Superseded prior                                             Status                            Reason
+
+ Manual file economics: more than 4 hours and                 INAPPLICABLE — not                There is no manual preparation step to measure. The prior
+ less than approximately $500                                 passed                            cannot be evaluated in either direction and must never be
+                                                                                                reported as satisfied.
+
+Open management decisions — no threshold set
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                21
+Each measure below requires a decision that evidence does not yet support. Review windows include refused and partial outcomes;
+subscription and usage measures use eligible users or active accounts as their denominators.
+
+Open management decisions - no threshold set
+
+ Open decision                               What must be decided                                                             Review trigger
+
+ Automated cost / composition                What cost trajectory indicates amortization.                                     First 50 attempts
+
+ Source calls / composition                  When caching becomes mandatory.                                                  First 50 attempts
+
+ Composition time                            What latency the customer promise can bear.                                      First 50 attempts
+
+ Subscription processing cost                What share of Base revenue is tolerable.                                         First billing sample
+
+ Storage / delivery cost                     What usage and retention policy the economics support.                           First 50 attempts
+
+ Support / correction rates                  What rates trigger pipeline repair or product rethink.                           First 50 deliveries
+
+ Partial / refusal rates                     Which missing sections or refusal reasons impair conversion and retention.       First 50 attempts
+
+ Free-to-Base conversion                     What captured conversion supports continued Base testing.                        Track B review
+
+ Repeat use / early retention                What additional-parcel, return and section-use behavior indicates recurring      Track B + early period
+                                             value.
+
+Weekly operating dashboard
+
+•   Outcome mix, composition time, source failures, schema and licence changes.
+
+•   Eligible free users, Base subscribers, captured billing events and conversion - no inferred per-file value.
+
+•   Additional parcels after the first file, return activity, early retention and section reuse.
+
+•   Hypothetical-placement and cost-section engagement; requested missing capabilities recorded separately from payment evidence.
+
+•   Automated cost, source calls, storage, support and corrections; cash spent and evidence produced.
+
+Open diligence gates
+
+ Can 3DEP support geometry?                                 Engineering                 Coverage, extraction, benchmark and measured error.
+
+ Can each launch source be used?                            Legal                       Per-resource rights ledger and written clearance.
+
+ Will professionals subscribe and return?                   Market                      Captured Base payment, additional parcels, retention and section use.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                    22
+ Does placement / cost improve screening?                 Product                 Observed section use, repeat parcel analysis and customer evidence tied to
+                                                                                  screening decisions.
+
+ Which missing capability supports a later tier?          Market                  Repeated behavior plus captured willingness to pay; stated interest alone is
+                                                                                  insufficient.
+
+ Is the statewide-eligibility gap real?                   Competitive             Evidence that free eligibility output is insufficient for professional use.
+
+Prove the narrow loop before financing the larger option
+
+   NARROW LOOP
+
+   Address entered -> preliminary Property File -> user understands outcome and limits -> eligible user subscribes -> additional parcel evaluated ->
+   user returns -> useful sections repeat -> evidence improves the product.
+
+Do not prematurely build
+
+• A review queue, manual verification tier or any human step in the delivery path. Removed by this revision. If it is ever
+  reintroduced it must be a separate, clearly labelled advisory product with its own delivery path — never a fallback inside the
+  automated one.
+• A lender marketplace, regulated origination, servicing or warehouse financing.
+• A nationwide rules engine or every possible property type.
+• A second jurisdiction before the marginal cost of the second is measured.
+• Photorealistic three-dimensional architecture before the Property File workflow is valuable.
+• San Mateo expansion, paid assessor packages or enterprise aerial imagery before rights and unit economics clear their gates.
+• A public API or bulk export before the rights registry is complete and E&O terms are known.
+
+The long-term vision
+LedgeX aims to organise and price unrealised residential capacity by turning scattered parcel potential into standardised market
+inventory if the evidence, rights and liability gates clear. The automated Property File provides immediate professional utility at a
+marginal cost approaching zero. The visual experience can make hidden capacity easier to evaluate. Validated
+rules and exception truth sets may become proprietary assets. Real project outcomes would be used to
+improve the model. Builders and lenders would become higher-value customers only if the platform
+demonstrates meaningful demand and earns trust in its outputs.
+   FINAL VISION
+   The calculator is the wedge. The automated data pipeline is the asset. Market efficiency is the end product.
+
+A closing constraint on ambition. Under an automated-only model a meaningful share of California cities are permanently
+unaddressable: Tier 4 jurisdictions have no machine-readable core and no manual path exists. A hundred-city roadmap composed
+largely of Tier 3 and Tier 4 jurisdictions is a narrower business than the thirty-five-city audit implies. It is better to say so now
+than to discover it at city twenty.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                     23
+APPENDIX I
+
+Customer and evidence register
+Controlled artifact. Blank fields are intentional. No actual LedgeX customer, subscription, conversion, retention result, private
+permission, operating cost or product-value result is asserted without dated evidence.
+
+Customer status vocabulary
+
+ Allowed status                                            Acceptance evidence
+
+ Prospect identified / contacted                           Identity and dated outreach record.
+
+ Validation-cohort user                                    Dated activation plus free or subsidized terms.
+
+ Limited-free user                                         Dated activation and eligible-access record.
+
+ Base subscriber - captured                                Provider evidence of captured subscription payment; no inferred file value.
+
+ Additional parcel evaluated                               Dated second-or-later parcel event for the same account.
+
+ Early retained / returned                                 Defined return-window or continued-active evidence, with the window disclosed.
+
+Customer register
+
+ Name / organization                                      Status                      Date                Evidence                       Notes
+
+                      s asserted in Business Plan 2.1.4         tered                 -                   -                              Requires allowed status and
+Business Plan 2.1.4                                                                                                                      dated evidence.
+
+Execution artifact index
+
+ Artifact                                                    Acceptance evidence                                                         Status
+
+ Source / licence ledger and launch clearances               URL, layer, raw snapshot, observed terms and required written clearance.    Pending
+
+ Golden parcels / Track A dashboard                          Expected refusals, truth set, hit / false-positive and outcome metrics.     Pending
+
+ First integrated automated Property File                    Source-linked file delivered with no human in the path.                     Pending
+
+ First captured Base subscription                            Provider-captured approximately-$20 Base billing event.                     Pending
+
+ Track B commercial-validation record                        Cohort, conversion, additional parcels, retention, section use,             Pending
+                                                             placement/cost value and requested capabilities.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                           24
+ Artifact                                       Acceptance evidence                                             Status
+
+ First 50 attempted compositions                Outcome mix, cost, latency and support data sufficient to set   Pending — new in 2.1.1
+                                                thresholds.
+
+ Threshold-reset record                         Dated reset under a new revision number before the next         Pending
+                                                measurement window, citing evidence.
+
+ E&O, counsel and data-use responses            Quote, exclusions, scope and written permissions or             Pending
+                                                clarifications.
+
+ Customer terms and disclaimers                 Published terms, disclaimers, permitted-use and privacy         Pending — new in 2.1.1
+                                                controls.
+
+ Statewide-eligibility gap evidence             Dated customer evidence that free statewide eligibility         Pending
+                                                output is insufficient for professional use.
+
+ Eligible-parcel-demand denominator             Defined eligible-parcel universe, method, date and city         Pending
+                                                denominator.
+
+ Go / reprice / reposition memo                 Decision tied to measured unit economics and management         Pending
+                                                priors.
+
+APPENDIX J
+
+Source register and research scope
+Material-claim links and access dates. Access dates record when research was observed; a working link does not guarantee
+unchanged content, licence terms or schema. Research baseline: July 2026. Geography: the 35 incorporated cities in Santa Clara
+and San Mateo Counties. Municipal scope: official public GIS, zoning, parcel, permit, planning and data-rights interfaces
+accessible without a signed municipal agreement. Precise access dates are retained in the audit's Appendix J. M-01 to M-03 are
+retained in the audit; compiled municipal-access counts are not carried forward as launch metrics because the underlying claims
+are supported by the audit's city-by-city matrix, not by a single county landing page.
+
+ ID           Material claim                                                                                                        Accessed
+
+ M-04         Santa Clara parcel publication is described as annual around August; export cadence is not factual freshness.         July 2026
+
+ M-05         The Santa Clara footprint layer identifies third-party Sanborn rights and is excluded from the proposed stack.        July 2026
+
+ M-06         The approximately $52,535 Santa Clara paid data combination is derived from the FY25 county master fee                July 2026
+              schedule, not a real-time API.
+
+ M-07         San Mateo labels parcel and footprint downloads as daily exports; underlying facts may be older.                      July 2026
+
+ M-08         San Mateo terms require written clarification before intended commercial ingestion or redistribution.                 July 2026
+
+ M-09         The approximately $915 San Mateo assessor combination is a static / order-based control file.                         July 2026
+
+ M-10         San José reported 488 ADU permits issued in 2024.                                                                     July 2026
+
+ M-11         Statewide, free California-property ADU eligibility and design screening is available from an existing provider.      July 2026
+
+ M-12         That provider was distributed through the two-county agent channel including C.A.R. and MLSListings.                  July 2026
+
+ M-13         Normalised parcel data is purchasable at national scale; the cited example API package is a historical example, not   July 2026
+              a current quote.
+
+ M-14         USGS states 3DEP products are free of charge and without use restrictions; LedgeX accuracy remains                    July 2026
+              unvalidated.
+
+ M-15         Commercial imagery terms restrict database creation for resale or distribution absent a different licence.            July 2026
+
+ M-16         The relevant California public-records authority is a matter to scope with counsel, not blanket licence clearance.    July 2026
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                    25
+   SOURCE RULE
+   Every external figure in this plan is tied to an Appendix J M-ID. Forecasts, thresholds and commercial targets are assumptions or
+   management priors and are labelled as such. The prior ARR case, account-count target and valuation anchor are intentionally not
+   carried forward. Nothing in this plan should be read as an offer of securities, investment advice or a guarantee of revenue,
+   financing, product access, compliance approval or company valuation.
+
+APPENDIX K
+
+San José launch conditions
+New in 2.1.1. The per-resource record for the launch jurisdiction. Every row must be re-verified with a preserved snapshot at the
+moment of production use. A source may not be activated until its endpoint, schema and licence have been confirmed and
+dated.
+
+ Source                              Machine         Licence as                  Cadence          Phase 1 posture
+                                     access          documented
+
+ Parcels                             Direct          CC BY — confirmed           Weekly           Active — attribution attached
+
+ Zoning districts                    Direct          CC BY — confirmed           Weekly           Active — attribution attached
+
+ Active building permits             Direct          CC0 — confirmed             Daily            Active — no restriction
+
+ Permits under inspection            Direct          Portal terms —              Daily            Blocked — default deny
+                                                     unconfirmed
+
+ Planning permits (30-day,           Direct          Portal terms —              Rolling          Blocked — default deny; a rolling window is not a
+ 60–180-day)                                         unconfirmed                 window           history
+
+ General Plan land use               Direct          Unconfirmed                 —                Blocked - conﬁrm
+ Urban Village and plan areas        Direct          Unconfirmed                 —                Blocked - conﬁrm; may override zoning
+ Overlays, specific plans,           Direct          Unconfirmed                 —                Blocked - conﬁrm
+ historic
+
+ City limits / jurisdiction          Direct          Unconfirmed                 —                Blocked for paid output - required for the
+ boundary                                                                                         jurisdiction gate; conﬁrm licence
+ Code enforcement                    Portal          Unconfirmed                 —                Excluded — no machine route
+
+ Fee schedules                       Document        Unconfirmed                 —                Rule pack — dated, cited parameters authored at
+                                                                                                  build time, not fetched per request
+
+ County parcels                      Direct          Unconfirmed                 Annual,          Internal cross-check only; paid output
+                                                                                 around August    blocked pending licence conﬁrmation
+ County hazard layers                Direct          Unconfirmed                 —                Blocked - conﬁrm licence
+ County assessor                     Portal          Unconfirmed                 —                Excluded — portal only; paid combination
+ characteristics                                                                                  excluded
+
+ County recorder —                   Manual          Unconfirmed                 —                Excluded — forces SB 9 refusal on the
+ ownership, sales, recorded                                                                       prior-lot-split disqualifier
+ maps
+
+ Utility will-serve capacity         Manual          —                           —                Excluded — dependent conclusions refused
+
+ County building footprints          Direct          Sanborn rights              Static, 2020     REMOVED FROM THE STACK. Not re-enabled
+                                                     asserted                                     without written County clearance
+
+ USGS 3DEP lidar                     Bulk            Free, no use                By acquisition   Engineering gate unresolved — rights clear,
+                                                     restrictions                                 accuracy unvalidated
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                          26
+ Source                              Machine          Licence as                      Cadence               Phase 1 posture
+                                     access           documented
+
+ FEMA NFHL, NRCS soils,              Direct           Open / unconfirmed              —                     Open sources active; unconﬁrmed sources
+ EnviroStor, CSLB                                                                                           blocked from paid output
+
+   CONSEQUENCES OF THE EXCLUSIONS
+   In the strongest jurisdiction available, automated-only delivery still loses assessor characteristics, ownership, recorded map history
+   and code-enforcement records. The cascade is specific: property fundamentals thin out and lean more heavily on labelled user
+   assumptions; owner-occupancy conditions in state ADU and SB 9 law cannot be evaluated; SB 9 eligibility is refused on the
+   prior-lot-split disqualifier; and one corroborating signal for record-to-ground detection is unavailable. These are stated in the
+   customer file, not absorbed silently.
+
+APPENDIX H
+
+Change record and controlled glossary
+The highest-numbered Business Plan revision controls the commercial model. Historical rows remain evidence of prior decisions, not current
+instructions.
+
+Revision history
+
+ Date / revision                      Change                                                                                     Status
+
+ July 2026 / 2.0                      Professional-first strategy, Track A/B, evidence controls and unsupported-claim removal.   Superseded
+
+ July 2026 / 2.1                      Repaired control structure, transportability, source register and threshold discipline.    Superseded
+
+ August 2026 / 2.1.1                  Automated-only delivery; three outcomes; deterministic confidence; San José launch.        Superseded
+
+ August 2026 / 2.1.2                  Reconciled dependencies, outcome pricing, captured-payment evidence and package            Superseded
+                                      versions.
+
+ August 2026 / 2.1.3                  Adopted limited-free / approximately-$20 Base subscription and redefined Track B.          Superseded by 2.1.4
+
+ August 2026 / 2.1.4                  Closed commerce remap; separated Base Core from conditional geometry; restored the         Current controlling
+                                      homeowner demand stress test.
+
+Controlled glossary
+Base Core: integrated automated preliminary screening independent of LD-4. Conditional module: a placement or cost conclusion that ships only when its own
+inputs clear.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                 27
+Controlled glossary - continued
+
+ Limited free tier                                  Limited parcel and zoning information sufficient to demonstrate the product; not the complete integrated
+                                                    Property File.
+
+ Base subscription                                  Initial approximately-$20 monthly paid access to Base Core. Not unlimited; no usage allowance or credit
+                                                    system is fixed.
+
+ Base Core                                          Integrated parcel, zoning, permit and known-constraint screening with provenance, confidence, rights and
+                                                    named gaps; independent of LD-4.
+
+ Conditional module                                 Conceptual placement or cost conclusion delivered only when declared inputs clear. Refusal does not reduce
+                                                    Base Core truth standards.
+
+ Composed / Partial / Refused                       Three terminal delivery outcomes. They determine content, not an individual-file charge or subscription
+                                                    settlement.
+
+ Track A / Track B                                  Track A validates accuracy. Track B validates captured subscription conversion, repeat parcels, retention and
+                                                    feature value.
+
+ Current controlling revision                       Business Plan 2.1.4 controls commerce; Spec v1.6 and Rules v1.3 provide the aligned executable contract.
+
+CLOSING CONTROL
+
+Change log - Business Plan 2.1.3 to 2.1.4
+
+•   Closed the subscription implementation remap in Spec v1.6 and Rules v1.3; removed deferred-remap status.
+
+•   Replaced outcome-price order checks with plan, entitlement, subscription, disclosure-acceptance and captured-billing contracts.
+
+•   Defined Base Core as launchable paid value independent of LD-4; kept placement and geometry-derived conclusions conditional and fail-closed.
+
+•   Restored the 488 × 20% × $300 = approximately $29,280 homeowner stress test and stated what it does and does not prove.
+
+•   Carried forward review-mode evidence controls; Checklist v1.2 and Audit v1.1 remain untouched.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                        28
+Business Plan 2.1.2 correction record - historical
+
+ 1       Closed then-current version drift                     Plan 2.1.2 · Spec v1.4 · Rules v1.2 · Checklist v1.2.
+
+ 2       Locked missing-input propagation                      Missing required input refuses its dependent conclusion.
+
+ 3       Defined outcome boundaries                            Minimum core inputs and declared dependencies determine outcomes.
+
+ 4       Rebuilt then-current commerce                         Historical outcome-price schedule; superseded by subscription commerce.
+
+ 5       Separated evidence classes                            Captured payment, deposit, commitment and interest were not conflated.
+
+ 6       Aligned confidence and sources                        Rights independent; operating order and third-party records clarified.
+
+     2.1.4 CONTROL CLOSE
+     Plan 2.1.4, Spec v1.6 and Rules v1.3 form the aligned current contract. Historical outcome-price mechanics above are preserved only as revision
+     evidence and must not be implemented.
+
+Unresolved launch dependencies
+
+Nothing below is cleared. Each item must close or be accepted as an open risk under a new revision before the affected product surface launches.
+
+ #       Dependency                                                                     Type                   Consequence
+
+ 1       3DEP coverage, repeatability and accuracy                                      Engineering            Blocks placement and geometry-dependent conclusions;
+                                                                                                               not Base Core.
+
+ 2       Measured earliest date of active-permit series                                 Engineering            Record-to-ground detection remains suppressed.
+
+ 3       Per-resource rights confirmation                                               Legal                  Affected sources blocked; dependent conclusions refused.
+
+ 4       Public-records commercial-use guidance                                         Legal                  Rights positions remain unresolved assumptions.
+
+ 5       E&O quote, exclusions and controls                                             Insurance              Paid launch may lack suitable cover.
+
+ 6       Customer terms, disclaimers and privacy                                        Legal                  No defensible reliance-limitation model.
+
+ 7       Golden parcel set with expected refusals                                       Product                No quality floor; regressions may ship.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                              29
+Unresolved launch dependencies - continued
+
+ #        Dependency                                                                    Type                   Consequence
+
+ 8        Initial decision thresholds for eleven measures                               Management             No evidence-based economic or quality gate yet exists.
+
+ 9        Captured Base subscription payment                                            Market                 Paid-access conversion remains unproven.
+
+ 10       Repeat parcel use, section value and early retention                          Market                 Recurring screening value remains unproven.
+
+ 11       Evidence conditional placement / cost improves screening                      Product                Enhancement value remains unproven; Base Core is
+                                                                                                               independent.
+
+ 12       Eligible-parcel demand denominator for San José                               Market                 Permit activity remains an invalid substitute for
+                                                                                                               demand.
+
+      CONTROL CLOSE
+
+      Business Plan 2.1.4 is the current commercial master. Engineering Reference Spec v1.6 and Implementation Rules v1.3 implement the
+      limited-free / approximately-$20 Base subscription model and supersede prior engineering commerce provisions. San José Data Source
+      Checklist v1.2 and Municipal Data & API Audit - Internal Strategy v1.1 remain unchanged. No individual-file price, accepted price,
+      outcome-based settlement, credit package, fixed allowance, overage or API-use limit is authorized. All evidence, rights, confidence,
+      dependency, automated-delivery and liability controls remain in force.
+
+      LEGAL AND PRODUCT BOUNDARY
+
+      This document is not an offer to sell securities, investment advice, legal advice, or a promise of future company value, revenue, financing, product
+      access or regulatory outcome. No dataset, endpoint, licence, ordinance or evidence gate is asserted current or cleared. Base Core and each conditional
+      module are preliminary screening based on dated records. Placement is not a survey, drawing, site plan, setback certification, permit determination or
+      construction representation. Cost ranges are disclosed scenarios, not quotes, appraisals, forecasts or individualized financial advice. The product does
+      not replace professional due diligence.
+
+LEDGEX / BUSINESS PLAN 2.1.4 | AUGUST 2026 | CURRENT CONTROLLING REVISION | SUPERSEDES 2.1.3                                                                        30

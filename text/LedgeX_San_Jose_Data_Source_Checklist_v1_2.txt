@@ -1,0 +1,570 @@
+LEDGEX / ADU.X
+
+SFR / ADU Underwriting Tool
+Data Source Checklist — City of San José v1.2
+Phase 1, Step 1 covers the incorporated City of San José only. It is the Track A and Track B validation market in Business Plan
+2.1.2 §14. This checklist is a controlled research and build-planning instrument; it never grants runtime eligibility and every
+source must pass machine-access, rights, integration and validation gates.
+
+    CONTROL
+
+    Prepared August 2026. Governing sources: Business Plan 2.1.2 and Municipal Data & API Audit, Internal Strategy v1, Production
+    Revision F. Engineering implementation is controlled by Spec v1.4; Implementation Rules v1.2 is its operational restatement. The
+    Audit controls municipal access, licence positions and access dates.
+
+Legend — status marks source location only
+A mark in the Status column means we know where the source is and, where stated, what its licence appears to be. It does not
+mean the field is integrated, normalised, validated or safe to show a professional making a real decision. See Maturity Stages
+below.
+
+ Mark         Meaning in this document
+
+    ●         Source located, machine-readable, licence confirmed. A documented public query or bulk contract exists and the licence permits
+              the intended use.
+
+    ●         Free or public, source located, not yet integrated or licence unconfirmed. Includes portal-only and per-resource-terms datasets
+              requiring confirmation at download.
+
+    ●         Paid vendor, title company, or written permission required. No free public equivalent identified within the audit's research scope.
+
+    ★         Derived / computed. Not sourced from any single record; produced by LedgeX from other fields and labelled as a preliminary
+              conclusion.
+
+Type column — what kind of claim the field is
+The type controls presentation; source rights remain an independent gate.
+
+•    Public record — retrieved from an official government or institutional record.
+
+•    Third-party record — machine-retrieved from a licensed non-government source, such as MLS or vendor data; never labelled public record.
+
+•    Estimate — modelled or algorithmic approximation, not a fact of record.
+
+•    User assumption — request-scoped, self-reported and never inserted into the immutable fact ledger.
+
+•    Derived conclusion — deterministic output from declared inputs; missing required inputs refuse the conclusion.
+
+APPLY PER FIELD BEFORE TREATING IT AS PRODUCTION-READY
+
+Maturity stages
+A mark in the tables below means the source is located — nothing more. Every field must progress through these stages before it
+is safe to show a user making a real decision. Stage 0 is new in this revision: it is the jurisdiction gate, and in San José it is not a
+formality (see §0).
+
+ Stage                                   Meaning
+
+ 0. Jurisdiction resolved                The parcel is confirmed to sit inside the incorporated City of San José and not in an unincorporated county
+                                         pocket. Nothing downstream is valid until this passes.
+
+ 1. Source located                       We know where it exists and who the steward is.
+
+ 2. Machine-readable                     A documented REST / OGC query, open-data resource or scheduled bulk download exists (as opposed to a
+                                         manual one-off lookup or a viewer without a published contract).
+
+ 3. Rights cleared                       The licence observed at retrieval permits the intended commercial use and output channel; attribution and
+                                         redistribution terms are recorded. New stage. Public visibility is not commercial permission (Audit §06).
+
+ 4. Integrated                           It flows into the product with its snapshot, retrieval date and licence retained.
+
+ 5. Normalized                           It conforms to the universal parcel schema across jurisdictions.
+
+ 6. Validated                            Tested against real San José properties; discrepancies checked against a manual truth set.
+
+ 7. Build-time reviewed                  Someone confirmed the underwriting conclusion is sound on a golden parcel set — not merely that the data
+                                         loaded. Internal QA at build time only. Under automated-only delivery (Blueprint v1.1 §11) no person
+                                         reviews an individual customer file.
+
+   WHY STAGE 3 WAS ADDED
+   The two-county checklist tracked stage 1 only and treated rights as a downstream legal question. The audit's Sanborn finding
+   demonstrated that a rights problem on a load-bearing input is an architectural gate, not a footnote. Rights clearance now sits before
+   integration so that no encumbered field can silently enter the stack — the same rule the backend blueprint enforces in code.
+
+SCOPE DELTA VS THE TWO-COUNTY CHECKLIST
+
+What changes when the scope is one city
+ Change                             Effect on the first integration
+
+ Removed entirely                   Coastal Zone / California Coastal Commission jurisdiction (a San Mateo coastal concern — Half Moon Bay,
+                                    Pacifica). San José has no coastal-permit jurisdiction. All San Mateo County assessor, GIS-terms and $915
+                                    order-file items are out of scope under the deferral in Audit §G.
+
+ Collapsed                          “Manual compile per city (~2 days for both counties)” for ADU dimensional rules becomes a single municipal
+                                    code title plus one city ADU document set. The 35-city research surface collapses to one — this is the single largest
+                                    effort reduction in the phase.
+
+ Upgraded                           Zoning, parcels and building permits move from “free / public, not yet integrated” to licence-confirmed
+                                    machine-readable contracts. San José is the only Santa Clara city graded A+ on a documented public permit feed
+                                    (Audit §D).
+
+ Downgraded / newly                 Building footprint. It was implicit in the two-county list; it is now an explicit blocked row. The county footprint
+ gated                              layer asserts Sanborn Map Company rights and is removed from the stack; USGS 3DEP is the intended
+                                    replacement and is not yet validated for coverage, extraction repeatability or accuracy.
+
+ Change                             Effect on the first integration
+
+ Newly added                        San José-specific jurisdictional layers that had no two-county analogue: Urban Village boundaries, airport
+                                    influence and safety areas for two airports, Valley Water creek and riparian jurisdiction, multi-retailer water
+                                    service, and an unusually fragmented school-district geography.
+
+CITY OF SAN JOSÉ — SEVENTEEN CATEGORIES PLUS THE JURISDICTION GATE
+
+The checklist
+Every row below records a research lead, not an operative fact. Named ordinances, programmes, datasets and layers are entry points to be confirmed
+at retrieval with a preserved snapshot, an observed licence and a retrieval timestamp. Nothing in this table is asserted as current law, current schema
+or current licence. Endpoints, terms and schemas change without notice.
+
+0. Jurisdiction Resolution — the gate
+Runs before every other field. In San José this is materially harder than in a compact city: the incorporated boundary is highly irregular and encloses
+unincorporated Santa Clara County pockets. A parcel with a San José mailing address may be governed by county zoning, county permitting and a
+different ADU rule set.
+
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Address → APN resolution                    ●        Public record         City GIS Open Data address points and Parcels layer; Santa Clara County parcel
+                                                                            layer as cross-check. Direct ArcGIS REST / open-data resource. City parcels published
+                                                                            CC BY, stated weekly Monday cycle. County parcels: annual publication described around
+                                                                            August — record the stated cadence and the observed refresh as two separate fields (Audit
+                                                                            §B operating rule).
+
+ Incorporated vs                             ●        Public record         City limits / jurisdiction boundary layer, cross-checked against county
+ unincorporated                                                             jurisdiction layer. Point-in-polygon against both. Disagreement between the two must
+                                                                            raise a conflict, never a silent pick. Refuse the file if unresolved.
+
+ Governing zoning & permit                   ●        Derived               Computed from the two rows above. Determines which rule pack, which permit source
+ authority                                            conclusion            and which fee schedule apply. An unincorporated pocket must route to the county pack or
+                                                                            refuse — it must never silently inherit San José rules.
+
+ Geocoding fallback                          ●        Estimate              Public geocoder (e.g. Census) for addresses absent from the city address-point
+                                                                            layer. Never accept a geocode as jurisdiction evidence on its own; always confirm by
+                                                                            parcel-polygon containment.
+
+1. Property Fundamentals
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Address, beds / baths, sqft,                ●        Public record         Santa Clara County Assessor characteristics; commercial aggregator (ATTOM /
+ lot size, year built                                                       Regrid) as an alternative. The county's paid data combination is derived from the FY25
+                                                                            master fee schedule (~$52,535), is not a real-time API, and is excluded from the initial
+                                                                            production stack per Plan §10 / Audit M-06. Regrid's cited ~$18K/year package is a dated
+                                                                            historical example, not a quote (M-13).
+
+ APN, tract, lot number                      ●        Public record         City GIS Open Data Parcels; county parcel layer. CC BY with attribution; stated
+                                                                            weekly Monday cycle.
+
+ Parcel geometry & lot area                  ●        Public record         City Parcels polygon geometry; county parcel layer as cross-check. Recorded lot
+ (measured)                                                                 size and GIS-measured area will disagree. Store both, name the conflict, never average
+                                                                            them.
+
+ Assessed value                              ●        Public record         Santa Clara County Assessor. Public lookup located; bulk / API terms unconfirmed.
+                                                                            Treat as a portal or order-based control file until written confirmation exists.
+
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Existing building footprint                ●●        Public record /       Blocked, with no fallback assumed. The Santa Clara County footprint layer
+                                                      derived               identifies Sanborn Map Company rights and is removed from the proposed
+                                                                            stack (M-05). USGS 3DEP lidar is the intended independent source and is stated
+                                                                            by USGS to be free of use restrictions (M-14). 3DEP is an engineering gate, not a
+                                                                            solved dependency: coverage, extraction repeatability and measured error against known
+                                                                            structures are all pending. OSM / Overture / Microsoft footprints carry ODbL or
+                                                                            ODbL-derived share-alike terms and are rejected on rights grounds, not quality grounds.
+                                                                            Footprint is load-bearing for coverage, setbacks, remaining buildable area and the entire
+                                                                            ADU envelope — if this gate fails, the geometry tier does not ship.
+
+2. Zoning & Planning
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Zoning district                             ●        Public record         City GIS Open Data — Zoning Districts. Confirmed CC BY, stated weekly Monday
+                                                                            cycle (Audit §C, Track A launch dataset table). Usable with attribution. Retain the adopted
+                                                                            zoning map as the legal fallback; the service is a representation, not the adopted map.
+
+ General Plan designation                    ●        Public record         City GIS Open Data — General Plan land-use layer (Envision San José 2040).
+                                                                            Direct ArcGIS REST. Confirm the per-resource licence on download; the CC BY
+                                                                            confirmation in the audit covers Parcels and Zoning Districts specifically.
+
+ ADU dimensional rules —                     ●        Public record         San José Municipal Code (zoning title) plus the City's ADU programme
+ max size, height, setbacks,                                                documents and universal checklist. Manual compile, single jurisdiction. Must be
+ rear-yard coverage, parking                                                encoded as a dated, cited rule pack with effective dates — not embedded in application
+                                                                            logic. State ADU law pre-empts local standards in several respects; the interaction is a
+                                                                            counsel question, not an engineering assumption.
+
+ Urban Village boundaries &                  ●        Public record         City GIS Open Data — Urban Village / plan-area layers; adopted village plans.
+ plan areas                                                                 San José-specific and material: village plan areas carry their own land-use and
+                                                                            development standards that can override base zoning. No two-county analogue existed.
+
+ Specific plans, planned                     ●        Public record         City GIS Open Data overlay layers; adopted plan documents. Includes Downtown
+ development & other                                                        and station-area plans. Confirm per-layer licence and vintage; a planned-development
+ overlays                                                                   zoning designation may make the parcel's controlling standard a recorded PD permit rather
+                                                                            than a code section.
+
+ Historic status — landmarks,                ●        Public record         City historic resources layers and inventory. A hard disqualifier input for SB 9 and a
+ districts, inventory,                                                      review trigger for ADU and demolition. Absence of a listing is not evidence of non-historic
+ conservation areas                                                         status — use the audit's language control: ‘no listing was located in the sources searched as
+                                                                            of [date].’
+
+ Entitlement / planning                      ●        Public record         City open data — Planning Permits (30-day and 60–180-day series). Portal terms;
+ permit history                                                             rolling window. The audit requires per-resource licence confirmation on download (Audit
+                                                                            §C). A rolling window is not a history — it must be accumulated by us from the day
+                                                                            ingestion starts, or the gap must be visible in the file.
+
+3. Hazards & Environmental
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Flood zone (FEMA)                           ●        Public record         FEMA National Flood Hazard Layer; county ArcGIS flood layers as cross-check.
+                                                                            Federal source, machine-readable. Where the county flag and the FEMA panel disagree,
+                                                                            name the conflict and prefer the effective FEMA panel with its date.
+
+ Valley Water creek, riparian                ●        Public record         Santa Clara Valley Water District (Valley Water) jurisdictional and easement
+ & flood-protection                                                         layers. San José-specific and frequently decisive: creek setbacks and water district
+ jurisdiction                                                               encroachment permits can eliminate a rear-yard ADU site that zoning would otherwise
+                                                                            allow. No two-county analogue was tracked. Confirm access mode and terms.
+
+ Fault rupture, landslide,                   ●        Public record         County ArcGIS geologic hazard layers; California Geological Survey
+ liquefaction, seismic                                                      Alquist-Priolo and seismic hazard zones. Santa Clara coverage confirmed in the
+                                                                            two-county pass. Liquefaction susceptibility is widespread across the San José valley floor
+                                                                            — expect this flag to fire often, which makes false-positive discipline important.
+
+ Fire hazard severity zone                   ●        Public record         CAL FIRE FHSZ; county ArcGIS. San José is predominantly a Local Responsibility
+ (SRA / LRA) & WUI                                                          Area with very-high-severity and WUI exposure concentrated in the eastern and southern
+                                                                            foothills. Confirm the currently adopted city map, not only the state layer.
+
+ Habitat Conservation Plan                   ●        Public record         County ArcGIS; Santa Clara Valley Habitat Plan coverage. Fee and permit
+ area                                                                       implications for ground disturbance; confirm whether the plan's fee applies to the ADU
+                                                                            scope in question.
+
+ Soil type                                   ●        Public record         USDA NRCS soil survey; city portal layers. Federal, machine-readable.
+                                                                            Expansive-soil indications are a cost input, not a determination.
+
+ Known contamination sites                   ●        Public record         California DTSC EnviroStor and SWRCB GeoTracker; Cortese List. Free,
+                                                                            machine-readable, statewide — one integration serves all future California jurisdictions.
+                                                                            Proximity is not contamination; report distance and site status, never a conclusion.
+
+4. Ownership & Transaction History
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Current owner                               ●        Public record         Santa Clara County Assessor / Clerk-Recorder. Public but likely one-at-a-time
+                                                                            lookup; bulk terms unconfirmed. Minimise owner-name retention and redistribution —
+                                                                            privacy exposure with no underwriting benefit.
+
+ Recorded sale history &                     ●        Public record         Santa Clara County Clerk-Recorder; documentary transfer tax as a price proxy.
+ price                                                                      Order-based / static rather than a stream. Transfer-tax-derived price is an estimate, not a
+                                                                            recorded price — type it accordingly.
+
+ Mailing address, tenure,                    ●        Public record         County Assessor mailing address vs situs address. Derived owner-occupancy is an
+ owner-occupancy signal                                                     inference, not a record. Relevant to state ADU and SB 9 owner-occupancy conditions —
+                                                                            which makes a wrong inference expensive.
+
+5. Permits (as-built, not entitlement)
+This is the category that makes San José the launch city. It is also the category the audit identifies as the scarce layer: only four of thirty-five audited
+cities expose a production-usable public permit feed (M-03).
+
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Active building permits                     ●        Public record         City open data — Active Building Permits. Published CC0, updated daily (Audit
+                                                                            §C). Usable without restriction. This is the strongest single asset in the Phase 1 stack and
+                                                                            the reason San José is Track A.
+
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Permits under inspection                    ●        Public record         City open data — Building Permits Under Inspection. CC0 / portal terms; daily.
+                                                                            The audit flags this series for per-resource licence confirmation on download and lists ‘San
+                                                                            José licence confirmations’ as a pending evidence artifact (Appendix I). Do not assume it
+                                                                            inherits the CC0 position of the active series.
+
+ Historic / closed permit                    ●        Public record         City permit records; public-records workflow for older files. Depth and start date of
+ record                                                                     the machine-readable series must be measured, not assumed. The record-to-ground wedge
+                                                                            depends on knowing how far back the feed actually reaches — an absent old permit and an
+                                                                            unpermitted structure look identical if the series begins in 2010.
+
+ Permit-to-structure                         ★        Derived               Computed from the permit series against 3DEP-derived geometry and any
+ reconciliation                                       conclusion            imagery time series. This is the exception wedge itself, not a raw field. Blocked behind
+                                                                            the 3DEP gate. Output language is controlled: ‘no permit record was located in the sources
+                                                                            searched as of [date]’ — never ‘this structure is unpermitted.’
+
+6. Tax
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Property tax, tax rate area,                ●        Public record         Santa Clara County Assessor and Department of Tax and Collections. Public
+ assessment history                                                         lookup located; machine access and bulk terms unconfirmed.
+
+ Special assessments & direct                ●        Public record         County tax bill detail; district charges. A real PITI input that generic AVM-driven
+ charges                                                                    tools routinely omit. Likely portal or order-based.
+
+ Reassessment exposure from                  ●        Derived               County Assessor guidance on new-construction assessment. A material and
+ new construction                                     conclusion            commonly mispriced ADU economics input. Present as a stated assumption with an
+                                                                            editable input, never as a tax determination.
+
+7. Rent & Comps
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Rent estimates                              ●        Estimate              No free source identified. Placeholder / user-supplied input for Phase 1; paid
+                                                                            vendor later. An editable user assumption with a stated default is more defensible in
+                                                                            Phase 1 than a purchased number presented as a fact.
+
+ Sale comps (recent                          ●        Public record,        MLS-gated; requires a paid vendor or broker partnership. Closed sale price is a
+ arms-length transactions)                            gated for full        public record; the usable structured feed is not. Note that Symbium's distribution through
+                                                      detail                C.A.R. and MLSListings (M-11, M-12) means the agent channel already has free eligibility
+                                                                            tooling — do not compete there.
+
+8. Valuation
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Automated valuation model                   ●        Estimate              Proprietary vendor; no free equivalent. Deprioritised for the first 50 users. The
+ (AVM)                                                                      professional payer is buying reconciled exceptions, not a valuation they can already obtain.
+
+ Post-completion value with                  ●        Estimate              Derived from comps and construction assumptions once those inputs exist. Feeds
+ ADU                                                                        combined LTV and the lender-facing project profile. Blocked behind the comps gate;
+                                                                            expose as an explicit, editable assumption in the interim.
+
+9. Construction / ADU Build Cost
+
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Per-sqft construction cost                  ●        Estimate              Paid cost-data source. Do not purchase pre-evidence. Use a founder-set band with visible
+ estimates                                                                  assumptions, and replace it with observed contractor performance from actual files — that
+                                                                            observed series is the proprietary asset (Plan §07).
+
+ Impact, permit &                            ●        Public record         City fee schedules; Santa Clara Valley Habitat Plan fee; school district fees;
+ development fee estimates                                                  sanitary and water connection fees. Public, single jurisdiction — tractable. Track the
+                                                                            ‘as of’ effective date for every schedule. State law limits or exempts certain impact fees for
+                                                                            smaller ADUs; treat the applicability boundary as a counsel question and cite the statute in
+                                                                            the rule pack rather than hard-coding a threshold.
+
+ Utility connection & capacity               ●        Public record         Applicable water retailer and sanitary sewer authority fee schedules. Depends on
+ charges                                                                    which retailer serves the parcel — see §13.
+
+10. Contractors
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Licence verification (active,               ●        Public record         CSLB public lookup (free, statewide). One integration serves every future California
+ bonded, insured)                                                           jurisdiction. Low cost, high trust value.
+
+ Performance / quality /                     ●        User                  No source exists. Accumulates from our own users and delivered files over time.
+ reliability                                          assumption            Never present as a rating until the sample supports it.
+
+11. Schools
+San José is served by a large number of separate elementary, union and high school districts whose boundaries do not follow city limits. This is
+materially harder than a single-district city and is a genuine per-jurisdiction cost the architecture must absorb.
+
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Attendance boundary                         ●        Public record         Individual district boundary layers; county Office of Education; NCES district
+                                                                            boundaries as a coarse cross-check. Many stewards, differing formats and cadences for
+                                                                            one city. Boundaries change by board action between refreshes — always show the
+                                                                            retrieval date and route the user to the district for confirmation.
+
+ Ratings / scores                            ●        Estimate              Paid or attributed third-party API. Deprioritised. Not an underwriting input.
+
+ School impact fees                          ●        Public record         Applicable district fee schedule. A real cost input; district-specific, so it depends on the
+                                                                            boundary row above resolving correctly.
+
+12. Listings
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Active listing status, days on              ● Third-party record MLS-gated licensed broker data. Deprioritised for the first 50 attempted
+ market                                                           compositions. It is retrieved data, but never labelled a public record.
+
+13. Physical & Utility Constraints
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Sewer service & connection                  ●        Public record         City sanitary sewer service; the San José-Santa Clara Regional Wastewater
+                                                                            Facility as the treatment authority; septic via county environmental health where
+                                                                            applicable. Septic parcels remain in the eastern and southern fringe. Confirm which
+                                                                            authority governs before quoting a connection requirement.
+
+ Water provider                              ●        Public record         Multiple retail water providers serve different parts of the city, including a
+ identification                                                             municipal system and investor-owned and mutual utilities. San José-specific trap.
+                                                                            ‘Which utility serves this parcel’ is itself a spatial lookup, not a city-level constant.
+                                                                            Connection fees, meter rules and will-serve processes differ by retailer. A single-provider
+                                                                            assumption will produce wrong cost numbers on a meaningful share of parcels.
+
+ Water connection & meter                    ●        Public record         Applicable retailer's records and rules. Whether a separate meter is required for an
+ status; separate-meter                                                     ADU is a rule-pack field keyed to the retailer, not to the city.
+ requirement
+
+ Utility available capacity                  ●        Public record         Will-serve letter request. Manual and per-parcel; no machine route exists. Under
+                                                      (per request)         automated-only delivery (Blueprint v1.1 §11) this field is omitted and any conclusion
+                                                                            depending on confirmed utility capacity is refused. It is not queued for a person.
+
+ Electrical service capacity &               ●        User                  No public record. Determined by inspection. A frequent real-world ADU cost driver
+ panel                                                assumption            and a proprietary-layer candidate: it accumulates only from delivered files.
+
+ Parcel slope & usable area                  ●        Derived               USGS 3DEP elevation; county GIS contours. Free. Note this shares the 3DEP
+                                                      conclusion            dependency with footprint extraction — one validated pipeline serves both, which
+                                                                            improves the economics of clearing that gate.
+
+ Driveway, access & on-site                  ●        Derived               Derived from parcel geometry, footprint and street centreline layers. Blocked
+ parking geometry                                     conclusion            behind the footprint gate. Fire-access requirements are a rule-pack field, not a
+                                                                            measurement.
+
+14. Legal & Title-Adjacent Constraints
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Easements                                   ●        Public record         Recorded documents; some easement layers exist in county and city GIS but are
+                                                      — practically         not a title search. Do not attempt to DIY. Consider a title-company referral workflow. A
+                                                      title-report          GIS easement layer is a hint, never a determination.
+                                                      territory
+
+ Parcel access & legal                       ●        Public record         Recorded maps; title report. Triggers the Title Review Safety Flag below.
+ frontage                                             — title-report
+                                                      territory
+
+ Recorded maps &                             ●        Public record         Santa Clara County Clerk-Recorder; city record maps. Likely manual per-parcel
+ subdivision history                                                        lookup. A material SB 9 input: prior lot-split history can disqualify.
+
+ Existing nonconforming                      ●        Derived               Not systematisable from records. Case-specific review. Treat as unconfirmed in
+ structures                                           conclusion —          every output. This is exactly the field where a confident wrong answer is most expensive.
+                                                      requires field
+                                                      verification
+
+    TITLE REVIEW SAFETY FLAG
+
+    If available evidence shows an access, easement or legal-frontage signal: ‘Potential access / easement issue detected. Preliminary result
+    only. Order title review before closing.’ If the fields are unavailable: ‘Access and easement status could not be evaluated from the
+    sources available. Order title review before closing.’ Unavailability is never described as detection.
+
+15. Local Ordinances — City of San José
+Compiled alongside the ADU dimensional rules in the same single-jurisdiction research pass. Each row must become a dated, cited entry in the San
+José rule pack with an effective date and a preserved copy of the source text.
+
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Tree protection —                           ●        Public record         San José Municipal Code tree provisions; City heritage tree list; tree removal
+ ordinance-size and heritage                                                permit process. Directly constrains rear-yard ADU siting and is one of the most common
+ trees                                                                      real-world surprises. Tree location is not in any public parcel layer — the constraint is
+                                                                            knowable in rule form but not in data form. Tree locations are in no layer, so rear-yard
+                                                                            conclusions carry a stated caveat rather than a silent assumption.
+
+ Rental restrictions — rent                  ●        Public record         San José apartment rent ordinance and tenant protection ordinance. Coverage turns
+ stabilisation and tenant                                                   on property type, unit count and construction date; much of it is aimed at multifamily rather
+ protection                                                                 than detached SFR with an ADU, but the boundary must be confirmed rather than assumed.
+                                                                            Encode coverage as a rule with citations — a wrong answer here has direct financial
+                                                                            consequences for the user.
+
+ Short-term-rental rules                     ●        Public record         San José Municipal Code STR provisions. Deprioritised until past the first 50 users,
+                                                                            per the V1 priority list. State law separately restricts short-term rental of new ADUs —
+                                                                            note the interaction.
+
+ Demolition restrictions                     ●        Public record         San José Municipal Code demolition provisions; historic review triggers. Interacts
+                                                                            with SB 9 and with historic status.
+
+ Code-enforcement cases                      ●        Public record         City code enforcement records. A direct record-to-ground signal: an open case on an
+                                                                            unpermitted structure is corroborating evidence for an exception. Confirm whether a
+                                                                            machine-readable series exists or whether this is portal-only.
+
+ Development fee effective                   ●        Public record         City fee schedules. Track the ‘as of’ date for freshness. A stale fee schedule produces a
+ dates                                                                      confidently wrong project budget.
+
+ Airport influence areas &                   ●        Public record         Airport influence and safety-zone layers for Norman Y. Mineta San José
+ height limits                                                              International and Reid-Hillview; Santa Clara County Airport Land Use
+                                                                            Commission compatibility plans; FAA obstruction surfaces. Two airports, both
+                                                                            with influence areas over dense residential neighbourhoods. Height and, in some zones,
+                                                                            residential intensity are constrained. This is a genuine San José differentiator with no
+                                                                            two-county analogue — airport data was noted in city samples but never scoped as an ADU
+                                                                            height constraint.
+
+ Coastal Zone                                ●        —                     Not applicable. Removed from scope. San José has no California Coastal
+                                                                            Commission jurisdiction. Retained as an explicit row so the omission is a recorded
+                                                                            scoping decision rather than an oversight, and so the field reappears automatically if a
+                                                                            coastal jurisdiction is ever added.
+
+16. Derived / Computed Outputs
+Not sourced — calculated from fields the product already holds. The audit identifies this as the highest-differentiation output class.
+
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ SB 9 lot-split / duplex                     ★        Derived               Computed from zoning, lot size and geometry, historic status, hazard flags,
+ eligibility & disqualifiers                          conclusion            prior-split history and state-law exclusions, applied against the City's SB 9
+                                                                            implementing provisions. A compiled-judgment output, not a raw field. Must carry the
+                                                                            ‘preliminary conclusion, requires verification’ acknowledgment and must be able to refuse.
+
+ Preliminary ADU feasibility                 ★        Derived               Computed from jurisdiction, zoning, lot geometry, existing footprint, setbacks,
+ & likely maximum unit size                           conclusion            rear-yard coverage and hazard constraints. Blocked behind the footprint gate. Apply
+                                                                            state and local rules only after all of those are resolved (Audit §F).
+
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Buildable envelope &                        ★        Derived               Geometry math over parcel, footprint, setbacks and access. A hypothetical
+ hypothetical ADU placement                           conclusion            development concept with stated assumptions and confidence — never a permit-ready
+                                                                            design.
+
+ Record-to-ground conflict set               ★        Derived               Reconciliation of permit history against derived geometry and any imagery time
+                                                      conclusion            series. The wedge. Its hit rate and false-positive rate are the Track A measurement.
+
+ Project economics — PITI,                   ★        Derived               Computed from tax, cost, rent and value inputs with editable assumptions. Every
+ DSCR, combined LTV,                                  conclusion            input must be visible and editable; the calculation must expose its method. Quality is
+ borrower cash                                                              bounded by the red-marked pricing layer above.
+
+ Field-level confidence &                    ★        Derived               Deterministic rules over source rank, retrieval date, cadence and agreement. Not a
+ conflict state                                       conclusion            model output. Deterministic and explainable, or it should not be shown.
+
+17. Proprietary — the long-term moat, not purchasable
+ Data point                                 Mark      Type                  San José source — steward, endpoint class, licence & cadence
+
+ Property condition (roof /                  ●        User                  Only inspections generate this. No database holds it.
+ HVAC / foundation actual                             assumption
+ state)
+
+ Deal outcomes — actual                      ●        User                  Accumulates from our own users.
+ ROI, closed vs passed                                assumption
+
+ Comp and estimate                           ●        User                  Accumulates from our own users.
+ corrections from real users                          assumption
+
+ Manual resolution steps per                 ●        —                     No longer accumulates. This was the audit's defensibility hypothesis: a
+ exception type — withdrawn                                                 versioned corpus of local source conflicts and their manual resolutions. Removed
+                                                                            by the move to automated-only delivery (Blueprint v1.1 §11). With no human in the
+                                                                            delivery path there is no resolution step to capture. This is the most significant asset
+                                                                            forfeited by that decision, recorded here so the loss stays visible.
+
+ Observed source failures &                  ● Operational                  System-generated ingestion and schema-drift events. Structured operational data,
+                                             telemetry                      not a parcel fact or user assumption.
+ schema drift by jurisdiction
+
+WHAT THE ONE-CITY SCOPE ACTUALLY BUYS
+
+Summary read — San José only
+● / ● free or already sourced. Jurisdiction resolution, zoning, General Plan, overlays and Urban Villages, hazards and
+environmental, entitlement and permit history, tax, contractor licensing, school boundaries, utilities, slope, and the full
+local-ordinance layer. This is the bulk of the context-and-risk surface, and in San José it is unusually complete: parcels and zoning
+are CC BY on a stated weekly cycle and active building permits are CC0 daily.
+
+● must pay, or title-report territory. Rent estimates, sale comps, AVM valuation, construction cost data, school ratings, listing
+status, easements and legal access. Almost entirely the pricing layer plus title-adjacent items best referred to a title company. A
+small number of vendor decisions, none of which should be made before the gates clear.
+
+●● blocked with no fallback assumed. Building footprint. Unique in this checklist: it is not an affordability problem or a
+coverage problem but a rights problem with an unvalidated replacement. It is also load-bearing for most of the derived layer. If the
+3DEP gate fails, roughly half the ★ rows above cannot ship.
+● build and learn. Request-scoped user assumptions, separately stored customer outcome data and system-observed source failures may
+accumulate outside the property-fact ledger. Manual resolution steps remain withdrawn and do not compound. No human observation or portal
+reading may create a property fact.
+
+★ derived and computed. Six named outputs, up from one in the two-county list. This is where the product becomes smart rather
+than merely comprehensive — and where the refusal cascade has to work: an unmet input must propagate by name to every
+conclusion that needed it.
+
+   THE HONEST READ ON SCOPE REDUCTION
+   Narrowing from thirty-five cities to one removes roughly thirty-four parallel research passes, but it removes almost none of the
+   categories of work. Every layer in this checklist still has to be built. What one city buys is the ability to build each layer once,
+   correctly, with its rights position recorded — and then to discover the true marginal cost of city two before committing to city
+   one hundred. The two-county list described a market. This list describes a build.
+
+V1 priority — first 50 attempted compositions
+Deprioritised: short-term-rental regulations, contractor ratings, automated AVMs, national construction-cost feeds and perfect listing
+synchronisation.
+
+Pending evidence artifacts touching this checklist
+Pending artifacts apply only to rows whose stated gate they control. Parcels, zoning and active permits retain their documented licence
+positions, but no source becomes runtime-active until its endpoint, schema, terms and snapshot are verified in the source ledger.
+
+• San José licence confirmations — per-resource clearance for the inspection and planning permit series.
+• 3DEP extraction benchmark — coverage map, method and repeatable workflow over a defined San José test area.
+• 3DEP accuracy result — measured error against known structures, with approved error bars.
+• Source and licence ledger — URL, layer or item ID, raw snapshot, retrieval date and observed terms for every launch source.
+• Public-records counsel note — scope of Sierra Club v. Superior Court and the commercial-use posture of each launch
+  source.
+• Eligible-parcel-demand denominator — a defined eligible-parcel universe for San José. Permit activity is observed activity,
+  not a demand rate.
+
+This checklist is a research and build-planning instrument. It is not legal advice, a title report, a survey, an appraisal or a permit determination, and it
+does not assert that any named ordinance, dataset, licence or programme is current. Every source must be re-verified, snapshotted and
+licence-checked at the moment of production use. Where a licence is unclear, obtain written permission before ingestion. LedgeX — a product of
+LedgeX Properties, owned and operated by Veritas Land Consultants Inc.
