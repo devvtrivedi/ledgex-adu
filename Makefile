@@ -5,8 +5,13 @@
 # schema / schema-dump / conformance require a running PostgreSQL 16 +
 # PostGIS 3.4 instance reachable at DATABASE_URL. They are not exercised by
 # `make all`, which only needs Python.
+#
+# db/schema.sql is generated from PostgreSQL 16 + PostGIS 3.4 per §3. A dump
+# taken with pg_dump against any other server version will produce a false
+# diff against the committed file — match PG_DUMP/DATABASE_URL to 16 before
+# regenerating it.
 
-.PHONY: docs pdf qa all clean check-boundary schema schema-dump conformance test golden
+.PHONY: docs pdf qa all clean check-boundary schema schema-dump db-test conformance test golden
 
 # `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
 # not guaranteed under `make -j`: parallel make can start pdf's docs
@@ -17,9 +22,18 @@
 .NOTPARALLEL:
 
 PYTHON         ?= python3
+PG_DUMP        ?= pg_dump
+PSQL           ?= psql
 MIGRATIONS_DIR := db/migrations
 SCHEMA_DUMP    := db/schema.sql
 DATABASE_URL   ?= postgresql://localhost/ledgex_schema_check
+
+# pg_dump >=16.10 wraps every dump in a \restrict/\unrestrict pair keyed by a
+# fresh random token each run (a psql safety marker, unrelated to schema
+# content). Left random, schema-dump would show a diff every single run even
+# with zero schema changes. Pinning it makes the dump byte-reproducible so
+# "no diff" actually means no diff. Must be alphanumeric only.
+PG_DUMP_RESTRICT_KEY ?= ledgexschemadumpfixedkey
 
 # Regenerate the markdown files of record from build/ledgex_source.py and
 # text/*.txt. Never hand-edit docs/LEDGEX_SPEC.md or docs/LEDGEX_RULES.md.
@@ -64,10 +78,10 @@ check-boundary:
 # Spec §1.2 make schema: "Clean apply; constraints, functions and triggers
 # compile."
 schema:
-	@command -v psql >/dev/null 2>&1 || { echo "psql not found — install PostgreSQL 16 client tools"; exit 1; }
+	@command -v $(PSQL) >/dev/null 2>&1 || { echo "$(PSQL) not found — install PostgreSQL 16 client tools"; exit 1; }
 	@for f in $(MIGRATIONS_DIR)/*.sql; do \
 		echo "applying $$f"; \
-		psql "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f "$$f" || exit 1; \
+		$(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f "$$f" || exit 1; \
 	done
 
 # Regenerate db/schema.sql from whatever schema is live at DATABASE_URL and
@@ -76,8 +90,8 @@ schema:
 # Spec §1.2 make schema-dump: "No diff; missing or stale generated DDL
 # fails."
 schema-dump:
-	@command -v pg_dump >/dev/null 2>&1 || { echo "pg_dump not found — install PostgreSQL 16 client tools"; exit 1; }
-	pg_dump "$(DATABASE_URL)" --schema-only --no-owner --no-privileges > $(SCHEMA_DUMP).tmp
+	@command -v $(PG_DUMP) >/dev/null 2>&1 || { echo "$(PG_DUMP) not found — install PostgreSQL 16 client tools"; exit 1; }
+	$(PG_DUMP) "$(DATABASE_URL)" --schema-only --no-owner --no-privileges --restrict-key=$(PG_DUMP_RESTRICT_KEY) > $(SCHEMA_DUMP).tmp
 	@if [ ! -f $(SCHEMA_DUMP) ]; then \
 		mv $(SCHEMA_DUMP).tmp $(SCHEMA_DUMP); \
 		echo "wrote $(SCHEMA_DUMP) (no prior committed dump to compare)"; \
@@ -90,6 +104,14 @@ schema-dump:
 		echo "$(SCHEMA_DUMP) regenerated — review and commit the diff."; \
 		exit 1; \
 	fi
+
+# Run the invariant test suite (I2-I5, I13, I18, and the parcel_exception
+# outcome/resolution biconditional) against DATABASE_URL. Every test is a
+# self-asserting DO block; ON_ERROR_STOP makes a failed assertion abort the
+# script with a nonzero exit code rather than print a misleading pass.
+db-test:
+	@command -v psql >/dev/null 2>&1 || { echo "psql not found"; exit 1; }
+	$(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f db/tests/invariants.sql
 
 # Parameterized pack suite for sources, mappings, rights and dependency
 # cascades. Spec §1.2 make conformance: "Every enabled pack passes; no
@@ -107,9 +129,9 @@ conformance:
 # commerce/ or their test suites exist in this repo yet, and a target that
 # exits 0 having run nothing is indistinguishable from a target that ran
 # everything and it all passed. This must keep failing until a real suite
-# backs it.
+# backs it. (The database invariant suite does exist -- see `make db-test`.)
 test:
-	@echo "test: not implemented in Phase 1" && exit 1
+	@echo "test: not implemented in Phase 1 (core/, commerce/ suites). Database invariants are covered separately -- see 'make db-test'." && exit 1
 
 # Spec §1.2 make golden: "Normalized composed, partial, refused and
 # geometry-disabled Base Core fixtures." Fails rather than reporting a pass:
