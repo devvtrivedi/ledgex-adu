@@ -62,6 +62,32 @@ def check_no_duplicate_table():
                 f"prohibited by sec 0.2")
 
 
+def check_no_mangled_invariant_prose():
+    """The corrupted-appendix bug: a prose-format duplicate of an invariant row
+    (its ID immediately followed by its own body text, outside the canonical
+    '| **ID** | body | enforcement |' markdown table) leaking into a generated
+    doc because a convert() call's drop_before anchor failed to cut the
+    corrupted source block. check_no_duplicate_table() only sees the pipe-table
+    format and would count each ID once, missing this second copy entirely.
+
+    We fingerprint on "<ID> <verbatim body>" against whitespace-normalized text.
+    That substring cannot occur in the canonical row (it renders as
+    "**ID** | body", with "** | " between the ID and the body, not a single
+    space) but does occur verbatim in the mangled prose form.
+    """
+    for path in (SPEC, RULES):
+        if not path.exists():
+            continue
+        flat = norm(path.read_text(encoding="utf-8"))
+        for iid, body, enf in S.INVARIANTS:
+            needle = f"{iid} {norm(body)}"
+            if needle in flat:
+                failures.append(
+                    f"{path.name}: prose-mangled duplicate of {iid} found "
+                    f"outside the canonical table — a drop_before anchor is "
+                    f"not cutting the corrupted appendix source block")
+
+
 def check_regenerates_clean():
     """Rebuild into memory and compare. Catches hand-edited markdown."""
     import importlib
@@ -87,6 +113,7 @@ def check_regenerates_clean():
 if __name__ == "__main__":
     check_presence()
     check_no_duplicate_table()
+    check_no_mangled_invariant_prose()
     check_regenerates_clean()
     if failures:
         print("DOCUMENT QA FAILED\n")

@@ -73,7 +73,8 @@ def render_md():
              "follows the original.")
     p.append("")
     if BODY.exists():
-        p.append(md_convert.convert(BODY.read_text(encoding="utf-8")))
+        p.append(md_convert.convert(BODY.read_text(encoding="utf-8"),
+                                    drop_before="2 / Six make targets"))
     p.append("")
     p.append("---")
     p.append("")
