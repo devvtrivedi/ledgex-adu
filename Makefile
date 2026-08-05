@@ -95,16 +95,20 @@ conformance:
 
 # Spec §1.2 make test: "Unit and integration suites, including review,
 # entitlement, outcome observation, provider slot, edge guard and billing
-# independence." Stub — none of core/, commerce/ or their test suites exist
-# in this repo yet.
+# independence." Fails rather than reporting a pass: none of core/,
+# commerce/ or their test suites exist in this repo yet, and a target that
+# exits 0 having run nothing is indistinguishable from a target that ran
+# everything and it all passed. This must keep failing until a real suite
+# backs it.
 test:
-	@echo "TODO: unit and integration test suite"
+	@echo "test: not implemented in Phase 1" && exit 1
 
 # Spec §1.2 make golden: "Normalized composed, partial, refused and
-# geometry-disabled Base Core fixtures." Stub — the composer and
-# tests/golden/ca_san_jose fixtures don't exist in this repo yet.
+# geometry-disabled Base Core fixtures." Fails rather than reporting a pass:
+# the composer and tests/golden/ca_san_jose fixtures don't exist in this
+# repo yet. Must keep failing until a real fixture suite backs it.
 golden:
-	@echo "TODO: golden fixture comparison"
+	@echo "golden: not implemented in Phase 1" && exit 1
 
 clean:
 	rm -rf dist build/__pycache__ $(SCHEMA_DUMP).tmp
