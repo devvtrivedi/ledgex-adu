@@ -8,6 +8,14 @@
 
 .PHONY: docs pdf qa all clean check-boundary schema schema-dump conformance test golden
 
+# `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
+# not guaranteed under `make -j`: parallel make can start pdf's docs
+# prerequisite while qa_check.py is still reading docs/*.md, racing a
+# rewrite against a read. This project has no target that benefits from
+# parallel execution, so parallelism is disabled outright rather than
+# chasing individual targets that would break under it.
+.NOTPARALLEL:
+
 PYTHON         ?= python3
 MIGRATIONS_DIR := db/migrations
 SCHEMA_DUMP    := db/schema.sql

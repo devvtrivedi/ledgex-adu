@@ -1,0 +1,6 @@
+.env
+.DS_Store
+__pycache__/
+dist/
+*.tmp
+db/schema.sql.tmp
