@@ -1,0 +1,1402 @@
+--
+-- PostgreSQL database dump
+--
+
+\restrict yTL0ghjzdQosVK49mihoCr9JeMEe7Bw1ODhNHiiu2EMLlKsmbJ9U76w1j3fwHNl
+
+-- Dumped from database version 16.4 (Debian 16.4-1.pgdg110+2)
+-- Dumped by pg_dump version 16.14 (Homebrew)
+
+SET statement_timeout = 0;
+SET lock_timeout = 0;
+SET idle_in_transaction_session_timeout = 0;
+SET client_encoding = 'UTF8';
+SET standard_conforming_strings = on;
+SELECT pg_catalog.set_config('search_path', '', false);
+SET check_function_bodies = false;
+SET xmloption = content;
+SET client_min_messages = warning;
+SET row_security = off;
+
+--
+-- Name: tiger; Type: SCHEMA; Schema: -; Owner: -
+--
+
+CREATE SCHEMA tiger;
+
+
+--
+-- Name: tiger_data; Type: SCHEMA; Schema: -; Owner: -
+--
+
+CREATE SCHEMA tiger_data;
+
+
+--
+-- Name: topology; Type: SCHEMA; Schema: -; Owner: -
+--
+
+CREATE SCHEMA topology;
+
+
+--
+-- Name: SCHEMA topology; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON SCHEMA topology IS 'PostGIS Topology schema';
+
+
+--
+-- Name: btree_gist; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS btree_gist WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION btree_gist; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION btree_gist IS 'support for indexing common datatypes in GiST';
+
+
+--
+-- Name: fuzzystrmatch; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS fuzzystrmatch WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION fuzzystrmatch; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION fuzzystrmatch IS 'determine similarities and distance between strings';
+
+
+--
+-- Name: pgcrypto; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION pgcrypto; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION pgcrypto IS 'cryptographic functions';
+
+
+--
+-- Name: postgis; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS postgis WITH SCHEMA public;
+
+
+--
+-- Name: EXTENSION postgis; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION postgis IS 'PostGIS geometry and geography spatial types and functions';
+
+
+--
+-- Name: postgis_tiger_geocoder; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS postgis_tiger_geocoder WITH SCHEMA tiger;
+
+
+--
+-- Name: EXTENSION postgis_tiger_geocoder; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION postgis_tiger_geocoder IS 'PostGIS tiger geocoder and reverse geocoder';
+
+
+--
+-- Name: postgis_topology; Type: EXTENSION; Schema: -; Owner: -
+--
+
+CREATE EXTENSION IF NOT EXISTS postgis_topology WITH SCHEMA topology;
+
+
+--
+-- Name: EXTENSION postgis_topology; Type: COMMENT; Schema: -; Owner: -
+--
+
+COMMENT ON EXTENSION postgis_topology IS 'PostGIS topology spatial types and functions';
+
+
+--
+-- Name: access_method; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.access_method AS ENUM (
+    'direct',
+    'bulk',
+    'portal',
+    'manual',
+    'derived'
+);
+
+
+--
+-- Name: claim_type; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.claim_type AS ENUM (
+    'public_record',
+    'third_party_record',
+    'estimate',
+    'user_assumption',
+    'derived_conclusion'
+);
+
+
+--
+-- Name: confidence_level; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.confidence_level AS ENUM (
+    'high',
+    'medium',
+    'low'
+);
+
+
+--
+-- Name: conflict_state; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.conflict_state AS ENUM (
+    'agree',
+    'conflicts',
+    'stale',
+    'missing'
+);
+
+
+--
+-- Name: exception_outcome; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.exception_outcome AS ENUM (
+    'open',
+    'confirmed',
+    'false_positive',
+    'unresolved'
+);
+
+
+--
+-- Name: exception_severity; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.exception_severity AS ENUM (
+    'info',
+    'warning',
+    'blocking'
+);
+
+
+--
+-- Name: exception_type; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.exception_type AS ENUM (
+    'record_to_ground',
+    'cross_source',
+    'staleness',
+    'rule_boundary',
+    'coverage_gap',
+    'rights_gap'
+);
+
+
+--
+-- Name: file_status; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.file_status AS ENUM (
+    'composed',
+    'partial',
+    'refused'
+);
+
+
+--
+-- Name: job_status; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.job_status AS ENUM (
+    'running',
+    'succeeded',
+    'failed',
+    'skipped_unchanged'
+);
+
+
+--
+-- Name: jurisdiction_tier; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.jurisdiction_tier AS ENUM (
+    'tier_1',
+    'tier_2',
+    'tier_3',
+    'tier_4',
+    'blocked'
+);
+
+
+--
+-- Name: output_channel; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.output_channel AS ENUM (
+    'free_snapshot',
+    'paid_property_file',
+    'api',
+    'bulk_export'
+);
+
+
+--
+-- Name: permission_state; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.permission_state AS ENUM (
+    'allowed',
+    'prohibited',
+    'unknown'
+);
+
+
+--
+-- Name: review_mode; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.review_mode AS ENUM (
+    'independent',
+    'solo_founder_attestation'
+);
+
+
+--
+-- Name: source_phase_status; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.source_phase_status AS ENUM (
+    'active',
+    'blocked_rights',
+    'blocked_engineering',
+    'not_machine_readable',
+    'deferred',
+    'excluded'
+);
+
+
+--
+-- Name: support_category; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.support_category AS ENUM (
+    'data_dispute',
+    'missing_field',
+    'refusal_query',
+    'billing',
+    'usability',
+    'other'
+);
+
+
+--
+-- Name: use_restriction; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.use_restriction AS ENUM (
+    'open',
+    'attribution',
+    'noncommercial',
+    'no_resale',
+    'unknown'
+);
+
+
+--
+-- Name: fact_licence_validate(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fact_licence_validate() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+DECLARE
+    target_fact_id   uuid;
+    required_licence text;
+    actual_licence    text;
+BEGIN
+    target_fact_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.fact_id ELSE NEW.fact_id END;
+
+    SELECT f.licence_id INTO required_licence
+      FROM fact_input fi
+      JOIN fact       f ON f.id = fi.input_fact_id
+      JOIN licence    l ON l.id = f.licence_id
+     WHERE fi.fact_id = target_fact_id
+     ORDER BY restriction_severity(l.restriction) ASC, f.licence_id ASC
+     LIMIT 1;
+
+    IF required_licence IS NULL THEN
+        RETURN NULL;                         -- no inputs recorded yet; ignored for an AFTER trigger
+    END IF;
+
+    SELECT licence_id INTO actual_licence FROM fact WHERE id = target_fact_id;
+
+    IF (SELECT restriction_severity(l.restriction) FROM licence l WHERE l.id = actual_licence)
+       > (SELECT restriction_severity(l.restriction) FROM licence l WHERE l.id = required_licence)
+    THEN
+        RAISE EXCEPTION
+            'I5 violated: derived fact % carries licence %, but its inputs require % '
+            '(or something at least as restrictive). Compute inheritance in '
+            'core/store.derive() before insert.',
+            target_fact_id, actual_licence, required_licence;
+    END IF;
+
+    RETURN NULL;                             -- ignored for an AFTER trigger
+END;
+$$;
+
+
+--
+-- Name: fact_no_destructive_update(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fact_no_destructive_update() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    IF OLD.superseded_at IS NOT NULL THEN
+        RAISE EXCEPTION
+            'I4 violated: fact % is already superseded and cannot be '
+            'modified again.', OLD.id;
+    END IF;
+
+    IF NEW.superseded_at IS NULL THEN
+        RAISE EXCEPTION
+            'I4 violated: fact % cannot be updated. Supersede it (set '
+            'superseded_at) and insert a new fact row for a correction '
+            'instead.', OLD.id;
+    END IF;
+
+    IF NEW.id                       IS DISTINCT FROM OLD.id
+       OR NEW.parcel_id             IS DISTINCT FROM OLD.parcel_id
+       OR NEW.field_key             IS DISTINCT FROM OLD.field_key
+       OR NEW.value                 IS DISTINCT FROM OLD.value
+       OR NEW.unit                  IS DISTINCT FROM OLD.unit
+       OR NEW.local_verbatim        IS DISTINCT FROM OLD.local_verbatim
+       OR NEW.source_id             IS DISTINCT FROM OLD.source_id
+       OR NEW.source_url            IS DISTINCT FROM OLD.source_url
+       OR NEW.layer_item_id         IS DISTINCT FROM OLD.layer_item_id
+       OR NEW.snapshot_id           IS DISTINCT FROM OLD.snapshot_id
+       OR NEW.method                IS DISTINCT FROM OLD.method
+       OR NEW.retrieved_at          IS DISTINCT FROM OLD.retrieved_at
+       OR NEW.source_published_at   IS DISTINCT FROM OLD.source_published_at
+       OR NEW.source_cadence_stated IS DISTINCT FROM OLD.source_cadence_stated
+       OR NEW.effective_from        IS DISTINCT FROM OLD.effective_from
+       OR NEW.effective_to          IS DISTINCT FROM OLD.effective_to
+       OR NEW.recorded_at           IS DISTINCT FROM OLD.recorded_at
+       OR NEW.licence_id            IS DISTINCT FROM OLD.licence_id
+       OR NEW.confidence            IS DISTINCT FROM OLD.confidence
+       OR NEW.confidence_rule_id    IS DISTINCT FROM OLD.confidence_rule_id
+       OR NEW.conflict              IS DISTINCT FROM OLD.conflict
+       OR NEW.method_version        IS DISTINCT FROM OLD.method_version
+       OR NEW.ruleset_version       IS DISTINCT FROM OLD.ruleset_version
+       OR NEW.pack_version          IS DISTINCT FROM OLD.pack_version
+    THEN
+        RAISE EXCEPTION
+            'I4 violated: fact % is immutable. Only superseded_at may be '
+            'set (NULL -> now, once). Insert a new fact row for a '
+            'correction.', OLD.id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: restriction_severity(public.use_restriction); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.restriction_severity(r public.use_restriction) RETURNS smallint
+    LANGUAGE plpgsql IMMUTABLE
+    AS $$
+BEGIN
+    CASE r
+        WHEN 'unknown'       THEN RETURN 0;
+        WHEN 'noncommercial' THEN RETURN 1;
+        WHEN 'no_resale'     THEN RETURN 2;
+        WHEN 'attribution'   THEN RETURN 3;
+        WHEN 'open'          THEN RETURN 4;
+        ELSE
+            RAISE EXCEPTION 'restriction_severity: unhandled use_restriction value %', r;
+    END CASE;
+END;
+$$;
+
+
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: fact; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.fact (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    parcel_id uuid NOT NULL,
+    field_key text NOT NULL,
+    value jsonb NOT NULL,
+    unit text,
+    local_verbatim text,
+    source_id text,
+    source_url text,
+    layer_item_id text,
+    snapshot_id text,
+    method public.access_method NOT NULL,
+    retrieved_at timestamp with time zone,
+    source_published_at timestamp with time zone,
+    source_cadence_stated text,
+    effective_from timestamp with time zone NOT NULL,
+    effective_to timestamp with time zone,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    superseded_at timestamp with time zone,
+    licence_id text NOT NULL,
+    confidence public.confidence_level NOT NULL,
+    confidence_rule_id text NOT NULL,
+    conflict public.conflict_state DEFAULT 'agree'::public.conflict_state NOT NULL,
+    method_version text,
+    ruleset_version text,
+    pack_version text NOT NULL,
+    CONSTRAINT fact_method_automated CHECK ((method = ANY (ARRAY['direct'::public.access_method, 'bulk'::public.access_method, 'derived'::public.access_method]))),
+    CONSTRAINT fact_provenance_complete CHECK ((((method = 'derived'::public.access_method) AND (source_id IS NULL) AND (snapshot_id IS NULL) AND (method_version IS NOT NULL)) OR ((method <> 'derived'::public.access_method) AND (source_id IS NOT NULL) AND (snapshot_id IS NOT NULL) AND (retrieved_at IS NOT NULL) AND (source_url IS NOT NULL)))),
+    CONSTRAINT fact_txn_time CHECK (((superseded_at IS NULL) OR (superseded_at >= recorded_at))),
+    CONSTRAINT fact_valid_time CHECK (((effective_to IS NULL) OR (effective_to > effective_from)))
+);
+
+
+--
+-- Name: parcel; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.parcel (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    jurisdiction_id text NOT NULL,
+    apn text NOT NULL,
+    situs_address text,
+    geom public.geometry(MultiPolygon,4326),
+    centroid public.geometry(Point,4326),
+    first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_seen_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: source_rank; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.source_rank (
+    jurisdiction_id text NOT NULL,
+    field_key text NOT NULL,
+    source_id text NOT NULL,
+    rank smallint NOT NULL,
+    rationale text NOT NULL,
+    CONSTRAINT source_rank_rank_check CHECK ((rank > 0))
+);
+
+
+--
+-- Name: current_fact; Type: MATERIALIZED VIEW; Schema: public; Owner: -
+--
+
+CREATE MATERIALIZED VIEW public.current_fact AS
+ SELECT DISTINCT ON (f.parcel_id, f.field_key) f.id,
+    f.parcel_id,
+    f.field_key,
+    f.value,
+    f.unit,
+    f.local_verbatim,
+    f.source_id,
+    f.source_url,
+    f.layer_item_id,
+    f.snapshot_id,
+    f.method,
+    f.retrieved_at,
+    f.source_published_at,
+    f.source_cadence_stated,
+    f.effective_from,
+    f.effective_to,
+    f.recorded_at,
+    f.superseded_at,
+    f.licence_id,
+    f.confidence,
+    f.confidence_rule_id,
+    f.conflict,
+    f.method_version,
+    f.ruleset_version,
+    f.pack_version
+   FROM ((public.fact f
+     JOIN public.parcel p ON ((p.id = f.parcel_id)))
+     LEFT JOIN public.source_rank sr ON (((sr.jurisdiction_id = p.jurisdiction_id) AND (sr.field_key = f.field_key) AND (sr.source_id = f.source_id))))
+  WHERE ((f.superseded_at IS NULL) AND ((f.effective_to IS NULL) OR (f.effective_to > now())))
+  ORDER BY f.parcel_id, f.field_key, COALESCE((sr.rank)::integer, 999), f.confidence, f.retrieved_at DESC NULLS LAST
+  WITH NO DATA;
+
+
+--
+-- Name: exception_evidence; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.exception_evidence (
+    exception_id uuid NOT NULL,
+    fact_id uuid NOT NULL,
+    role text NOT NULL
+);
+
+
+--
+-- Name: fact_input; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.fact_input (
+    fact_id uuid NOT NULL,
+    input_fact_id uuid NOT NULL,
+    ordinal smallint NOT NULL,
+    role text NOT NULL,
+    CONSTRAINT fact_input_not_self CHECK ((fact_id <> input_fact_id))
+);
+
+
+--
+-- Name: field_definition; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.field_definition (
+    field_key text NOT NULL,
+    display_name text NOT NULL,
+    claim public.claim_type NOT NULL,
+    value_type text NOT NULL,
+    unit text,
+    enum_values text[],
+    category text NOT NULL,
+    stale_after_days integer,
+    required_for_file boolean DEFAULT false NOT NULL,
+    phase1_deferred boolean DEFAULT false NOT NULL,
+    deferral_reason text,
+    description text NOT NULL,
+    CONSTRAINT field_deferral_reason_present CHECK (((phase1_deferred = false) OR (deferral_reason IS NOT NULL))),
+    CONSTRAINT field_deferred_not_required CHECK (((phase1_deferred = false) OR (required_for_file = false))),
+    CONSTRAINT field_definition_value_type_check CHECK ((value_type = ANY (ARRAY['string'::text, 'number'::text, 'boolean'::text, 'date'::text, 'geometry'::text, 'enum'::text, 'object'::text]))),
+    CONSTRAINT field_enum_values_present CHECK (((value_type <> 'enum'::text) OR (enum_values IS NOT NULL))),
+    CONSTRAINT field_unit_for_number CHECK (((value_type <> 'number'::text) OR (unit IS NOT NULL)))
+);
+
+
+--
+-- Name: job_run; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.job_run (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    job_key text NOT NULL,
+    jurisdiction_id text,
+    source_id text,
+    status public.job_status DEFAULT 'running'::public.job_status NOT NULL,
+    started_at timestamp with time zone DEFAULT now() NOT NULL,
+    finished_at timestamp with time zone,
+    snapshot_id text,
+    rows_in integer,
+    rows_out integer,
+    schema_drift jsonb,
+    error text,
+    CONSTRAINT job_terminal CHECK (((status = 'running'::public.job_status) OR (finished_at IS NOT NULL)))
+);
+
+
+--
+-- Name: jurisdiction; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.jurisdiction (
+    id text NOT NULL,
+    display_name text NOT NULL,
+    kind text NOT NULL,
+    parent_id text,
+    state_code character(2) NOT NULL,
+    tier public.jurisdiction_tier DEFAULT 'blocked'::public.jurisdiction_tier NOT NULL,
+    pack_version text NOT NULL,
+    boundary_source_id text,
+    geometry_tier_enabled boolean DEFAULT false NOT NULL,
+    supported boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT jurisdiction_kind_check CHECK ((kind = ANY (ARRAY['city'::text, 'county'::text, 'state'::text])))
+);
+
+
+--
+-- Name: licence; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.licence (
+    id text NOT NULL,
+    display_name text NOT NULL,
+    restriction public.use_restriction NOT NULL,
+    commercial_use public.permission_state DEFAULT 'unknown'::public.permission_state NOT NULL,
+    redistribution public.permission_state DEFAULT 'unknown'::public.permission_state NOT NULL,
+    attribution_text text,
+    terms_url text,
+    evidence_uri text,
+    observed_at timestamp with time zone NOT NULL,
+    cleared_by text,
+    cleared_at timestamp with time zone,
+    notes text,
+    CONSTRAINT licence_attribution_present CHECK (((restriction <> 'attribution'::public.use_restriction) OR (attribution_text IS NOT NULL)))
+);
+
+
+--
+-- Name: licence_channel; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.licence_channel (
+    licence_id text NOT NULL,
+    channel public.output_channel NOT NULL,
+    allowed boolean NOT NULL,
+    rationale text NOT NULL
+);
+
+
+--
+-- Name: parcel_exception; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.parcel_exception (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    parcel_id uuid NOT NULL,
+    jurisdiction_id text NOT NULL,
+    type public.exception_type NOT NULL,
+    severity public.exception_severity NOT NULL,
+    detector_key text NOT NULL,
+    detector_version text NOT NULL,
+    ruleset_version text,
+    detail jsonb NOT NULL,
+    detected_at timestamp with time zone DEFAULT now() NOT NULL,
+    outcome public.exception_outcome DEFAULT 'open'::public.exception_outcome NOT NULL,
+    resolved_at timestamp with time zone,
+    resolved_by text,
+    resolution_notes text,
+    CONSTRAINT parcel_exception_check CHECK (((outcome = 'open'::public.exception_outcome) OR ((resolved_at IS NOT NULL) AND (resolved_by IS NOT NULL))))
+);
+
+
+--
+-- Name: property_file; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.property_file (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    parcel_id uuid NOT NULL,
+    jurisdiction_id text NOT NULL,
+    channel public.output_channel NOT NULL,
+    status public.file_status NOT NULL,
+    composed_at timestamp with time zone DEFAULT now() NOT NULL,
+    as_of timestamp with time zone NOT NULL,
+    pack_version text NOT NULL,
+    ruleset_version text NOT NULL,
+    composer_version text NOT NULL,
+    geometry_tier_used boolean NOT NULL,
+    assumptions jsonb DEFAULT '{}'::jsonb NOT NULL,
+    refusals jsonb DEFAULT '[]'::jsonb NOT NULL,
+    omitted_for_rights jsonb DEFAULT '[]'::jsonb NOT NULL,
+    attribution text[] DEFAULT '{}'::text[] NOT NULL,
+    payload jsonb NOT NULL,
+    payload_hash text NOT NULL,
+    delivered_at timestamp with time zone,
+    compose_ms integer NOT NULL,
+    source_calls integer DEFAULT 0 NOT NULL,
+    compute_cost_micros bigint DEFAULT 0 NOT NULL,
+    storage_cost_micros bigint DEFAULT 0 NOT NULL,
+    unmet_fields text[] DEFAULT '{}'::text[] NOT NULL,
+    CONSTRAINT file_partial_declares_gap CHECK (((status <> 'partial'::public.file_status) OR (cardinality(unmet_fields) > 0) OR (jsonb_array_length(refusals) > 0))),
+    CONSTRAINT file_refusal_reason CHECK (((status <> 'refused'::public.file_status) OR (jsonb_array_length(refusals) > 0))),
+    CONSTRAINT file_refused_not_delivered CHECK (((status <> 'refused'::public.file_status) OR (delivered_at IS NULL)))
+);
+
+
+--
+-- Name: property_file_fact; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.property_file_fact (
+    property_file_id uuid NOT NULL,
+    fact_id uuid NOT NULL,
+    use text DEFAULT 'rendered'::text NOT NULL,
+    CONSTRAINT property_file_fact_use_check CHECK ((use = ANY (ARRAY['rendered'::text, 'gate'::text, 'input'::text])))
+);
+
+
+--
+-- Name: rule; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.rule (
+    id text NOT NULL,
+    jurisdiction_id text NOT NULL,
+    rule_key text NOT NULL,
+    version integer NOT NULL,
+    effective_from date NOT NULL,
+    effective_to date,
+    citation text NOT NULL,
+    source_text_uri text NOT NULL,
+    params jsonb NOT NULL,
+    pack_version text NOT NULL,
+    authored_by text NOT NULL,
+    reviewed_by text NOT NULL,
+    review_mode public.review_mode DEFAULT 'independent'::public.review_mode NOT NULL,
+    reviewed_at timestamp with time zone NOT NULL,
+    attestation_uri text,
+    CONSTRAINT rule_check CHECK (((effective_to IS NULL) OR (effective_to > effective_from))),
+    CONSTRAINT rule_check1 CHECK ((((review_mode = 'independent'::public.review_mode) AND (reviewed_by <> authored_by) AND (attestation_uri IS NULL)) OR ((review_mode = 'solo_founder_attestation'::public.review_mode) AND (reviewed_by = authored_by) AND (attestation_uri IS NOT NULL) AND (length(TRIM(BOTH FROM attestation_uri)) > 0)))),
+    CONSTRAINT rule_version_check CHECK ((version > 0))
+);
+
+
+--
+-- Name: snapshot; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.snapshot (
+    id text NOT NULL,
+    source_id text NOT NULL,
+    object_uri text NOT NULL,
+    content_hash text NOT NULL,
+    media_type text NOT NULL,
+    byte_size bigint NOT NULL,
+    request jsonb NOT NULL,
+    http_status integer,
+    fetched_at timestamp with time zone NOT NULL,
+    licence_observed_id text NOT NULL,
+    CONSTRAINT snapshot_byte_size_check CHECK ((byte_size >= 0))
+);
+
+
+--
+-- Name: source; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.source (
+    id text NOT NULL,
+    jurisdiction_id text NOT NULL,
+    display_name text NOT NULL,
+    steward text NOT NULL,
+    method public.access_method NOT NULL,
+    phase_status public.source_phase_status DEFAULT 'blocked_rights'::public.source_phase_status NOT NULL,
+    phase_status_reason text NOT NULL,
+    endpoint_url text,
+    layer_item_id text,
+    query_params jsonb DEFAULT '{}'::jsonb NOT NULL,
+    licence_id text NOT NULL,
+    cadence_stated text,
+    cadence_observed_s integer,
+    earliest_record_date date,
+    expected_fields jsonb DEFAULT '[]'::jsonb NOT NULL,
+    url_verified_at timestamp with time zone,
+    active boolean DEFAULT false NOT NULL,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT source_active_matches_phase CHECK (((active = false) OR (phase_status = 'active'::public.source_phase_status))),
+    CONSTRAINT source_active_requires_machine_access CHECK (((active = false) OR (method = ANY (ARRAY['direct'::public.access_method, 'bulk'::public.access_method])))),
+    CONSTRAINT source_active_requires_verification CHECK (((active = false) OR (url_verified_at IS NOT NULL))),
+    CONSTRAINT source_endpoint_required CHECK (((method = 'manual'::public.access_method) OR (endpoint_url IS NOT NULL)))
+);
+
+
+--
+-- Name: support_request; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.support_request (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    property_file_id uuid,
+    jurisdiction_id text NOT NULL,
+    category public.support_category NOT NULL,
+    field_key text,
+    opened_at timestamp with time zone DEFAULT now() NOT NULL,
+    resolved_at timestamp with time zone,
+    caused_correction boolean DEFAULT false NOT NULL,
+    correcting_fact_id uuid,
+    detail text,
+    CONSTRAINT support_correction_consistent CHECK (((caused_correction = false) OR (correcting_fact_id IS NOT NULL)))
+);
+
+
+--
+-- Name: exception_evidence exception_evidence_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.exception_evidence
+    ADD CONSTRAINT exception_evidence_pkey PRIMARY KEY (exception_id, fact_id);
+
+
+--
+-- Name: fact_input fact_input_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact_input
+    ADD CONSTRAINT fact_input_pkey PRIMARY KEY (fact_id, input_fact_id);
+
+
+--
+-- Name: fact fact_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: field_definition field_definition_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.field_definition
+    ADD CONSTRAINT field_definition_pkey PRIMARY KEY (field_key);
+
+
+--
+-- Name: job_run job_run_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.job_run
+    ADD CONSTRAINT job_run_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: jurisdiction jurisdiction_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.jurisdiction
+    ADD CONSTRAINT jurisdiction_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: licence_channel licence_channel_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.licence_channel
+    ADD CONSTRAINT licence_channel_pkey PRIMARY KEY (licence_id, channel);
+
+
+--
+-- Name: licence licence_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.licence
+    ADD CONSTRAINT licence_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: parcel_exception parcel_exception_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parcel_exception
+    ADD CONSTRAINT parcel_exception_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: parcel parcel_jurisdiction_id_apn_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parcel
+    ADD CONSTRAINT parcel_jurisdiction_id_apn_key UNIQUE (jurisdiction_id, apn);
+
+
+--
+-- Name: parcel parcel_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parcel
+    ADD CONSTRAINT parcel_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: property_file_fact property_file_fact_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_file_fact
+    ADD CONSTRAINT property_file_fact_pkey PRIMARY KEY (property_file_id, fact_id);
+
+
+--
+-- Name: property_file property_file_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_file
+    ADD CONSTRAINT property_file_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: rule rule_jurisdiction_id_rule_key_version_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rule
+    ADD CONSTRAINT rule_jurisdiction_id_rule_key_version_key UNIQUE (jurisdiction_id, rule_key, version);
+
+
+--
+-- Name: rule rule_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rule
+    ADD CONSTRAINT rule_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: snapshot snapshot_content_hash_source_id_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.snapshot
+    ADD CONSTRAINT snapshot_content_hash_source_id_key UNIQUE (content_hash, source_id);
+
+
+--
+-- Name: snapshot snapshot_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.snapshot
+    ADD CONSTRAINT snapshot_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: source source_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source
+    ADD CONSTRAINT source_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: source_rank source_rank_jurisdiction_id_field_key_rank_key; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_rank
+    ADD CONSTRAINT source_rank_jurisdiction_id_field_key_rank_key UNIQUE (jurisdiction_id, field_key, rank);
+
+
+--
+-- Name: source_rank source_rank_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_rank
+    ADD CONSTRAINT source_rank_pkey PRIMARY KEY (jurisdiction_id, field_key, source_id);
+
+
+--
+-- Name: support_request support_request_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.support_request
+    ADD CONSTRAINT support_request_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: current_fact_field; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX current_fact_field ON public.current_fact USING btree (field_key);
+
+
+--
+-- Name: current_fact_pk; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX current_fact_pk ON public.current_fact USING btree (parcel_id, field_key);
+
+
+--
+-- Name: fact_by_source; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX fact_by_source ON public.fact USING btree (source_id, retrieved_at DESC);
+
+
+--
+-- Name: fact_conflicts; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX fact_conflicts ON public.fact USING btree (conflict) WHERE (conflict <> 'agree'::public.conflict_state);
+
+
+--
+-- Name: fact_current; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX fact_current ON public.fact USING btree (parcel_id, field_key) WHERE (superseded_at IS NULL);
+
+
+--
+-- Name: fact_lookup; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX fact_lookup ON public.fact USING btree (parcel_id, field_key, recorded_at DESC);
+
+
+--
+-- Name: fact_one_current_per_source; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX fact_one_current_per_source ON public.fact USING btree (parcel_id, field_key, COALESCE(source_id, '~derived'::text), COALESCE(method_version, '~'::text)) WHERE (superseded_at IS NULL);
+
+
+--
+-- Name: job_run_recent; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX job_run_recent ON public.job_run USING btree (job_key, started_at DESC);
+
+
+--
+-- Name: parcel_apn_prefix; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX parcel_apn_prefix ON public.parcel USING btree (apn text_pattern_ops);
+
+
+--
+-- Name: parcel_centroid_gix; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX parcel_centroid_gix ON public.parcel USING gist (centroid);
+
+
+--
+-- Name: parcel_geom_gix; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX parcel_geom_gix ON public.parcel USING gist (geom);
+
+
+--
+-- Name: snapshot_source_time; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX snapshot_source_time ON public.snapshot USING btree (source_id, fetched_at DESC);
+
+
+--
+-- Name: support_by_file; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX support_by_file ON public.support_request USING btree (property_file_id);
+
+
+--
+-- Name: support_rate_idx; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX support_rate_idx ON public.support_request USING btree (jurisdiction_id, opened_at);
+
+
+--
+-- Name: fact_input fact_licence_inheritance; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE CONSTRAINT TRIGGER fact_licence_inheritance AFTER INSERT OR DELETE OR UPDATE ON public.fact_input DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.fact_licence_validate();
+
+
+--
+-- Name: fact fact_no_update; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER fact_no_update BEFORE UPDATE ON public.fact FOR EACH ROW EXECUTE FUNCTION public.fact_no_destructive_update();
+
+
+--
+-- Name: exception_evidence exception_evidence_exception_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.exception_evidence
+    ADD CONSTRAINT exception_evidence_exception_id_fkey FOREIGN KEY (exception_id) REFERENCES public.parcel_exception(id) ON DELETE CASCADE;
+
+
+--
+-- Name: exception_evidence exception_evidence_fact_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.exception_evidence
+    ADD CONSTRAINT exception_evidence_fact_id_fkey FOREIGN KEY (fact_id) REFERENCES public.fact(id);
+
+
+--
+-- Name: fact fact_field_key_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_field_key_fkey FOREIGN KEY (field_key) REFERENCES public.field_definition(field_key);
+
+
+--
+-- Name: fact_input fact_input_fact_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact_input
+    ADD CONSTRAINT fact_input_fact_id_fkey FOREIGN KEY (fact_id) REFERENCES public.fact(id) ON DELETE CASCADE;
+
+
+--
+-- Name: fact_input fact_input_input_fact_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact_input
+    ADD CONSTRAINT fact_input_input_fact_id_fkey FOREIGN KEY (input_fact_id) REFERENCES public.fact(id);
+
+
+--
+-- Name: fact fact_licence_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_licence_id_fkey FOREIGN KEY (licence_id) REFERENCES public.licence(id);
+
+
+--
+-- Name: fact fact_parcel_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_parcel_id_fkey FOREIGN KEY (parcel_id) REFERENCES public.parcel(id);
+
+
+--
+-- Name: fact fact_snapshot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_snapshot_id_fkey FOREIGN KEY (snapshot_id) REFERENCES public.snapshot(id);
+
+
+--
+-- Name: fact fact_source_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.source(id);
+
+
+--
+-- Name: job_run job_run_jurisdiction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.job_run
+    ADD CONSTRAINT job_run_jurisdiction_id_fkey FOREIGN KEY (jurisdiction_id) REFERENCES public.jurisdiction(id);
+
+
+--
+-- Name: job_run job_run_snapshot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.job_run
+    ADD CONSTRAINT job_run_snapshot_id_fkey FOREIGN KEY (snapshot_id) REFERENCES public.snapshot(id);
+
+
+--
+-- Name: job_run job_run_source_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.job_run
+    ADD CONSTRAINT job_run_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.source(id);
+
+
+--
+-- Name: jurisdiction jurisdiction_boundary_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.jurisdiction
+    ADD CONSTRAINT jurisdiction_boundary_source_fk FOREIGN KEY (boundary_source_id) REFERENCES public.source(id);
+
+
+--
+-- Name: jurisdiction jurisdiction_parent_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.jurisdiction
+    ADD CONSTRAINT jurisdiction_parent_id_fkey FOREIGN KEY (parent_id) REFERENCES public.jurisdiction(id);
+
+
+--
+-- Name: licence_channel licence_channel_licence_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.licence_channel
+    ADD CONSTRAINT licence_channel_licence_id_fkey FOREIGN KEY (licence_id) REFERENCES public.licence(id) ON DELETE CASCADE;
+
+
+--
+-- Name: parcel_exception parcel_exception_jurisdiction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parcel_exception
+    ADD CONSTRAINT parcel_exception_jurisdiction_id_fkey FOREIGN KEY (jurisdiction_id) REFERENCES public.jurisdiction(id);
+
+
+--
+-- Name: parcel_exception parcel_exception_parcel_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parcel_exception
+    ADD CONSTRAINT parcel_exception_parcel_id_fkey FOREIGN KEY (parcel_id) REFERENCES public.parcel(id);
+
+
+--
+-- Name: parcel parcel_jurisdiction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parcel
+    ADD CONSTRAINT parcel_jurisdiction_id_fkey FOREIGN KEY (jurisdiction_id) REFERENCES public.jurisdiction(id);
+
+
+--
+-- Name: property_file_fact property_file_fact_fact_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_file_fact
+    ADD CONSTRAINT property_file_fact_fact_id_fkey FOREIGN KEY (fact_id) REFERENCES public.fact(id);
+
+
+--
+-- Name: property_file_fact property_file_fact_property_file_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_file_fact
+    ADD CONSTRAINT property_file_fact_property_file_id_fkey FOREIGN KEY (property_file_id) REFERENCES public.property_file(id) ON DELETE CASCADE;
+
+
+--
+-- Name: property_file property_file_jurisdiction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_file
+    ADD CONSTRAINT property_file_jurisdiction_id_fkey FOREIGN KEY (jurisdiction_id) REFERENCES public.jurisdiction(id);
+
+
+--
+-- Name: property_file property_file_parcel_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_file
+    ADD CONSTRAINT property_file_parcel_id_fkey FOREIGN KEY (parcel_id) REFERENCES public.parcel(id);
+
+
+--
+-- Name: rule rule_jurisdiction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.rule
+    ADD CONSTRAINT rule_jurisdiction_id_fkey FOREIGN KEY (jurisdiction_id) REFERENCES public.jurisdiction(id);
+
+
+--
+-- Name: snapshot snapshot_licence_observed_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.snapshot
+    ADD CONSTRAINT snapshot_licence_observed_id_fkey FOREIGN KEY (licence_observed_id) REFERENCES public.licence(id);
+
+
+--
+-- Name: snapshot snapshot_source_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.snapshot
+    ADD CONSTRAINT snapshot_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.source(id);
+
+
+--
+-- Name: source source_jurisdiction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source
+    ADD CONSTRAINT source_jurisdiction_id_fkey FOREIGN KEY (jurisdiction_id) REFERENCES public.jurisdiction(id);
+
+
+--
+-- Name: source source_licence_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source
+    ADD CONSTRAINT source_licence_id_fkey FOREIGN KEY (licence_id) REFERENCES public.licence(id);
+
+
+--
+-- Name: source_rank source_rank_field_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_rank
+    ADD CONSTRAINT source_rank_field_fk FOREIGN KEY (field_key) REFERENCES public.field_definition(field_key);
+
+
+--
+-- Name: source_rank source_rank_jurisdiction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_rank
+    ADD CONSTRAINT source_rank_jurisdiction_id_fkey FOREIGN KEY (jurisdiction_id) REFERENCES public.jurisdiction(id);
+
+
+--
+-- Name: source_rank source_rank_source_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_rank
+    ADD CONSTRAINT source_rank_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.source(id);
+
+
+--
+-- Name: support_request support_property_file_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.support_request
+    ADD CONSTRAINT support_property_file_fk FOREIGN KEY (property_file_id) REFERENCES public.property_file(id);
+
+
+--
+-- Name: support_request support_request_correcting_fact_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.support_request
+    ADD CONSTRAINT support_request_correcting_fact_id_fkey FOREIGN KEY (correcting_fact_id) REFERENCES public.fact(id);
+
+
+--
+-- Name: support_request support_request_field_key_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.support_request
+    ADD CONSTRAINT support_request_field_key_fkey FOREIGN KEY (field_key) REFERENCES public.field_definition(field_key);
+
+
+--
+-- Name: support_request support_request_jurisdiction_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.support_request
+    ADD CONSTRAINT support_request_jurisdiction_id_fkey FOREIGN KEY (jurisdiction_id) REFERENCES public.jurisdiction(id);
+
+
+--
+-- PostgreSQL database dump complete
+--
+
+\unrestrict yTL0ghjzdQosVK49mihoCr9JeMEe7Bw1ODhNHiiu2EMLlKsmbJ9U76w1j3fwHNl
+
