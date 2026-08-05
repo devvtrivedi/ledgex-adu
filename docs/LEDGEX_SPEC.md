@@ -495,10 +495,7 @@ session_replication_role manipulation is required.
 -- Ordering of restriction severity, most restrictive first. Single source of
 -- truth for both the trigger and core/rights.
 CREATE OR REPLACE FUNCTION restriction_severity(r use_restriction)
-```
-
 RETURNS smallint AS $$
-```sql
      SELECT CASE r
             WHEN 'unknown'          THEN 0
             WHEN 'noncommercial' THEN 1
@@ -506,15 +503,11 @@ RETURNS smallint AS $$
             WHEN 'attribution'      THEN 3
             WHEN 'open'             THEN 4
      END;
-```
-
 $$ LANGUAGE sql IMMUTABLE;
 
-```sql
 CREATE TRIGGER fact_no_update BEFORE UPDATE ON fact
+  FOR EACH ROW EXECUTE FUNCTION fact_no_destructive_update();
 ```
-
-FOR EACH ROW EXECUTE FUNCTION fact_no_destructive_update();
 
 This locks value, provenance, licence, confidence, conflict, effective time, URLs, method and versions. Supersession is the only permitted
 mutation and is one-way. A correction is a new fact row with lineage to the replaced belief; the old row receives only superseded_at.
@@ -523,13 +516,10 @@ mutation and is one-way. A correction is a new fact row with lineage to the repl
 -- I5: VALIDATE that a derived fact already carries the most restrictive licence
 -- among its inputs. Does not mutate. core/store.derive() must compute it.
 CREATE OR REPLACE FUNCTION fact_licence_validate() RETURNS trigger AS $$
-```
-
 DECLARE
-required_licence text;
-actual_licence       text;
+       required_licence text;
+       actual_licence       text;
 BEGIN
-```sql
        SELECT f.licence_id INTO required_licence
          FROM fact_input fi
          JOIN fact       f ON f.id = fi.input_fact_id
@@ -555,12 +545,9 @@ BEGIN
        END IF;
 
        RETURN NEW;
-```
-
 END;
 $$ LANGUAGE plpgsql;
 
-```sql
 CREATE CONSTRAINT TRIGGER fact_licence_inheritance
        AFTER INSERT ON fact_input
        DEFERRABLE INITIALLY DEFERRED
@@ -2721,12 +2708,9 @@ extended period.
      CHECK((status='matched') = (matched_permit_fact_id IS NOT NULL))
   );
   CREATE FUNCTION commerce.validate_outcome_observation()
-```
-
-RETURNS trigger LANGUAGE plpgsql AS $$
-DECLARE run_method text; run_licence text; fact_ok boolean;
-BEGIN
-```sql
+  RETURNS trigger LANGUAGE plpgsql AS $$
+  DECLARE run_method text; run_licence text; fact_ok boolean;
+  BEGIN
      SELECT r.method_version, s.licence_id INTO run_method, run_licence
      FROM commerce.outcome_match_run r
      JOIN public.source s ON s.id=r.permit_source_id
@@ -2741,29 +2725,18 @@ BEGIN
        IF NOT fact_ok THEN RAISE EXCEPTION 'match must be CC0 for same parcel'; END IF;
      END IF;
      RETURN NEW;
-```
-
-END $$;
-```sql
+  END $$;
   CREATE CONSTRAINT TRIGGER outcome_observation_validate
-```
-
-AFTER INSERT ON commerce.evaluation_outcome_observation
-> **DEFERRABLE INITIALLY DEFERRED FOR EACH ROW**
-
-EXECUTE FUNCTION commerce.validate_outcome_observation();
-```sql
+  AFTER INSERT ON commerce.evaluation_outcome_observation
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+  EXECUTE FUNCTION commerce.validate_outcome_observation();
   CREATE FUNCTION commerce.reject_outcome_observation_mutation()
-```
-
-RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
-RAISE EXCEPTION 'outcome observations are immutable'; END $$;
-```sql
+  RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+     RAISE EXCEPTION 'outcome observations are immutable'; END $$;
   CREATE TRIGGER outcome_observation_immutable BEFORE UPDATE OR DELETE
+  ON commerce.evaluation_outcome_observation FOR EACH ROW
+  EXECUTE FUNCTION commerce.reject_outcome_observation_mutation();
 ```
-
-ON commerce.evaluation_outcome_observation FOR EACH ROW
-EXECUTE FUNCTION commerce.reject_outcome_observation_mutation();
 
 Job and boundary
 
@@ -2817,14 +2790,11 @@ measured-error record exists for the same provider version, method and jurisdict
     REFERENCES public.footprint_provider_version(id);
 
   CREATE FUNCTION public.validate_footprint_provider_slot()
-```
-
-RETURNS trigger LANGUAGE plpgsql AS $$
-BEGIN
-IF NEW.geometry_tier_enabled AND NEW.active_footprint_provider_version_id IS NULL
-THEN RAISE EXCEPTION 'geometry requires active provider'; END IF;
-IF NEW.active_footprint_provider_version_id IS NOT NULL AND NOT EXISTS (
-```sql
+  RETURNS trigger LANGUAGE plpgsql AS $$
+  BEGIN
+    IF NEW.geometry_tier_enabled AND NEW.active_footprint_provider_version_id IS NULL
+      THEN RAISE EXCEPTION 'geometry requires active provider'; END IF;
+    IF NEW.active_footprint_provider_version_id IS NOT NULL AND NOT EXISTS (
       SELECT 1 FROM public.footprint_provider_version p
       JOIN public.footprint_provider_validation v ON v.provider_version_id=p.id
       WHERE p.id=NEW.active_footprint_provider_version_id
@@ -2832,18 +2802,11 @@ IF NEW.active_footprint_provider_version_id IS NOT NULL AND NOT EXISTS (
         AND v.provider_method_version=p.method_version AND v.decision='approved'
     ) THEN RAISE EXCEPTION 'provider lacks approved measured-error record'; END IF;
     RETURN NEW;
-```
-
-END $$;
-```sql
+  END $$;
   CREATE CONSTRAINT TRIGGER footprint_provider_slot_validate
-```
-
-AFTER INSERT OR UPDATE ON public.jurisdiction
-> **DEFERRABLE INITIALLY DEFERRED FOR EACH ROW**
-
-EXECUTE FUNCTION public.validate_footprint_provider_slot();
-```sql
+  AFTER INSERT OR UPDATE ON public.jurisdiction
+  DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
+  EXECUTE FUNCTION public.validate_footprint_provider_slot();
   -- Provider and validation rows are immutable; correction creates a new version.
 ```
 
@@ -2898,4 +2861,4 @@ These checks are required and not asserted complete by this PDF. Record CI outpu
 
 ---
 
-*Generated 2026-08-03 by `build/build_spec_v1_7.py`. Source of record: `build/ledgex_source.py`.*
+*Generated 2026-08-04 by `build/build_spec_v1_7.py`. Source of record: `build/ledgex_source.py`.*

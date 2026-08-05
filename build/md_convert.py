@@ -8,6 +8,7 @@ SUB   = re.compile(r"^\s*(\d+\.\d+(?:\.\d+)?)\s+(\S.*?)\s*$")
 ASUB  = re.compile(r"^\s*(A-1\.\d+)\s+(\S.*?)\s*$")
 CAPS  = re.compile(r"^\s{2,}([A-Z][A-Z0-9 ,§&/'\-\.]{9,})\s*$")
 SQLST = re.compile(r"^\s*(--|CREATE |ALTER |INSERT |DROP |COMMENT |WITH |SELECT |BEGIN;|COMMIT;|CREATE OR REPLACE)")
+TRIGST = re.compile(r"^\s*CREATE\s+(CONSTRAINT\s+)?TRIGGER\b")
 SQLIN = re.compile(r"^\s{4,}\S")
 BULL  = re.compile(r"^\s*[•·]\s*(.+?)\s*$")
 TREE  = re.compile(r"[├└│─┌┐┘┬┴┼]")          # repository-layout tree drawing
@@ -40,13 +41,44 @@ def convert(text, drop_before=None):
                 lines = lines[i:]
                 break
     out, buf, kind = [], [], None
+    # Inside a dollar-quoted function body (CREATE [OR REPLACE] FUNCTION ...
+    # AS $$ ... $$ LANGUAGE ...), pdftotext -layout output has no reliable
+    # indentation or keyword prefix — DECLARE, BEGIN, END; and bare "$$
+    # LANGUAGE plpgsql;" all sit flush-left. Treating the region between an
+    # odd and the next even count of "$$" as opaque keeps the whole function
+    # in one fenced block instead of splitting on every line the SQLIN/SQLST
+    # heuristics don't recognize.
+    in_dollar_quote = False
+    # A CREATE [CONSTRAINT] TRIGGER statement's own continuation lines (FOR
+    # EACH ROW, EXECUTE FUNCTION ...) sit at inconsistent indentation in the
+    # pdftotext -layout output — sometimes 2 spaces, sometimes 7 — so SQLIN's
+    # fixed threshold misses some of them. Once such a statement has opened,
+    # keep swallowing lines until its terminating ";" regardless of indent.
+    # Scoped to this one unambiguous DDL keyword, not "any unterminated line",
+    # so it can't run away into unrelated prose the way a generic
+    # doesn't-end-in-";" heuristic did (see git history for that regression).
+    in_trigger_stmt = False
     for raw in lines:
         ln = raw.rstrip()
         s = ln.strip()
 
         if kind == "sql":
-            if s == "" or SQLIN.match(ln) or SQLST.match(ln) or s in (");", ")", "$$;"):
+            if in_dollar_quote:
                 buf.append(ln)
+                if ln.count("$$") % 2 == 1:
+                    in_dollar_quote = False
+                continue
+            if in_trigger_stmt:
+                buf.append(ln)
+                if s.endswith(";"):
+                    in_trigger_stmt = False
+                continue
+            if s == "" or SQLIN.match(ln) or SQLST.match(ln) or s in (");", ")", "$$;") or "$$" in ln:
+                buf.append(ln)
+                if ln.count("$$") % 2 == 1:
+                    in_dollar_quote = True
+                if TRIGST.match(ln) and not s.endswith(";"):
+                    in_trigger_stmt = True
                 continue
             _flush(buf, out, kind); buf, kind = [], None
 
@@ -93,6 +125,10 @@ def convert(text, drop_before=None):
         if SQLST.match(ln):
             _flush(buf, out, kind); buf, kind = [], "sql"
             buf.append(ln)
+            if ln.count("$$") % 2 == 1:
+                in_dollar_quote = True
+            if TRIGST.match(ln) and not s.endswith(";"):
+                in_trigger_stmt = True
             continue
         if s == "":
             _flush(buf, out, kind); buf, kind = [], None
