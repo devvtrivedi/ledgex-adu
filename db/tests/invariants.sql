@@ -29,13 +29,21 @@
 
 BEGIN;
 
+-- Namespaced ids ('test.cc0' / 'test.cc_by_4_0'), NOT the real 'cc0' /
+-- 'cc_by_4_0' licence rows. licence.cleared_by is rights provenance I6
+-- consults at compose time; a test file seeding the real licence ids with
+-- cleared_by='test' would leave production-shaped rows with fabricated
+-- provenance sitting in the database, and ON CONFLICT DO NOTHING means a
+-- later, real seed of those same ids would silently decline to correct
+-- them. restriction stays 'open'/'attribution' -- the severity ordering
+-- I5a/I5b/I5c depend on is about the restriction value, not the id.
 INSERT INTO licence (
   id, display_name, restriction, commercial_use, redistribution,
   attribution_text, observed_at, cleared_by, cleared_at
 ) VALUES
-  ('cc0', 'CC0 1.0 Universal', 'open', 'allowed', 'allowed', NULL, now(), 'test', now()),
-  ('cc_by_4_0', 'CC BY 4.0', 'attribution', 'allowed', 'allowed',
-   'Data © City of San José', now(), 'test', now())
+  ('test.cc0', 'Test fixture (CC0-equivalent, open)', 'open', 'allowed', 'allowed', NULL, now(), 'test', now()),
+  ('test.cc_by_4_0', 'Test fixture (CC BY 4.0-equivalent, attribution)', 'attribution', 'allowed', 'allowed',
+   'Test fixture attribution text', now(), 'test', now())
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO jurisdiction (
@@ -44,13 +52,17 @@ INSERT INTO jurisdiction (
   ('ca_san_jose', 'City of San José', 'city', 'CA', 'tier_1', 'v1.0', true)
 ON CONFLICT (id) DO NOTHING;
 
+-- active = false, no url_verified_at: nothing in this suite needs the
+-- source live, and a test file has no business creating verified-and-active
+-- source records (source_active_requires_verification exists precisely to
+-- keep an unchecked source off).
 INSERT INTO source (
   id, jurisdiction_id, display_name, steward, method, phase_status,
-  phase_status_reason, endpoint_url, licence_id, active, url_verified_at
+  phase_status_reason, endpoint_url, licence_id, active
 ) VALUES
   ('ca_san_jose.test_source', 'ca_san_jose', 'Test Source', 'City of San José',
    'direct', 'active', 'Test source for invariant testing',
-   'https://example.com/api', 'cc0', true, now())
+   'https://example.com/api', 'test.cc0', false)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO snapshot (
@@ -60,7 +72,7 @@ INSERT INTO snapshot (
   ('sha256:test123', 'ca_san_jose.test_source', 's3://bucket/test',
    'abc123', 'application/json', 100,
    '{"url":"https://example.com","params":{}}'::jsonb,
-   200, now(), 'cc0')
+   200, now(), 'test.cc0')
 ON CONFLICT (id) DO NOTHING;
 
 -- One field_key per test group -- see header note on isolation.
@@ -80,6 +92,12 @@ ON CONFLICT (field_key) DO NOTHING;
 -- Cross-block scratch state for this run: the fresh parcel id, and (later)
 -- the I4/I18 row ids shared across their multi-block lifecycles.
 CREATE TEMP TABLE test_state (key text PRIMARY KEY, value text);
+
+-- Every test inserts its own name here on the PASS path only (never on the
+-- FAIL path, and never unconditionally) -- the summary's count comes from
+-- this table, not a literal, so it can't drift from what the file actually
+-- contains the way a hand-maintained "N/N" string could.
+CREATE TEMP TABLE test_pass (name text PRIMARY KEY);
 
 DO $$
 DECLARE
@@ -125,6 +143,7 @@ BEGIN
     EXCEPTION
         WHEN not_null_violation THEN
             RAISE NOTICE 'PASS I3: null licence_id rejected (not_null_violation)';
+            INSERT INTO test_pass VALUES ('I3');
     END;
 END $$;
 
@@ -149,7 +168,7 @@ BEGIN
         ) VALUES (
             v_parcel_id, 'test.i2a_field', '"derived_value"'::jsonb, 'derived',
             'ca_san_jose.test_source', 'sha256:test123',  -- both set: violates I2
-            'v1.0', 'cc0', 'high', 'rule_1', now(), 'v1.0'
+            'v1.0', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL I2a: derived fact with source_id and snapshot_id set was accepted';
     EXCEPTION
@@ -157,6 +176,7 @@ BEGIN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
             IF v_constraint = 'fact_provenance_complete' THEN
                 RAISE NOTICE 'PASS I2a: rejected by fact_provenance_complete';
+                INSERT INTO test_pass VALUES ('I2a');
             ELSE
                 RAISE EXCEPTION 'FAIL I2a: check_violation on unexpected constraint %', v_constraint;
             END IF;
@@ -184,7 +204,7 @@ BEGIN
         ) VALUES (
             v_parcel_id, 'test.i2b_field', '"value"'::jsonb, 'direct',
             'ca_san_jose.test_source', NULL,  -- missing snapshot_id
-            now(), 'https://example.com', 'cc0', 'high', 'rule_1', now(), 'v1.0'
+            now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL I2b: direct fact with no snapshot_id was accepted';
     EXCEPTION
@@ -192,6 +212,7 @@ BEGIN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
             IF v_constraint = 'fact_provenance_complete' THEN
                 RAISE NOTICE 'PASS I2b: rejected by fact_provenance_complete';
+                INSERT INTO test_pass VALUES ('I2b');
             ELSE
                 RAISE EXCEPTION 'FAIL I2b: check_violation on unexpected constraint %', v_constraint;
             END IF;
@@ -219,7 +240,7 @@ BEGIN
         ) VALUES (
             v_parcel_id, 'test.i13_field', '"value"'::jsonb, 'portal',  -- invalid
             'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
-            'cc0', 'high', 'rule_1', now(), 'v1.0'
+            'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL I13: method=portal was accepted';
     EXCEPTION
@@ -227,6 +248,7 @@ BEGIN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
             IF v_constraint = 'fact_method_automated' THEN
                 RAISE NOTICE 'PASS I13: rejected by fact_method_automated';
+                INSERT INTO test_pass VALUES ('I13');
             ELSE
                 RAISE EXCEPTION 'FAIL I13: check_violation on unexpected constraint %', v_constraint;
             END IF;
@@ -256,7 +278,7 @@ BEGIN
     ) VALUES (
         v_parcel_id, 'test.i4a_field', '"original_value"'::jsonb, 'direct',
         'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
-        'cc0', 'high', 'rule_1', now(), 'v1.0'
+        'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
     -- I4b and I4c reuse this exact fact -- they're stages of the same
@@ -271,6 +293,7 @@ BEGIN
         WHEN raise_exception THEN
             IF SQLERRM LIKE 'I4 violated:%cannot be updated%' THEN
                 RAISE NOTICE 'PASS I4a: value change rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('I4a');
             ELSE
                 RAISE EXCEPTION 'FAIL I4a: wrong error: %', SQLERRM;
             END IF;
@@ -299,6 +322,7 @@ BEGIN
 
     IF v_rows = 1 THEN
         RAISE NOTICE 'PASS I4b: fact % superseded (1 row updated)', v_fact_id;
+        INSERT INTO test_pass VALUES ('I4b');
     ELSE
         RAISE EXCEPTION 'FAIL I4b: expected 1 row updated, got %', v_rows;
     END IF;
@@ -325,6 +349,7 @@ BEGIN
         WHEN raise_exception THEN
             IF SQLERRM LIKE 'I4 violated:%already superseded%' THEN
                 RAISE NOTICE 'PASS I4c: update on superseded fact rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('I4c');
             ELSE
                 RAISE EXCEPTION 'FAIL I4c: wrong error: %', SQLERRM;
             END IF;
@@ -353,16 +378,16 @@ BEGIN
     ) VALUES (
         v_parcel_id, 'test.i5a_field', '"input_value"'::jsonb, 'direct',
         'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
-        'cc_by_4_0', 'high', 'rule_1', now(), 'v1.0'
+        'test.cc_by_4_0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input_fact_id;
 
-    -- Derived: cc0, more permissive than its input -- must be rejected.
+    -- Derived: test.cc0, more permissive than its input -- must be rejected.
     INSERT INTO fact (
         parcel_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
         v_parcel_id, 'test.i5a_field', '"derived"'::jsonb, 'derived',
-        'v1.0', 'cc0',
+        'v1.0', 'test.cc0',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
 
@@ -380,6 +405,7 @@ BEGIN
         WHEN raise_exception THEN
             IF SQLERRM LIKE 'I5 violated:%' THEN
                 RAISE NOTICE 'PASS I5a: over-permissive derived fact rejected at COMMIT (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('I5a');
             ELSE
                 RAISE EXCEPTION 'FAIL I5a: wrong error: %', SQLERRM;
             END IF;
@@ -408,16 +434,16 @@ BEGIN
     ) VALUES (
         v_parcel_id, 'test.i5b_field', '"input_value"'::jsonb, 'direct',
         'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
-        'cc0', 'high', 'rule_1', now(), 'v1.0'
+        'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input_fact_id;
 
-    -- Derived: cc_by_4_0, stricter than its input -- must be allowed.
+    -- Derived: test.cc_by_4_0, stricter than its input -- must be allowed.
     INSERT INTO fact (
         parcel_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
         v_parcel_id, 'test.i5b_field', '"derived_stricter"'::jsonb, 'derived',
-        'v1.0', 'cc_by_4_0',
+        'v1.0', 'test.cc_by_4_0',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
 
@@ -429,6 +455,7 @@ BEGIN
     SET CONSTRAINTS fact_licence_inheritance IMMEDIATE;
 
     RAISE NOTICE 'PASS I5b: stricter derived fact % accepted', v_derived_fact_id;
+    INSERT INTO test_pass VALUES ('I5b');
 END $$;
 
 -- ============================================================================
@@ -455,13 +482,14 @@ BEGIN
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
         v_parcel_id, 'test.i5c_field', '"ungrounded_derived"'::jsonb, 'derived',
-        'v1.0', 'cc0',
+        'v1.0', 'test.cc0',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
 
     SET CONSTRAINTS fact_licence_inheritance IMMEDIATE;
 
     RAISE NOTICE 'PASS (KNOWN GAP) I5c: derived fact % with zero fact_input rows committed unchecked -- I5 cannot validate a derivation that never declares its inputs', v_derived_fact_id;
+    INSERT INTO test_pass VALUES ('I5c');
 END $$;
 
 -- ============================================================================
@@ -493,6 +521,7 @@ BEGIN
         WHEN raise_exception THEN
             IF SQLERRM LIKE 'I18 violated:%is immutable%' THEN
                 RAISE NOTICE 'PASS I18a: reviewed_by change rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('I18a');
             ELSE
                 RAISE EXCEPTION 'FAIL I18a: wrong error: %', SQLERRM;
             END IF;
@@ -526,6 +555,7 @@ BEGIN
         WHEN raise_exception THEN
             IF SQLERRM LIKE 'I18 violated:%is immutable%' THEN
                 RAISE NOTICE 'PASS I18b: params change rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('I18b');
             ELSE
                 RAISE EXCEPTION 'FAIL I18b: wrong error: %', SQLERRM;
             END IF;
@@ -559,6 +589,7 @@ BEGIN
         WHEN raise_exception THEN
             IF SQLERRM LIKE 'I18 violated:%cannot be deleted%' THEN
                 RAISE NOTICE 'PASS I18c: delete rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('I18c');
             ELSE
                 RAISE EXCEPTION 'FAIL I18c: wrong error: %', SQLERRM;
             END IF;
@@ -592,6 +623,7 @@ BEGIN
     UPDATE rule SET effective_to = CURRENT_DATE + 365 WHERE id = v_rule_id;
 
     RAISE NOTICE 'PASS I18d: rule % retired (effective_to NULL -> date accepted)', v_rule_id;
+    INSERT INTO test_pass VALUES ('I18d');
 END $$;
 
 -- ============================================================================
@@ -613,6 +645,7 @@ BEGIN
         WHEN raise_exception THEN
             IF SQLERRM LIKE 'I18 violated:%already set to%cannot be changed again%' THEN
                 RAISE NOTICE 'PASS I18e: second effective_to change rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('I18e');
             ELSE
                 RAISE EXCEPTION 'FAIL I18e: wrong error: %', SQLERRM;
             END IF;
@@ -647,6 +680,7 @@ BEGIN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
             IF v_constraint = 'parcel_exception_outcome_resolution_biconditional' THEN
                 RAISE NOTICE 'PASS X1: open exception with resolution fields rejected';
+                INSERT INTO test_pass VALUES ('X1');
             ELSE
                 RAISE EXCEPTION 'FAIL X1: check_violation on unexpected constraint %', v_constraint;
             END IF;
@@ -680,6 +714,7 @@ BEGIN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
             IF v_constraint = 'parcel_exception_outcome_resolution_biconditional' THEN
                 RAISE NOTICE 'PASS X2: resolved outcome missing resolved_by rejected';
+                INSERT INTO test_pass VALUES ('X2');
             ELSE
                 RAISE EXCEPTION 'FAIL X2: check_violation on unexpected constraint %', v_constraint;
             END IF;
@@ -708,18 +743,28 @@ BEGIN
     ) RETURNING id INTO v_exception_id;
 
     RAISE NOTICE 'PASS X3: unresolved exception % with both resolution fields accepted', v_exception_id;
+    INSERT INTO test_pass VALUES ('X3');
 END $$;
 
 -- ============================================================================
 -- SUMMARY
 -- ============================================================================
+-- The count below is real, not a maintained literal: it's
+-- SELECT count(*) FROM test_pass, and test_pass only ever gains a row on a
+-- test's PASS path (see each test above). Add, remove, or break a test and
+-- this number changes with it -- it cannot silently go stale the way a
+-- hardcoded "N/N" string did before.
+
+SELECT count(*) AS pass_count FROM test_pass
+\gset
 
 \echo ''
 \echo '=========================================='
-\echo 'INVARIANT TESTS COMPLETE (17/17)'
+\echo 'INVARIANT TESTS COMPLETE --' :pass_count 'tests recorded PASS in test_pass'
 \echo '=========================================='
 \echo 'Every test above is self-asserting: reaching this line with no ERROR'
-\echo 'means all 17 PASS notices printed above are real. Any wrong outcome'
-\echo 'would have raised an uncaught FAIL exception and (under ON_ERROR_STOP)'
-\echo 'stopped the script before this point with a nonzero exit code.'
+\echo 'means every PASS notice printed above, and counted in test_pass, is'
+\echo 'real. Any wrong outcome would have raised an uncaught FAIL exception'
+\echo 'and (under ON_ERROR_STOP) stopped the script before this point with a'
+\echo 'nonzero exit code.'
 \echo ''
