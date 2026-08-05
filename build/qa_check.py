@@ -62,28 +62,56 @@ def check_no_duplicate_table():
                 f"prohibited by sec 0.2")
 
 
-def check_no_mangled_invariant_prose():
-    """The corrupted-appendix bug: a prose-format duplicate of an invariant row
-    (its ID immediately followed by its own body text, outside the canonical
-    '| **ID** | body | enforcement |' markdown table) leaking into a generated
-    doc because a convert() call's drop_before anchor failed to cut the
-    corrupted source block. check_no_duplicate_table() only sees the pipe-table
-    format and would count each ID once, missing this second copy entirely.
+def _prefix(text, n):
+    """First n whitespace-normalized words of text."""
+    return " ".join(norm(text).split(" ")[:n])
 
-    We fingerprint on "<ID> <verbatim body>" against whitespace-normalized text.
-    That substring cannot occur in the canonical row (it renders as
-    "**ID** | body", with "** | " between the ID and the body, not a single
-    space) but does occur verbatim in the mangled prose form.
+
+def check_no_mangled_invariant_prose():
+    """The corrupted-appendix bug: a prose-format duplicate of an invariant or
+    make-target row (its ID/name immediately followed by its own body/surface
+    text, outside the canonical '| **ID** | ... |' markdown table) leaking
+    into a generated doc because a convert() call's drop_before anchor didn't
+    cut far enough. check_no_duplicate_table() only sees the pipe-table
+    format and would count each row once, missing this second copy entirely.
+
+    v1 of this check fingerprinted on the FULL verbatim body text, which is
+    fragile: pdftotext -layout column-wraps long cells, so the tail of a
+    duplicated row's text often doesn't match the canonical string
+    byte-for-byte even though the row is clearly the same duplicate (an
+    audit against real fixtures found this missed most real instances — the
+    full-text needle almost never survives layout wrapping intact). The
+    words immediately after the ID/name are far more stable than the tail,
+    so we fingerprint on a short prefix instead:
+      - invariants: "<ID> <first 6 words of body>"
+      - make targets: "<target> <first N words of execution surface>" for
+        N in 3..7 — targets have only 6 rows and a narrower table, so a
+        single fixed N is more likely to land mid-wrap; sweeping a small
+        range costs nothing and catches it regardless of exactly where that
+        row's wrap point fell.
+
+    Neither needle can occur in the canonical row: it renders as
+    "**ID** | body" / "**target** | surface", with "** | " between the two
+    fields, never a single space — but both occur verbatim in the mangled
+    prose form.
     """
     for path in (SPEC, RULES):
         if not path.exists():
             continue
         flat = norm(path.read_text(encoding="utf-8"))
+
         for iid, body, enf in S.INVARIANTS:
-            needle = f"{iid} {norm(body)}"
+            needle = f"{iid} {_prefix(body, 6)}"
             if needle in flat:
                 failures.append(
                     f"{path.name}: prose-mangled duplicate of {iid} found "
+                    f"outside the canonical table — a drop_before anchor is "
+                    f"not cutting the corrupted appendix source block")
+
+        for tgt, surface, cond in S.MAKE_TARGETS:
+            if any(f"{tgt} {_prefix(surface, n)}" in flat for n in range(3, 8)):
+                failures.append(
+                    f"{path.name}: prose-mangled duplicate of '{tgt}' found "
                     f"outside the canonical table — a drop_before anchor is "
                     f"not cutting the corrupted appendix source block")
 

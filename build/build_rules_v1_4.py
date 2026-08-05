@@ -73,8 +73,19 @@ def render_md():
              "follows the original.")
     p.append("")
     if BODY.exists():
+        # "2 / Six make targets" cut the corrupted I1-I20 prose block but kept
+        # this section's own prose restatement of the make-targets table,
+        # which duplicates the canonical table rendered above (§0.2/I17: one
+        # invariant source). The next real section boundary is "3 / A-1.1
+        # licence gate and document repair" — the literal "3. A-1 scope" this
+        # anchor was requested as does not appear anywhere in the source text,
+        # so it would have been a silent no-op, same failure mode as the
+        # earlier "Section 2" anchor. This does drop one sentence of unique
+        # closing prose from the make-targets section ("All six targets run
+        # locally and in CI with zero required skips...") along with the
+        # duplicate table — accepted; that line isn't stated anywhere else.
         p.append(md_convert.convert(BODY.read_text(encoding="utf-8"),
-                                    drop_before="2 / Six make targets"))
+                                    drop_before="3 / A-1.1 licence gate and document repair"))
     p.append("")
     p.append("---")
     p.append("")

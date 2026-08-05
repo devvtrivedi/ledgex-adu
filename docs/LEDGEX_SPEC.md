@@ -2640,27 +2640,6 @@ Spec §1 now contains I1-I20 with enforcement. I1-I18 are recovered from the pri
 A-1 adds I19 and I20. §1.1 explains the internal-fact rights gate. The first generated v1.6 artifact's duplicate top-level §14 is recorded as a
 historical defect, not carried forward.
 
-Six make targets
-
-Target                            Execution surface                                                                                 Pass condition
-
-make check-boundary               Jurisdiction-name grep, import-linter, public-to-commerce catalogue query, filesystem             I1, I15, I17 and I19 pass; zero forbidden imports,
-authority, no-graph and Track B no-render checks.                                                 FKs or derived authority.
-
-make schema                       Apply every forward-only migration to an empty database.                                          Clean apply; constraints, functions and triggers
-compile.
-
-make schema-dump                  Regenerate db/schema.sql from the applied database and compare the committed dump.                No diff; missing or stale generated DDL fails.
-
-make conformance                  Parameterized pack suite for sources, mappings, rights, dependency cascades and endpoint          Every enabled pack passes; no rights broadening
-liveness.                                                                                         or silent missing dependency.
-
-make test                         Unit and integration suites, including review, entitlement, outcome observation, provider slot,   All required tests pass with zero skips and no
-edge guard and billing independence.                                                              external network dependency in CI.
-
-make golden                       Normalized composed, partial, refused and geometry-disabled Base Core fixtures.                   Output matches approved fixtures; intended
-changes require reviewed fixture updates.
-
 > **STRUCTURAL DRIFT PREVENTION**
 
 The Spec builder imports the invariant and make-target objects from the Rules builder. A future revision changes the source object once and

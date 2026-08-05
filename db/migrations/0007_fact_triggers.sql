@@ -3,17 +3,27 @@
 -- Source: docs/LEDGEX_SPEC.md §3.7.
 
 -- Ordering of restriction severity, most restrictive first. Single source of
--- truth for both the trigger and core/rights.
+-- truth for both the trigger and core/rights. Raises rather than returning
+-- NULL for an unhandled value so a future use_restriction addition fails
+-- loudly here instead of silently breaking every ORDER BY / comparison that
+-- calls this function (a NULL severity would otherwise sort unpredictably
+-- and could make the fact_licence_validate() comparison below pass when it
+-- shouldn't). A CASE expression can't RAISE, so this is a CASE statement in
+-- plpgsql rather than the previous single SQL-language CASE expression.
 CREATE OR REPLACE FUNCTION restriction_severity(r use_restriction)
 RETURNS smallint AS $$
-    SELECT CASE r
-        WHEN 'unknown'       THEN 0
-        WHEN 'noncommercial' THEN 1
-        WHEN 'no_resale'     THEN 2
-        WHEN 'attribution'   THEN 3
-        WHEN 'open'          THEN 4
-    END;
-$$ LANGUAGE sql IMMUTABLE;
+BEGIN
+    CASE r
+        WHEN 'unknown'       THEN RETURN 0;
+        WHEN 'noncommercial' THEN RETURN 1;
+        WHEN 'no_resale'     THEN RETURN 2;
+        WHEN 'attribution'   THEN RETURN 3;
+        WHEN 'open'          THEN RETURN 4;
+        ELSE
+            RAISE EXCEPTION 'restriction_severity: unhandled use_restriction value %', r;
+    END CASE;
+END;
+$$ LANGUAGE plpgsql IMMUTABLE;
 
 -- I4: facts are immutable. §3.7's CREATE TRIGGER statement names this
 -- function but LEDGEX_SPEC.md never actually defines a
@@ -79,24 +89,35 @@ CREATE TRIGGER fact_no_update BEFORE UPDATE ON fact
 -- I5: VALIDATE that a derived fact already carries the most restrictive
 -- licence among its inputs. Does not mutate. core/store.derive() must
 -- compute it.
+--
+-- Fires on UPDATE and DELETE as well as INSERT: fact_input rows can be
+-- corrected or removed (e.g. a lineage row entered against the wrong input),
+-- and the derived fact's licence needs re-checking against whatever input
+-- set remains, not just the set as of the original insert. NEW is
+-- unassigned on DELETE (and OLD is unassigned on INSERT), so the row whose
+-- fact_id to validate is resolved from whichever of NEW/OLD TG_OP actually
+-- supplies, instead of assuming NEW as the single-event version below did.
 CREATE OR REPLACE FUNCTION fact_licence_validate() RETURNS trigger AS $$
 DECLARE
+    target_fact_id   uuid;
     required_licence text;
     actual_licence    text;
 BEGIN
+    target_fact_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.fact_id ELSE NEW.fact_id END;
+
     SELECT f.licence_id INTO required_licence
       FROM fact_input fi
       JOIN fact       f ON f.id = fi.input_fact_id
       JOIN licence    l ON l.id = f.licence_id
-     WHERE fi.fact_id = NEW.fact_id
+     WHERE fi.fact_id = target_fact_id
      ORDER BY restriction_severity(l.restriction) ASC, f.licence_id ASC
      LIMIT 1;
 
     IF required_licence IS NULL THEN
-        RETURN NEW;                         -- no inputs recorded yet
+        RETURN NULL;                         -- no inputs recorded yet; ignored for an AFTER trigger
     END IF;
 
-    SELECT licence_id INTO actual_licence FROM fact WHERE id = NEW.fact_id;
+    SELECT licence_id INTO actual_licence FROM fact WHERE id = target_fact_id;
 
     IF (SELECT restriction_severity(l.restriction) FROM licence l WHERE l.id = actual_licence)
        > (SELECT restriction_severity(l.restriction) FROM licence l WHERE l.id = required_licence)
@@ -105,10 +126,10 @@ BEGIN
             'I5 violated: derived fact % carries licence %, but its inputs require % '
             '(or something at least as restrictive). Compute inheritance in '
             'core/store.derive() before insert.',
-            NEW.fact_id, actual_licence, required_licence;
+            target_fact_id, actual_licence, required_licence;
     END IF;
 
-    RETURN NEW;
+    RETURN NULL;                             -- ignored for an AFTER trigger
 END;
 $$ LANGUAGE plpgsql;
 
@@ -117,6 +138,6 @@ $$ LANGUAGE plpgsql;
 -- when the full input set is visible. Inserting inputs one at a time under a
 -- non-deferred trigger would fire on a partial set and raise spuriously.
 CREATE CONSTRAINT TRIGGER fact_licence_inheritance
-    AFTER INSERT ON fact_input
+    AFTER INSERT OR UPDATE OR DELETE ON fact_input
     DEFERRABLE INITIALLY DEFERRED
     FOR EACH ROW EXECUTE FUNCTION fact_licence_validate();

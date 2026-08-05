@@ -73,33 +73,6 @@ A target name without execution scope and a pass condition is not a definition o
 
 Converted verbatim from the v1.4 source document. Section numbering follows the original.
 
-## 2. Six make targets
-
-A target name without execution scope and a pass condition is not a definition of done.
-
-Target                            What it executes                                                                        Pass condition
-
-make check-boundary               Jurisdiction-name grep, import-linter, public-to-commerce catalogue query, filesystem   I1, I15, I17 and I19 pass; zero forbidden
-authority, no-graph and Track B no-render checks.                                       imports, FKs or derived authority.
-
-make schema                       Apply every forward-only migration to an empty database.                                Clean apply; constraints, functions and triggers
-compile.
-
-make schema-dump                  Regenerate db/schema.sql from the applied database and compare the committed            No diff; missing or stale generated DDL fails.
-dump.
-
-make conformance                  Parameterized pack suite for sources, mappings, rights, dependency cascades and         Every enabled pack passes; no rights
-endpoint liveness.                                                                      broadening or silent missing dependency.
-
-make test                         Unit and integration suites, including review, entitlement, outcome observation,        All required tests pass with zero skips and no
-provider slot, edge guard and billing independence.                                     external network dependency in CI.
-
-make golden                       Normalized composed, partial, refused and geometry-disabled Base Core fixtures.         Output matches approved fixtures; intended
-changes require reviewed fixture updates.
-
-All six targets run locally and in CI with zero required skips. A missing target, stale schema dump or omitted test is a failure,
-not a green build.
-
 ## 3. A-1.1 licence gate and document repair
 
 Why the gate covers internal facts
