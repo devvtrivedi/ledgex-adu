@@ -376,6 +376,21 @@ $$;
 
 
 --
+-- Name: rule_no_delete(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rule_no_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'I18 violated: rule % cannot be deleted. A correction is a new '
+        'rule row at version + 1, never a DELETE.', OLD.id;
+END;
+$$;
+
+
+--
 -- Name: rule_no_destructive_update(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -529,7 +544,7 @@ CREATE MATERIALIZED VIEW public.current_fact AS
      JOIN public.parcel p ON ((p.id = f.parcel_id)))
      LEFT JOIN public.source_rank sr ON (((sr.jurisdiction_id = p.jurisdiction_id) AND (sr.field_key = f.field_key) AND (sr.source_id = f.source_id))))
   WHERE ((f.superseded_at IS NULL) AND ((f.effective_to IS NULL) OR (f.effective_to > now())))
-  ORDER BY f.parcel_id, f.field_key, COALESCE((sr.rank)::integer, 999), f.confidence, f.retrieved_at DESC NULLS LAST
+  ORDER BY f.parcel_id, f.field_key, COALESCE((sr.rank)::integer, 999), f.confidence, f.retrieved_at DESC NULLS LAST, f.id
   WITH NO DATA;
 
 
@@ -675,7 +690,7 @@ CREATE TABLE public.parcel_exception (
     resolved_at timestamp with time zone,
     resolved_by text,
     resolution_notes text,
-    CONSTRAINT parcel_exception_check CHECK (((outcome = 'open'::public.exception_outcome) OR ((resolved_at IS NOT NULL) AND (resolved_by IS NOT NULL))))
+    CONSTRAINT parcel_exception_outcome_resolution_biconditional CHECK ((((outcome = 'open'::public.exception_outcome) AND (resolved_at IS NULL) AND (resolved_by IS NULL)) OR ((outcome <> 'open'::public.exception_outcome) AND (resolved_at IS NOT NULL) AND (resolved_by IS NOT NULL))))
 );
 
 
@@ -1097,6 +1112,13 @@ CREATE CONSTRAINT TRIGGER fact_licence_inheritance AFTER INSERT OR DELETE OR UPD
 --
 
 CREATE TRIGGER fact_no_update BEFORE UPDATE ON public.fact FOR EACH ROW EXECUTE FUNCTION public.fact_no_destructive_update();
+
+
+--
+-- Name: rule rule_no_delete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER rule_no_delete BEFORE DELETE ON public.rule FOR EACH ROW EXECUTE FUNCTION public.rule_no_delete();
 
 
 --

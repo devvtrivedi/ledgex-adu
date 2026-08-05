@@ -12,6 +12,14 @@
 -- a newer version supersedes it. Locking effective_to itself would make
 -- rule supersession impossible, so it stays mutable for that one
 -- transition only.
+--
+-- Every column is locked, not just the review-evidence ones
+-- (reviewed_by/review_mode/attestation_uri): if params or citation stayed
+-- mutable while the review columns were frozen, the review would attest to
+-- content that has since changed underneath it, and I11's "exact
+-- ruleset_version and citation" would no longer be exact. A DELETE is
+-- blocked outright (rule_no_delete below) for the same reason a rule row
+-- is never updated: retirement is effective_to, not removal.
 
 CREATE OR REPLACE FUNCTION rule_no_destructive_update() RETURNS trigger AS $$
 BEGIN
@@ -57,3 +65,16 @@ $$ LANGUAGE plpgsql;
 
 CREATE TRIGGER rule_no_update BEFORE UPDATE ON rule
     FOR EACH ROW EXECUTE FUNCTION rule_no_destructive_update();
+
+-- I18: a rule row is retired via effective_to (above), never removed. An
+-- unconditional raise, mirroring the UPDATE trigger's own error shape.
+CREATE OR REPLACE FUNCTION rule_no_delete() RETURNS trigger AS $$
+BEGIN
+    RAISE EXCEPTION
+        'I18 violated: rule % cannot be deleted. A correction is a new '
+        'rule row at version + 1, never a DELETE.', OLD.id;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER rule_no_delete BEFORE DELETE ON rule
+    FOR EACH ROW EXECUTE FUNCTION rule_no_delete();

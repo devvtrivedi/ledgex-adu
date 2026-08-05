@@ -25,13 +25,6 @@ CREATE TABLE parcel_exception (
     detected_at      timestamptz NOT NULL DEFAULT now(),
     outcome          exception_outcome NOT NULL DEFAULT 'open',
     resolved_at      timestamptz,
-    -- An actor identity, not necessarily a person — most closures are
-    -- automated and record something like
-    -- 'system:staleness_detector@1.2.0'. Requiring resolved_at and
-    -- resolved_by for every non-open outcome, including 'unresolved', is
-    -- intentional, not an oversight: I12 requires a closeable outcome, and
-    -- "looked and could not determine" is itself a closure that something
-    -- performed — it still needs to say what looked and when.
     resolved_by      text,
     resolution_notes text,
     CHECK (outcome = 'open' OR (resolved_at IS NOT NULL AND resolved_by IS NOT NULL))
