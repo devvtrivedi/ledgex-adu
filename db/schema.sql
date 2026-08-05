@@ -375,6 +375,55 @@ END;
 $$;
 
 
+--
+-- Name: rule_no_destructive_update(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.rule_no_destructive_update() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    -- One-way retirement: NULL -> a date is the only permitted change.
+    -- Once effective_to is set, IS NOT NULL is true for every subsequent
+    -- update attempt, so this single guard rejects both date -> NULL and
+    -- date -> a different date; it never fires for the NULL -> date case,
+    -- since OLD.effective_to is NULL there.
+    IF NEW.effective_to IS DISTINCT FROM OLD.effective_to
+       AND OLD.effective_to IS NOT NULL
+    THEN
+        RAISE EXCEPTION
+            'I18 violated: rule % effective_to is already set to % and '
+            'cannot be changed again (attempted %). A correction is a new '
+            'rule row at version + 1, never an UPDATE.',
+            OLD.id, OLD.effective_to, NEW.effective_to;
+    END IF;
+
+    IF NEW.id                IS DISTINCT FROM OLD.id
+       OR NEW.jurisdiction_id IS DISTINCT FROM OLD.jurisdiction_id
+       OR NEW.rule_key        IS DISTINCT FROM OLD.rule_key
+       OR NEW.version         IS DISTINCT FROM OLD.version
+       OR NEW.effective_from  IS DISTINCT FROM OLD.effective_from
+       OR NEW.citation        IS DISTINCT FROM OLD.citation
+       OR NEW.source_text_uri IS DISTINCT FROM OLD.source_text_uri
+       OR NEW.params          IS DISTINCT FROM OLD.params
+       OR NEW.pack_version    IS DISTINCT FROM OLD.pack_version
+       OR NEW.authored_by     IS DISTINCT FROM OLD.authored_by
+       OR NEW.reviewed_by     IS DISTINCT FROM OLD.reviewed_by
+       OR NEW.review_mode     IS DISTINCT FROM OLD.review_mode
+       OR NEW.reviewed_at     IS DISTINCT FROM OLD.reviewed_at
+       OR NEW.attestation_uri IS DISTINCT FROM OLD.attestation_uri
+    THEN
+        RAISE EXCEPTION
+            'I18 violated: rule % is immutable. Only effective_to may be '
+            'set (NULL -> a date, once). A correction is a new rule row at '
+            'version + 1, never an UPDATE.', OLD.id;
+    END IF;
+
+    RETURN NEW;
+END;
+$$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -1048,6 +1097,13 @@ CREATE CONSTRAINT TRIGGER fact_licence_inheritance AFTER INSERT OR DELETE OR UPD
 --
 
 CREATE TRIGGER fact_no_update BEFORE UPDATE ON public.fact FOR EACH ROW EXECUTE FUNCTION public.fact_no_destructive_update();
+
+
+--
+-- Name: rule rule_no_update; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER rule_no_update BEFORE UPDATE ON public.rule FOR EACH ROW EXECUTE FUNCTION public.rule_no_destructive_update();
 
 
 --
