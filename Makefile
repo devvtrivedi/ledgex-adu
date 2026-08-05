@@ -6,7 +6,7 @@
 # PostGIS 3.4 instance reachable at DATABASE_URL. They are not exercised by
 # `make all`, which only needs Python.
 
-.PHONY: docs pdf qa all schema schema-dump conformance clean
+.PHONY: docs pdf qa all clean check-boundary schema schema-dump conformance test golden
 
 PYTHON         ?= python3
 MIGRATIONS_DIR := db/migrations
@@ -29,7 +29,28 @@ pdf: docs
 qa:
 	$(PYTHON) build/qa_check.py
 
-all: docs qa
+# qa must run before docs is regenerated, not after: if docs runs first, the
+# staleness check in qa compares freshly-rebuilt markdown against the
+# builders that just rebuilt it, which can never fail. It only has teeth run
+# standalone against a committed tree — which is what CI does (CI calls
+# `make qa` on its own, never `make docs` first). pdf still depends on docs
+# for its own input, so `make all` still regenerates docs; it just does so
+# after qa has already checked the tree as committed, not before.
+all: qa pdf
+
+# --- Six make targets (spec §1.2) ---
+# The spec's CI gate. check-boundary/schema/schema-dump/conformance/test/golden
+# are the six; `docs`/`pdf`/`qa`/`all`/`clean` above are this repo's own
+# convenience targets, not part of that six.
+
+# Spec §1.2 make check-boundary: "Jurisdiction-name grep, import-linter,
+# public-to-commerce catalogue query, filesystem authority, no-graph and
+# Track B no-render checks." None of that infrastructure (core/, commerce/,
+# .graphify/) exists in this repo yet, so this currently only runs the
+# document QA gate — the one piece of check-boundary's scope (I17,
+# filesystem authority) that's implemented so far.
+check-boundary:
+	$(PYTHON) build/qa_check.py
 
 # Apply every forward-only migration to an empty database, in order.
 # Spec §1.2 make schema: "Clean apply; constraints, functions and triggers
@@ -71,6 +92,19 @@ conformance:
 	else \
 		echo "tests/conformance does not exist yet — no conformance packs to run."; \
 	fi
+
+# Spec §1.2 make test: "Unit and integration suites, including review,
+# entitlement, outcome observation, provider slot, edge guard and billing
+# independence." Stub — none of core/, commerce/ or their test suites exist
+# in this repo yet.
+test:
+	@echo "TODO: unit and integration test suite"
+
+# Spec §1.2 make golden: "Normalized composed, partial, refused and
+# geometry-disabled Base Core fixtures." Stub — the composer and
+# tests/golden/ca_san_jose fixtures don't exist in this repo yet.
+golden:
+	@echo "TODO: golden fixture comparison"
 
 clean:
 	rm -rf dist build/__pycache__ $(SCHEMA_DUMP).tmp
