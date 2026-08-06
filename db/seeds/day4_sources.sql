@@ -8,15 +8,37 @@ BEGIN;
 -- ============================================================================
 -- LICENCES (idempotent: ON CONFLICT DO NOTHING)
 -- ============================================================================
-
+-- observed_at = 2026-07-31, the Municipal Data & API Audit v1.1's own stated
+-- research baseline / access date for these three datasets ("RESEARCH
+-- BASELINE 31 JULY 2026"; per-city evidence register entry J-SCC-12 for San
+-- Jose lists GIS Open Data / City data portal / Zoning districts / Active
+-- building permits all "Accessed 31 Jul 2026"; the licence table on p.17-18
+-- records Parcels=CC BY, Zoning Districts=CC BY, Active Building Permits=CC0
+-- as of that same pass). NOT a fabricated now() -- this is a real, sourced
+-- date, not the date this seed script happens to run.
+--
+-- cleared_by / cleared_at are NULL, not 'Devin'/now(): the audit's own
+-- diligence register (p.36, Evidence Index) lists "San José licence
+-- confirmations -- Per-resource channel posture and counsel/owner sign-off"
+-- as status "Pending", and separately "Source and licence ledger -- URL/item
+-- ID, snapshot, retrieval date, observed terms" also "Pending". Nobody --
+-- Devin included -- has performed that sign-off yet. NULL is the honest
+-- value until a specific actor and date can be named for it.
+--
+-- terms_url is the canonical CC deed for each licence. evidence_uri is NULL:
+-- no stored snapshot of the actual terms page exists yet (the audit recorded
+-- the licence position, not a retained copy of the terms text) -- a real gap
+-- in the rights position, recorded here rather than papered over.
 INSERT INTO licence (
   id, display_name, restriction, commercial_use, redistribution,
-  attribution_text, observed_at, cleared_by, cleared_at
+  attribution_text, terms_url, evidence_uri, observed_at, cleared_by, cleared_at
 ) VALUES
   ('cc0', 'CC0 1.0 Universal', 'open', 'allowed', 'allowed',
-   NULL, now(), 'Devin', now()),
+   NULL, 'https://creativecommons.org/publicdomain/zero/1.0/', NULL,
+   '2026-07-31'::timestamptz, NULL, NULL),
   ('cc_by_4_0', 'CC BY 4.0', 'attribution', 'allowed', 'allowed',
-   'Data © City of San José', now(), 'Devin', now())
+   'Data © City of San José', 'https://creativecommons.org/licenses/by/4.0/', NULL,
+   '2026-07-31'::timestamptz, NULL, NULL)
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
@@ -90,10 +112,30 @@ ON CONFLICT (field_key) DO NOTHING;
 -- the endpoint -- source_active_requires_verification exists precisely to
 -- keep a source nobody has checked from being switched live. A real
 -- liveness check should set active=true and url_verified_at to the real
--- check time once it actually happens.
+-- check time once it actually happens -- and per source_active_requires_verification's
+-- purpose, that check must confirm the response media type and shape
+-- (e.g. actual GeoJSON/CSV matching expected_fields below), not just a 200
+-- status code, since a landing page also returns 200.
+--
+-- endpoint_url for zoning_districts and building_permits_active corrected
+-- 2026-08-06: both previously pointed at data.sanjoseca.gov dataset landing
+-- pages (HTML for a human), not a machine endpoint, for method='direct'
+-- sources. Verified directly (curl, following redirects) rather than
+-- guessed:
+--   zoning_districts:        the ArcGIS Hub GeoJSON download link off the
+--                             dataset's own resource list, same download-API
+--                             shape already used for parcels. Resolves
+--                             (302 -> 200) to Content-Type: application/json.
+--   building_permits_active: the CKAN resource's direct CSV download link.
+--                             Resolves (302, to a signed S3 URL) to
+--                             Content-Type: text/csv, body confirmed to be
+--                             real permit rows (FOLDERNUMBER, ISSUEDATE,
+--                             etc.), not HTML.
+-- parcels' endpoint_url was already correct and is unchanged.
 INSERT INTO source (
   id, jurisdiction_id, display_name, steward, method, phase_status,
-  phase_status_reason, endpoint_url, licence_id, active, url_verified_at
+  phase_status_reason, endpoint_url, licence_id, active, url_verified_at,
+  expected_fields
 ) VALUES
   ('ca_san_jose.parcels',
    'ca_san_jose',
@@ -105,7 +147,8 @@ INSERT INTO source (
    'https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/4bb085cb99a64eff8e83d2bf92a8d5cb/geojson?layers=270',
    'cc_by_4_0',
    false,
-   NULL),
+   NULL,
+   '["parcel.apn","parcel.geometry","parcel.lot_area_gis","parcel.situs_address"]'::jsonb),
 
   ('ca_san_jose.zoning_districts',
    'ca_san_jose',
@@ -114,10 +157,11 @@ INSERT INTO source (
    'direct',
    'active',
    'Licence confirmed: CC BY 4.0. Endpoint liveness not yet verified -- pending a real check before activation.',
-   'https://data.sanjoseca.gov/dataset/zoning-districts',
+   'https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/adf17ae739214787ad42945c5f72ccd8/geojson?layers=401',
    'cc_by_4_0',
    false,
-   NULL),
+   NULL,
+   '["zoning.district","zoning.district_verbatim"]'::jsonb),
 
   ('ca_san_jose.building_permits_active',
    'ca_san_jose',
@@ -126,10 +170,11 @@ INSERT INTO source (
    'direct',
    'active',
    'Licence confirmed: CC0. Endpoint liveness not yet verified -- pending a real check before activation.',
-   'https://data.sanjoseca.gov/dataset/active-building-permits',
+   'https://data.sanjoseca.gov/dataset/fd9ceb0c-75e0-402e-9fe3-3f6e04f2c23f/resource/761b7ae8-3be1-4ad6-923d-c7af6404a904/download/buildingpermitsactive.csv',
    'cc0',
    false,
-   NULL)
+   NULL,
+   '["permits.active","permits.series_earliest"]'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================

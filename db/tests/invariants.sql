@@ -754,6 +754,24 @@ END $$;
 -- test's PASS path (see each test above). Add, remove, or break a test and
 -- this number changes with it -- it cannot silently go stale the way a
 -- hardcoded "N/N" string did before.
+--
+-- The floor below IS a maintained literal, deliberately: count(*) alone
+-- reports honestly but never fails, so deleting a test (or a test silently
+-- stopping short of its INSERT INTO test_pass) would still print a lower
+-- number and still exit 0 -- coverage shrinking in total silence. Unlike the
+-- "17/17" banner this replaced, a wrong floor fails loudly and immediately,
+-- on the very run that made it wrong, in exactly the same self-asserting
+-- style as every test above -- not a display string nothing checks. Bump
+-- this number in the same commit that adds or removes a test.
+DO $$
+DECLARE
+    v_pass_count int;
+BEGIN
+    SELECT count(*) INTO v_pass_count FROM test_pass;
+    IF v_pass_count < 18 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 18 passing tests, got %', v_pass_count;
+    END IF;
+END $$;
 
 SELECT count(*) AS pass_count FROM test_pass
 \gset
