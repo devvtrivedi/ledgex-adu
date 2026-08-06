@@ -64,11 +64,26 @@ ON CONFLICT (licence_id, channel) DO NOTHING;
 -- ============================================================================
 -- JURISDICTION (already seeded from invariant tests, but idempotent)
 -- ============================================================================
-
+-- tier = 'blocked' (the column's own default), not 'tier_1'. Spec v1.8 §5.3
+-- assesses tier on coverage, freshness, reliability and required-field
+-- completeness -- but only NAMES those four criteria and gives a qualitative
+-- table (e.g. Tier 1 = "Complete core + permit feed; reliable refresh"). It
+-- defines no concrete threshold for any of the four: no coverage percentage,
+-- no freshness SLA, no reliability metric. There are zero fact rows for
+-- ca_san_jose in the database -- no ingestion has ever run -- so none of the
+-- four criteria has actually been assessed, let alone met. Not even Tier 3's
+-- "partial coverage" is evidenced: zero is not partial, it is none.
+-- 'tier_1' would be exactly the defect already fixed for
+-- source.url_verified_at and licence.observed_at/cleared_at elsewhere in
+-- this file -- a field recording an assessment, set before the assessment
+-- happened. A real assessment against §5.3's four criteria, once ingestion
+-- exists and has actually run against these sources, should set this
+-- properly. Until then 'blocked' is the honest value, not a placeholder to
+-- be quietly upgraded later without evidence.
 INSERT INTO jurisdiction (
   id, display_name, kind, state_code, tier, pack_version, supported
 ) VALUES
-  ('ca_san_jose', 'City of San José', 'city', 'CA', 'tier_1', 'v1.0', true)
+  ('ca_san_jose', 'City of San José', 'city', 'CA', 'blocked', 'v1.0', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================

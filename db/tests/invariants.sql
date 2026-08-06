@@ -47,10 +47,18 @@ INSERT INTO licence (
    'Test fixture attribution text', now(), 'test', now())
 ON CONFLICT (id) DO NOTHING;
 
+-- tier omitted -- defaults to 'blocked' (0002's own column default). No test
+-- here reads jurisdiction.tier, and this row shares its id with
+-- db/seeds/day4_sources.sql's jurisdiction row: both use ON CONFLICT (id) DO
+-- NOTHING, so whichever seed runs first against a shared database silently
+-- wins the value. Explicitly stamping 'tier_1' here would risk defeating
+-- day4_sources.sql's own fix (tier is unassessable with zero facts in the
+-- database) depending on run order. Letting both agree on the column
+-- default removes that risk instead of relying on run order to hide it.
 INSERT INTO jurisdiction (
-  id, display_name, kind, state_code, tier, pack_version, supported
+  id, display_name, kind, state_code, pack_version, supported
 ) VALUES
-  ('ca_san_jose', 'City of San José', 'city', 'CA', 'tier_1', 'v1.0', true)
+  ('ca_san_jose', 'City of San José', 'city', 'CA', 'v1.0', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- active = false, no url_verified_at: nothing in this suite needs the
