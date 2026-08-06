@@ -1,0 +1,16 @@
+Tier Redefinition Prompt
+
+Current spec incorrectly uses retrieval granularity ("direct" vs "bulk") as a tier determinant. This is wrong.
+
+Tier should measure coverage, freshness, reliability, and required-field completeness—not how data is fetched.
+
+Example: San José parcels, zoning, and permits will be bulk snapshots (~210 MB, refreshed on schedule). They provide complete core coverage, regular updates, and 100% of required fields. By coverage/freshness/reliability metrics, this is Tier 1 material. The fact that retrieval is bulk—not incremental API queries—is implementation detail, not a downgrade.
+
+Rewrite §4 (Tier Framework) to:
+- Define each tier by data quality and coverage outcomes
+- Drop any language that conflates "bulk" with lower tier
+- Use San José as Tier 1 example (coverage is complete; bulk method doesn't change that)
+- Clarify that Tier 3 is for partial or unreliable coverage, regardless of fetch mode
+- Note that bulk can enable better freshness than rate-limited APIs
+
+Keep it ~200–300 words. Keep existing tier names and general structure; just fix the conceptual error.
