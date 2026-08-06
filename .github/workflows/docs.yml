@@ -1,0 +1,39 @@
+name: docs
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      # Pinned to 3.10.1 -- the exact version used locally to generate the
+      # committed website/*.html. Pandoc's header-id slugification has
+      # changed across releases (build/build_website.py's docstring notes
+      # this); apt's whatever-is-current pandoc could disagree with the
+      # committed HTML on id text alone, with zero actual content drift, and
+      # check_website_current would report a false failure. Pinning removes
+      # that as a variable. Bump this alongside the local pandoc version if
+      # website/*.html is ever regenerated with a newer one.
+      - name: Install pandoc 3.10.1
+        run: |
+          curl -fsSL -o pandoc.deb \
+            https://github.com/jgm/pandoc/releases/download/3.10.1/pandoc-3.10.1-1-amd64.deb
+          sudo dpkg -i pandoc.deb
+          pandoc --version
+
+      # Covers all six document gates: invariant/target presence in both
+      # artifacts, no copied invariant table, no mangled prose duplicate,
+      # docs/*.md regenerates clean, website/*.html regenerates clean
+      # (requires the pandoc install above -- this step must not skip or
+      # soften if pandoc were ever missing; check_website_current fails
+      # loudly by design rather than passing silently).
+      - name: make qa
+        run: make qa

@@ -130,13 +130,13 @@ db-test:
 
 # Parameterized pack suite for sources, mappings, rights and dependency
 # cascades. Spec §1.2 make conformance: "Every enabled pack passes; no
-# rights broadening or silent missing dependency."
+# rights broadening or silent missing dependency." Fails rather than
+# reporting a pass: no conformance packs exist in this repo yet, and a
+# target that exits 0 having run nothing is indistinguishable from a target
+# that ran everything and it all passed -- the same defect test and golden
+# were already fixed for. Must keep failing until real packs back it.
 conformance:
-	@if [ -d tests/conformance ]; then \
-		$(PYTHON) -m pytest tests/conformance -q; \
-	else \
-		echo "tests/conformance does not exist yet — no conformance packs to run."; \
-	fi
+	@echo "conformance: not implemented in Phase 1 (no packs exist)" && exit 1
 
 # Spec §1.2 make test: "Unit and integration suites, including review,
 # entitlement, outcome observation, provider slot, edge guard and billing

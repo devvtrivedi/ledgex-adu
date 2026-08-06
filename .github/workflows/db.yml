@@ -1,0 +1,72 @@
+name: db
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  schema:
+    runs-on: ubuntu-latest
+
+    # Pinned to 16-3.4, not `latest` or `16`: §3 specifies "PostgreSQL 16 +
+    # PostGIS 3.4" as the schema's target, and a schema-only dump taken
+    # against a different major version produces a false diff against the
+    # committed db/schema.sql (this project already hit exactly that
+    # problem once, with a local PG 17 server).
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ledgex_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ledgex_ci
+      # Referenced by full path, not left to resolve on PATH: Ubuntu's
+      # postgresql-client-16 package does not necessarily become the
+      # unqualified `psql`/`pg_dump` if another client version is already
+      # present on the runner image, and a version mismatch against the
+      # PostgreSQL 16 service is the same false-diff trap as above.
+      PSQL: /usr/lib/postgresql/16/bin/psql
+      PG_DUMP: /usr/lib/postgresql/16/bin/pg_dump
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install postgresql-client-16
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          "$PSQL" --version
+          "$PG_DUMP" --version
+
+      # Spec §1.2 make schema: "Clean apply; constraints, functions and
+      # triggers compile." Applies every forward-only migration, in order,
+      # to the empty service database.
+      - name: make schema
+        run: make schema DATABASE_URL="$DATABASE_URL" PSQL="$PSQL"
+
+      # The 19-test self-asserting invariant suite (I2-I5, I13, I18, the
+      # parcel_exception biconditional, and S1's source-access-method
+      # check). Every test aborts the script with a nonzero exit on any
+      # wrong outcome under ON_ERROR_STOP -- there is no soft-pass path.
+      - name: make db-test
+        run: make db-test DATABASE_URL="$DATABASE_URL" PSQL="$PSQL"
+
+      # Spec §1.2 make schema-dump: "No diff; missing or stale generated DDL
+      # fails." Regenerates db/schema.sql from the now-migrated (and
+      # db-tested, though schema-only means test data doesn't affect this)
+      # service database and diffs it against the committed file. The
+      # target itself exits 1 and prints "... regenerated — review and
+      # commit the diff." on any difference -- this is what catches a
+      # migration that was added without regenerating and committing the
+      # dump.
+      - name: make schema-dump
+        run: make schema-dump DATABASE_URL="$DATABASE_URL" PG_DUMP="$PG_DUMP"
