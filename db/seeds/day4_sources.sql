@@ -102,13 +102,32 @@ INSERT INTO field_definition (
 ON CONFLICT (field_key) DO NOTHING;
 
 -- ============================================================================
--- SOURCES: The three confirmed endpoints
+-- SOURCES: The three confirmed bulk downloads
 -- ============================================================================
+-- method='bulk', not 'direct'. All three endpoints serve the ENTIRE dataset in
+-- a single response -- 225,039 parcel features, 13,691 zoning features, 17,492
+-- permit rows -- and none of them accepts a per-parcel or per-record query
+-- parameter. 'direct' is for a source that answers a request-time query for one
+-- record; that is not what these are. The enum has carried both values since
+-- 0001, so this is a classification fix, not a schema change.
+--
+-- This is NOT a tier signal. Spec v1.8 §5.3 assesses tier on coverage,
+-- freshness, reliability and required-field completeness, not on fetch mode:
+-- complete coverage refreshed on a stated cadence is Tier 1 material whether it
+-- arrives as a snapshot or as incremental queries. jurisdiction.tier stays
+-- 'tier_1' and nothing derives it from source.method.
+--
+-- Consequence for ingest: the downloaded response body must be hashed and
+-- retained as a snapshot row (object_uri, content_hash, byte_size, media type,
+-- retrieval time) BEFORE parsing, and the parsed rows reference that snapshot
+-- rather than replacing it -- the parcels body alone is ~210 MB. An unchanged
+-- content_hash means the source is unchanged and the job stops before parsing
+-- (job_run.status = 'skipped_unchanged'). No new table or enum value is needed
+-- for any of this; snapshot and job_run already carry it.
 
 -- endpoint_url for zoning_districts and building_permits_active corrected
 -- 2026-08-06: both previously pointed at data.sanjoseca.gov dataset landing
--- pages (HTML for a human), not a machine endpoint, for method='direct'
--- sources. Corrected to:
+-- pages (HTML for a human), not a machine endpoint. Corrected to:
 --   zoning_districts:        the ArcGIS Hub GeoJSON download link off the
 --                             dataset's own resource list, same download-API
 --                             shape already used for parcels.
@@ -144,7 +163,7 @@ INSERT INTO source (
    'ca_san_jose',
    'Parcels (Santa Clara County Assessor / City of San José GIS)',
    'City of San José',
-   'direct',
+   'bulk',
    'active',
    'Licence confirmed: CC BY 4.0. Endpoint verified 2026-08-06: GET, 200, Content-Type application/json, body is a well-formed GeoJSON FeatureCollection (225,039 Polygon features).',
    'https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/4bb085cb99a64eff8e83d2bf92a8d5cb/geojson?layers=270',
@@ -157,7 +176,7 @@ INSERT INTO source (
    'ca_san_jose',
    'Zoning Districts (City of San José)',
    'City of San José',
-   'direct',
+   'bulk',
    'active',
    'Licence confirmed: CC BY 4.0. Endpoint verified 2026-08-06: GET, 200, Content-Type application/json, body is a well-formed GeoJSON FeatureCollection (13,691 Polygon features).',
    'https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/adf17ae739214787ad42945c5f72ccd8/geojson?layers=401',
@@ -170,7 +189,7 @@ INSERT INTO source (
    'ca_san_jose',
    'Active Building Permits (City of San José)',
    'City of San José',
-   'direct',
+   'bulk',
    'active',
    'Licence confirmed: CC0. Endpoint verified 2026-08-06: GET, 200, Content-Type text/csv, body is 17,492 real permit rows (not HTML).',
    'https://data.sanjoseca.gov/dataset/fd9ceb0c-75e0-402e-9fe3-3f6e04f2c23f/resource/761b7ae8-3be1-4ad6-923d-c7af6404a904/download/buildingpermitsactive.csv',
@@ -239,5 +258,7 @@ SELECT '## Source Rank (field winners)' AS status;
 SELECT field_key, source_id, rank FROM source_rank WHERE jurisdiction_id = 'ca_san_jose' ORDER BY field_key;
 
 \echo ''
-\echo 'Ready for Day 5: Write missing migrations.'
+\echo 'Sources registered with method=bulk. Existing databases seeded before'
+\echo '0016 keep the old direct value -- this seed is ON CONFLICT DO NOTHING.'
+\echo 'Apply db/migrations/0016_source_access_method_corrections.sql to those.'
 \echo '';

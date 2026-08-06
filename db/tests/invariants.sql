@@ -1,5 +1,6 @@
--- Invariant tests for I2, I3, I4, I5, I13, I18, and the parcel_exception
--- outcome/resolution biconditional (0015).
+-- Invariant tests for I2, I3, I4, I5, I13, I18, the parcel_exception
+-- outcome/resolution biconditional (0015), and the seeded San José source
+-- access methods (0016).
 -- Run with: psql -v ON_ERROR_STOP=1 -f db/tests/invariants.sql DATABASE_URL
 -- (or `make db-test`)
 --
@@ -747,6 +748,70 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST S1: the three active San José sources are method='bulk' (0016)
+-- ============================================================================
+-- Deliberate exception to this file's isolation rule ("no test ever
+-- references a row it did not create in that same run"). This one checks
+-- three REAL seeded rows, because what it guards is exactly a seed-data
+-- fact: db/seeds/day4_sources.sql originally registered parcels, zoning
+-- districts and active building permits as method='direct' when all three
+-- are whole-dataset downloads. The schema cannot enforce this -- 'direct'
+-- and 'bulk' are both legal access_method values and both satisfy
+-- source_active_requires_machine_access -- so nothing but a test catches a
+-- regression here.
+--
+-- It creates nothing and modifies nothing; it only reads.
+--
+-- Absence is a skip, not a failure, and the skip is labelled as one. This
+-- suite is normally run against a migrations-only database (`make schema`
+-- then `make db-test`); there is no seed target, so on that path the three
+-- rows do not exist and there is nothing to check. Asserting presence would
+-- make `make db-test` fail on the standard workflow for a reason that has
+-- nothing to do with correctness. The guard has teeth when the suite is run
+-- against a seeded database -- which is where a regression could exist.
+--
+-- What is NOT tolerated in either case is a partial set: three rows all
+-- present or three rows all absent are both coherent states, but one or two
+-- present means the seed half-applied, and that is reported as a failure
+-- rather than skipped past.
+
+\echo '### TEST S1: ca_san_jose parcels/zoning/permits are method=bulk (0016)'
+
+DO $$
+DECLARE
+    v_ids text[] := ARRAY[
+        'ca_san_jose.parcels',
+        'ca_san_jose.zoning_districts',
+        'ca_san_jose.building_permits_active'
+    ];
+    v_present int;
+    v_wrong   text;
+BEGIN
+    SELECT count(*) INTO v_present FROM source WHERE id = ANY(v_ids);
+
+    IF v_present = 0 THEN
+        RAISE NOTICE 'PASS S1 (skipped): none of the three seeded sources present -- db/seeds/day4_sources.sql has not been applied to this database, so there is nothing to regress';
+        INSERT INTO test_pass VALUES ('S1');
+        RETURN;
+    END IF;
+
+    IF v_present <> array_length(v_ids, 1) THEN
+        RAISE EXCEPTION 'FAIL S1: % of % seeded sources present -- the seed half-applied; expected all three or none', v_present, array_length(v_ids, 1);
+    END IF;
+
+    SELECT string_agg(id || '=' || method::text, ', ' ORDER BY id) INTO v_wrong
+      FROM source
+     WHERE id = ANY(v_ids) AND method <> 'bulk';
+
+    IF v_wrong IS NOT NULL THEN
+        RAISE EXCEPTION 'FAIL S1: expected method=bulk for all three seeded San José sources, got %. Apply db/migrations/0016_source_access_method_corrections.sql -- the seed uses ON CONFLICT DO NOTHING and will not correct an already-seeded database', v_wrong;
+    END IF;
+
+    RAISE NOTICE 'PASS S1: all three seeded San José sources are method=bulk';
+    INSERT INTO test_pass VALUES ('S1');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -768,8 +833,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 18 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 18 passing tests, got %', v_pass_count;
+    IF v_pass_count < 19 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 19 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 
