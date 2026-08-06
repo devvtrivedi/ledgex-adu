@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.7
+ Engineering Reference Spec v1.8
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -39,12 +39,12 @@ LEDGEX / ADU.X
 
        CONTROL
 
-       Revision 1.7 - August 2026. Commercial master: Business Plan 2.1.4. Operational restatement: Implementation Rules v1.4. Source planning:
+       Revision 1.8 - August 2026. Commercial master: Business Plan 2.1.4. Operational restatement: Implementation Rules v1.4. Source planning:
        Checklist v1.2. Municipal evidence and rights: Audit v1.1.
 
  Authority order
 
-   1        This Spec v1.7                                       Machine-executed build contract.
+   1        This Spec v1.8                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -72,7 +72,7 @@ LEDGEX / ADU.X
 
  0.2 One invariant source
 
- build_rules_v1_4.py owns INVARIANTS and MAKE_TARGETS. build_spec_v1_7.py imports those objects. Neither PDF is generated from a copied
+ build_rules_v1_4.py owns INVARIANTS and MAKE_TARGETS. build_spec_v1_8.py imports those objects. Neither PDF is generated from a copied
  invariant table. Document QA fails if any invariant body or enforcement cell differs.
 
      NO CLAIM OF APPLICATION EXECUTION
@@ -1075,15 +1075,20 @@ dependent answer computed without permits.
  Source tier determines coverage and outcome, not access price. Base Core and conditional modules are evaluated separately under declared
  dependencies.
 
-    Tier          Machine access                                   Base Core                                           Conditional modules
+ Tier is assessed on coverage, freshness, reliability and required-field completeness. Retrieval mode is not a tier determinant. A
+ complete, regularly refreshed bulk snapshot and an incremental query API rank the same where they deliver the same coverage, freshness
+ and required fields; method='bulk' is never in itself grounds for a lower tier, and a scheduled bulk refresh can be fresher than a
+ rate-limited per-request API. Tier 3 describes partial or unreliable coverage, whatever the fetch mode.
 
-    1             Direct queryable core + permit feed              May compose if rights and minimum core clear.       Placement only if LD-4 and siting inputs clear.
+    Tier          Coverage and reliability                         Base Core                                           Conditional modules
 
-    2             Direct core; permit depth incomplete             Partial; useful integrated screening may remain.    Permit/record-to-ground conclusions refuse.
+    1             Complete core + permit feed; reliable refresh    May compose if rights and minimum core clear.       Placement only if LD-4 and siting inputs clear.
 
-    3             Partial or bulk machine access                   Partial; named gaps and dependent refusals.         Unavailable modules refuse; no inferred fallback.
+    2             Complete core; permit depth incomplete           Partial; useful integrated screening may remain.    Permit/record-to-ground conclusions refuse.
 
-    4             Portal/document only                             Refused where minimum core cannot be                Refused.
+    3             Partial or unreliable coverage                   Partial; named gaps and dependent refusals.         Unavailable modules refuse; no inferred fallback.
+
+    4             Portal/document only; no machine coverage        Refused where minimum core cannot be                Refused.
                                                                    obtained.
 
     A*            Technically strong; rights blocked               Refused or omitted under I6.                        Refused regardless of tier until rights clear.
@@ -1279,7 +1284,7 @@ sources:
   - id: ca_san_jose.parcels
     display_name: Parcels
     steward: City of San José
-    method: direct
+    method: bulk
     licence: cc_by_4_0                      # CONFIRMED by audit; Plan App K active
     phase_status: active
     phase_status_reason: "CC BY confirmed; attribution attached automatically."
@@ -1290,7 +1295,7 @@ sources:
   - id: ca_san_jose.zoning_districts
     display_name: Zoning Districts
     steward: City of San José
-    method: direct
+    method: bulk
     licence: cc_by_4_0                      # CONFIRMED by audit; Plan App K active
     phase_status: active
     phase_status_reason: "CC BY confirmed; attribution attached automatically."
@@ -1301,10 +1306,10 @@ sources:
   - id: ca_san_jose.building_permits_active
     display_name: Active Building Permits
     steward: City of San José
-    method: direct
+    method: bulk
     licence: cc0                            # CONFIRMED — strongest position in the stack
     phase_status: active
-    phase_status_reason: "CC0 confirmed; no restriction. Basis of the tier 1 posture."
+    phase_status_reason: "CC0 confirmed; no restriction. Basis of the tier 1 posture (coverage and cadence, not fetch mode)."
     cadence_stated: "daily"
     earliest_record_date: null              # MUST BE MEASURED — gates record_to_ground
     supplies: [permits.active, permits.series_earliest]
@@ -1797,7 +1802,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.7
+                     Engineering Reference Spec v1.8
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1858,7 +1863,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.7
+                   Engineering Reference Spec v1.8
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1887,7 +1892,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.7
+                Engineering Reference Spec v1.8
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -2168,6 +2173,12 @@ signal to a caching artifact would be an expensive way to save tokens.
 
    Aug 2026             1.7                  Folded Architecture Addendum A-1: I19/I20, outcome loop, provider slot, edge   Creates measurement and infrastructure gates
                                              guard and six make targets.                                                    without commercial or human-path changes.
+
+   Aug 2026             1.8                  Corrected ca_san_jose.parcels, zoning_districts and building_permits_active    All three are whole-dataset downloads, not
+                                             from method='direct' to method='bulk'; §5.3 tier now assessed on coverage,     per-record queries. 'bulk' had also been
+                                             freshness, reliability and required-field completeness rather than fetch       written into the tier table as a downgrade,
+                                             mode.                                                                          which would have misread complete coverage as
+                                                                                                                            partial coverage.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
@@ -2573,7 +2584,7 @@ signal to a caching artifact would be an expensive way to save tokens.
   •     Subscription status never changes confidence, rights, omission or dependency-refusal behavior and never proves each file's individual value.
 
         CURRENT CONTROL CLOSE
-      Revision 1.7          st 2026. Current controlling engineering contract under Business Plan 2.1.4 and operationally restated by Rules v1.4
+      Revision 1.8          st 2026. Current controlling engineering contract under Business Plan 2.1.4 and operationally restated by Rules v1.4
                             -priced order, accepted-price and per-file payment provisions in v1.4 and earlier. It carries forward v1.5 r
         evidence controls. Checklist v1.2 and Audit v1.1 remain unchanged. No source, licence, endpoint, ordinance or gate is asserted cleared. This
         document is not legal advice.
