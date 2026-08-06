@@ -16,6 +16,12 @@ It asserts:
      found publishing two-week-stale, pre-fix content (mangled invariant
      prose, a duplicate make-targets table) that this gate never saw because
      it only read docs/*.md. Requires pandoc; see build/build_website.py.
+  6. Every "Engineering Reference Spec vX.Y" / "Implementation Rules vX.Y"
+     string in ANY website/*.html — not just the two check 5 regenerates —
+     matches ledgex_source.SPEC_VERSION / RULES_VERSION. Added after
+     website/index.html (hand-authored, not covered by check 5) was found
+     still reading "v1.7" after the spec bumped to v1.8: the same
+     one-layer-out blind spot as check 5 closed, one layer further out.
 
 Exit code 0 = pass, 1 = fail.
 """
@@ -183,12 +189,46 @@ def check_website_current():
                 f"`make site`.")
 
 
+SPEC_TITLE_RE = re.compile(r"Engineering Reference Spec v(\d+\.\d+)")
+RULES_TITLE_RE = re.compile(r"Implementation Rules v(\d+\.\d+)")
+
+
+def check_website_version_strings():
+    """Every 'Engineering Reference Spec vX.Y' / 'Implementation Rules vX.Y'
+    string in ANY website/*.html must match ledgex_source.SPEC_VERSION /
+    RULES_VERSION -- not just spec.html/rules.html, which check_website_current
+    already regenerates byte-for-byte. index.html is hand-authored, so
+    check_website_current can't see it; this check reads every website/*.html
+    file directly and doesn't care whether a page has a generator, closing
+    that blind spot one layer further out than check_website_current closed
+    the docs/*.md one.
+    """
+    website_dir = ROOT / "website"
+    for html_path in sorted(website_dir.glob("*.html")):
+        text = html_path.read_text(encoding="utf-8")
+        for m in SPEC_TITLE_RE.finditer(text):
+            found = m.group(1)
+            if found != S.SPEC_VERSION:
+                failures.append(
+                    f"{html_path.relative_to(ROOT)}: says 'Engineering "
+                    f"Reference Spec v{found}', current SPEC_VERSION is "
+                    f"v{S.SPEC_VERSION}")
+        for m in RULES_TITLE_RE.finditer(text):
+            found = m.group(1)
+            if found != S.RULES_VERSION:
+                failures.append(
+                    f"{html_path.relative_to(ROOT)}: says 'Implementation "
+                    f"Rules v{found}', current RULES_VERSION is "
+                    f"v{S.RULES_VERSION}")
+
+
 if __name__ == "__main__":
     check_presence()
     check_no_duplicate_table()
     check_no_mangled_invariant_prose()
     check_regenerates_clean()
     check_website_current()
+    check_website_version_strings()
     if failures:
         print("DOCUMENT QA FAILED\n")
         for f in failures:
@@ -196,4 +236,5 @@ if __name__ == "__main__":
         sys.exit(1)
     print(f"DOCUMENT QA PASSED — {len(S.INVARIANTS)} invariants and "
           f"{len(S.MAKE_TARGETS)} make targets verbatim in both artifacts; "
-          f"no copied tables; markdown current; website/*.html current.")
+          f"no copied tables; markdown current; website/*.html current; "
+          f"no stale version strings anywhere in website/*.html.")

@@ -17,7 +17,7 @@ REVISION_DATE = "August 2026"
 
 # --------------------------------------------------------------------------
 # INVARIANTS - I1 to I20. (id, invariant_body, enforcement)
-# Verbatim from Engineering Reference Spec v1.7 sec 1.
+# Verbatim from Engineering Reference Spec v1.8 sec 1.
 # --------------------------------------------------------------------------
 INVARIANTS = [
     ("I1",
