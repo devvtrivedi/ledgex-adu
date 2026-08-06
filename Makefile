@@ -107,6 +107,13 @@ schema:
 schema-dump:
 	@command -v $(PG_DUMP) >/dev/null 2>&1 || { echo "$(PG_DUMP) not found — install PostgreSQL 16 client tools"; exit 1; }
 	$(PG_DUMP) "$(DATABASE_URL)" --schema-only --no-owner --no-privileges --restrict-key=$(PG_DUMP_RESTRICT_KEY) > $(SCHEMA_DUMP).tmp
+	@# pg_dump embeds its own build string in "-- Dumped by pg_dump version
+	@# X.Y (Platform)" -- Homebrew's build and Ubuntu PGDG's build report
+	@# different platform text even at the identical version (hit this for
+	@# real: local 16.14 Homebrew vs CI 16.14 Ubuntu produced an otherwise
+	@# byte-identical dump that still "differed"). Strip it: it documents
+	@# which pg_dump binary ran, not anything about the schema.
+	@sed -i.bak '/^-- Dumped by pg_dump version/d' $(SCHEMA_DUMP).tmp && rm -f $(SCHEMA_DUMP).tmp.bak
 	@if [ ! -f $(SCHEMA_DUMP) ]; then \
 		mv $(SCHEMA_DUMP).tmp $(SCHEMA_DUMP); \
 		echo "wrote $(SCHEMA_DUMP) (no prior committed dump to compare)"; \
