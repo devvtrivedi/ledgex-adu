@@ -8,7 +8,7 @@
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | Engineering Reference Spec v1.8 | Machine-executed build contract. |
+| 1 | Engineering Reference Spec v1.9 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement of the Spec. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -65,7 +65,7 @@ A target name without execution scope and a pass condition is not a definition o
 
 > **ONE INVARIANT SOURCE**
 >
-> `build/ledgex_source.py` owns `INVARIANTS` and `MAKE_TARGETS`. `build_spec_v1_8.py` imports the same objects. A change that produces different invariant text in the two artifacts fails document QA (`python build/qa_check.py`).
+> `build/ledgex_source.py` owns `INVARIANTS` and `MAKE_TARGETS`. `build_spec_v1_9.py` imports the same objects. A change that produces different invariant text in the two artifacts fails document QA (`python build/qa_check.py`).
 
 ---
 
@@ -189,7 +189,7 @@ run.
 > **READ VERBATIM**
 
 Business Plan 2.1.4 - commercial boundary
-Engineering Reference Spec v1.8 - executable contract
+Engineering Reference Spec v1.9 - executable contract
 Implementation Rules v1.4 - operational restatement
 
 PRESERVE
@@ -211,4 +211,4 @@ customer-delivery boundary.
 
 ---
 
-*Generated 2026-08-05 by `build/build_rules_v1_4.py`. Source of record: `build/ledgex_source.py`.*
+*Generated 2026-08-06 by `build/build_rules_v1_4.py`. Source of record: `build/ledgex_source.py`.*

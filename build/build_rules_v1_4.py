@@ -6,7 +6,7 @@ Emits BOTH artifacts from one source:
   dist/LedgeX_Implementation_Rules_v1_4.pdf  <- presentation artifact (optional)
 
 This builder does NOT own a copied invariant table. It imports INVARIANTS and
-MAKE_TARGETS from ledgex_source.py. build_spec_v1_8.py imports the same objects.
+MAKE_TARGETS from ledgex_source.py. build_spec_v1_9.py imports the same objects.
 """
 import pathlib, sys, datetime
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
@@ -61,7 +61,7 @@ def render_md():
     p.append("> **ONE INVARIANT SOURCE**")
     p.append(">")
     p.append("> `build/ledgex_source.py` owns `INVARIANTS` and `MAKE_TARGETS`. "
-             "`build_spec_v1_8.py` imports the same objects. A change that produces "
+             "`build_spec_v1_9.py` imports the same objects. A change that produces "
              "different invariant text in the two artifacts fails document QA "
              "(`python build/qa_check.py`).")
     p.append("")

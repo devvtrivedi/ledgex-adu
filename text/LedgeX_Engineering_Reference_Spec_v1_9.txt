@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.8
+ Engineering Reference Spec v1.9
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.8                                       Machine-executed build contract.
+   1        This Spec v1.9                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -211,132 +211,19 @@ All tables in this section live in schema public. The commerce tables live in sc
 
 3.1 Extensions and enums
 
--- 0001_extensions_and_enums.sql
--- Serves: C1–C9, I2, I3, I13.
-CREATE EXTENSION IF NOT EXISTS postgis;
-CREATE EXTENSION IF NOT EXISTS pgcrypto;            -- gen_random_uuid(), digest()
-CREATE EXTENSION IF NOT EXISTS btree_gist;
+Serves: C1–C9, I2, I3, I13.
 
--- portal / manual classify a SOURCE that cannot be machine-read. They are never
--- a fact method: no fact may originate from a human reading a portal (I13).
-CREATE TYPE access_method           AS ENUM ('direct','bulk','portal','manual','derived');
-CREATE TYPE use_restriction         AS ENUM ('open','attribution','noncommercial','no_resale','unknown');
-CREATE TYPE permission_state        AS ENUM ('allowed','prohibited','unknown');
- CREATE TYPE output_channel    AS ENUM ('free_snapshot','paid_property_file','api','bulk_export');
-CREATE TYPE claim_type AS ENUM ('public_record','third_party_record','estimate','user_assumption','derived_conclusion');
-
-CREATE TYPE conflict_state          AS ENUM ('agree','conflicts','stale','missing');
-CREATE TYPE jurisdiction_tier AS ENUM ('tier_1','tier_2','tier_3','tier_4','blocked');
-CREATE TYPE exception_type          AS ENUM ('record_to_ground','cross_source','staleness',
-                                             'rule_boundary','coverage_gap','rights_gap');
-CREATE TYPE exception_severity AS ENUM ('info','warning','blocking');
-CREATE TYPE exception_outcome AS ENUM ('open','confirmed','false_positive','unresolved');
-CREATE TYPE file_status             AS ENUM ('composed','partial','refused');
-CREATE TYPE job_status              AS ENUM ('running','succeeded','failed','skipped_unchanged');
-CREATE TYPE support_category        AS ENUM ('data_dispute','missing_field','refusal_query',
-                                             'billing','usability','other');
-
--- v1.2: Phase 1 posture for a declared source. 'deferred' means the source is
--- real and known but out of scope for Phase 1; its fields are declared coverage
--- gaps rather than silent omissions. See §7.4.
-CREATE TYPE source_phase_status AS ENUM ('active','blocked_rights','blocked_engineering',
-                                                 'not_machine_readable','deferred','excluded');
+The DDL for this section is db/migrations/0001_extensions_and_enums.sql.
+db/schema.sql is the generated record of the applied result.
 
      Removed in v1.2: there is no confidence_floor concept and no CONFIDENCE_BELOW_THRESHOLD refusal. See §9.1.
 
 3.2 Registries — jurisdiction, licence, source
 
--- 0002_registries.sql
--- Serves: C6, I3, I6, I14.
-CREATE TABLE jurisdiction (
-     id                         text PRIMARY KEY,             -- 'ca_san_jose'
-     display_name               text NOT NULL,
-     kind                       text NOT NULL CHECK (kind IN ('city','county','state')),
-     parent_id                  text REFERENCES jurisdiction(id),
-     state_code                 char(2) NOT NULL,
-     tier                       jurisdiction_tier NOT NULL DEFAULT 'blocked',
-     pack_version               text NOT NULL,
-     boundary_source_id         text,                         -- FK added after source exists
-     geometry_tier_enabled boolean NOT NULL DEFAULT false,           -- I10 / C7
-     supported                  boolean NOT NULL DEFAULT false,
-     created_at                 timestamptz NOT NULL DEFAULT now()
-);
+Serves: C6, I3, I6, I14.
 
-CREATE TABLE licence (
-     id                 text PRIMARY KEY,         -- 'cc0', 'cc_by_4_0', 'sj_portal_terms'
-     display_name      text NOT NULL,
-     restriction        use_restriction NOT NULL,
-     commercial_use    permission_state NOT NULL DEFAULT 'unknown',
-     redistribution    permission_state NOT NULL DEFAULT 'unknown',
-     attribution_text text,
-     terms_url          text,
-     evidence_uri      text,                      -- stored snapshot of the terms
-     observed_at        timestamptz NOT NULL,
-     cleared_by         text,                     -- counsel / written permission
-     cleared_at         timestamptz,
-     notes              text,
-     CONSTRAINT licence_attribution_present
-            CHECK (restriction <> 'attribution' OR attribution_text IS NOT NULL)
-);
-
--- The channel matrix. Absence of a row = denied. Default deny (I6).
-CREATE TABLE licence_channel (
-     licence_id text NOT NULL REFERENCES licence(id) ON DELETE CASCADE,
-     channel      output_channel NOT NULL,
-     allowed       boolean NOT NULL,
-     rationale    text NOT NULL,
-     PRIMARY KEY (licence_id, channel)
-);
-
-CREATE TABLE source (
-
-     id                     text PRIMARY KEY,    -- 'ca_san_jose.building_permits_active'
-     jurisdiction_id        text NOT NULL REFERENCES jurisdiction(id),
-     display_name           text NOT NULL,
-     steward                text NOT NULL,
-     method                 access_method NOT NULL,
-     phase_status           source_phase_status NOT NULL DEFAULT 'blocked_rights',
-     phase_status_reason text NOT NULL,          -- v1.2: always stated, never blank
-     endpoint_url           text,                -- null only for method='manual'
-     layer_item_id          text,
-     query_params           jsonb NOT NULL DEFAULT '{}'::jsonb,
-     licence_id             text NOT NULL REFERENCES licence(id),
-     cadence_stated         text,                -- verbatim, e.g. 'weekly, Mondays'
-     cadence_observed_s     integer,             -- measured, seconds; null until measured
-     earliest_record_date date,                  -- measured depth of a history series
-     expected_fields        jsonb NOT NULL DEFAULT '[]'::jsonb,
-     url_verified_at        timestamptz,         -- null = NOT yet verified; blocks prod
-     active                 boolean NOT NULL DEFAULT false,
-     created_at             timestamptz NOT NULL DEFAULT now(),
-
-     CONSTRAINT source_endpoint_required
-            CHECK (method = 'manual' OR endpoint_url IS NOT NULL),
-     CONSTRAINT source_active_requires_verification
-            CHECK (active = false OR url_verified_at IS NOT NULL),
-     -- I14: a source a machine cannot read can never be switched on. It is recorded
-     -- so its absence is a known coverage gap, not an oversight.
-     CONSTRAINT source_active_requires_machine_access
-            CHECK (active = false OR method IN ('direct','bulk')),
-     -- v1.2: active and phase_status must agree. Prevents the §7.3 class of drift
-     -- where a summary table said "Yes" while the licence said otherwise.
-     CONSTRAINT source_active_matches_phase
-            CHECK (active = false OR phase_status = 'active')
-);
-
-ALTER TABLE jurisdiction
-     ADD CONSTRAINT jurisdiction_boundary_source_fk
-     FOREIGN KEY (boundary_source_id) REFERENCES source(id);
-
--- Which steward wins for which field in which jurisdiction (§3.8 current_fact).
-CREATE TABLE source_rank (
-     jurisdiction_id text NOT NULL REFERENCES jurisdiction(id),
-     field_key          text NOT NULL,
-     source_id          text NOT NULL REFERENCES source(id),
-     rank               smallint NOT NULL CHECK (rank > 0),
-     rationale          text NOT NULL,
-     PRIMARY KEY (jurisdiction_id, field_key, source_id),
-     UNIQUE (jurisdiction_id, field_key, rank)
-);
+The DDL for this section is db/migrations/0002_registries.sql.
+db/schema.sql is the generated record of the applied result.
 
 source_rank.field_key gains an FK to field_definition in migration 0003, which creates that table.
 
@@ -344,164 +231,36 @@ source_rank.field_key gains an FK to field_definition in migration 0003, which c
      + licence_channel. phase_status records why a source is off so a human can read the ledger; source_active_matches_phase keeps
      the two from contradicting each other. See §7.3.
 
+     db/migrations/0016_source_access_method_corrections.sql corrects source.method for three already-seeded San José
+     sources from 'direct' to 'bulk' -- a data correction, not a structural change; it adds no column and no constraint.
+     See §12's 1.8 entry.
+
 3.3 Canonical field vocabulary
 
--- 0003_fields.sql
--- Serves: I7 (stale_after_days), I9 (claim), §8.
-CREATE TABLE field_definition (
-     field_key            text PRIMARY KEY,           -- 'zoning.district'
-     display_name         text NOT NULL,
-     claim                claim_type NOT NULL,
-     value_type           text NOT NULL CHECK (value_type IN
-                            ('string','number','boolean','date','geometry','enum','object')),
-     unit                 text,
-     enum_values          text[],
-     category             text NOT NULL,              -- checklist section, e.g. 'zoning'
-     stale_after_days     integer,                    -- null = never stale (I7)
-     required_for_file boolean NOT NULL DEFAULT false,
-     -- v1.2: a field with no Phase 1 supplier. Declared, never silent (§7.4).
-     phase1_deferred      boolean NOT NULL DEFAULT false,
-     deferral_reason      text,
-     description          text NOT NULL,
-     CONSTRAINT field_enum_values_present
-            CHECK (value_type <> 'enum' OR enum_values IS NOT NULL),
-     CONSTRAINT field_unit_for_number
-            CHECK (value_type <> 'number' OR unit IS NOT NULL),
-     CONSTRAINT field_deferral_reason_present
-            CHECK (phase1_deferred = false OR deferral_reason IS NOT NULL),
-     -- A deferred field cannot also be required. Requiring a field nothing supplies
-     -- would refuse every file.
-     CONSTRAINT field_deferred_not_required
-            CHECK (phase1_deferred = false OR required_for_file = false)
-);
+Serves: I7 (stale_after_days), I9 (claim), §8.
 
-ALTER TABLE source_rank
-     ADD CONSTRAINT source_rank_field_fk
-     FOREIGN KEY (field_key) REFERENCES field_definition(field_key);
+The DDL for this section is db/migrations/0003_fields.sql.
+db/schema.sql is the generated record of the applied result.
 
 3.4 Parcel identity
 
--- 0004_parcel.sql
-CREATE TABLE parcel (
-     id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-     jurisdiction_id text NOT NULL REFERENCES jurisdiction(id),
-     apn              text NOT NULL,
-     situs_address   text,
-     geom             geometry(MultiPolygon, 4326),
-     centroid         geometry(Point, 4326),
-     first_seen_at   timestamptz NOT NULL DEFAULT now(),
-     last_seen_at    timestamptz NOT NULL DEFAULT now(),
-     UNIQUE (jurisdiction_id, apn)           -- APNs collide across counties
-);
-
-CREATE INDEX parcel_geom_gix             ON parcel USING gist (geom);
-CREATE INDEX parcel_centroid_gix ON parcel USING gist (centroid);
-CREATE INDEX parcel_apn_prefix           ON parcel (apn text_pattern_ops);
+The DDL for this section is db/migrations/0004_parcel.sql.
+db/schema.sql is the generated record of the applied result.
 
 3.5 Snapshots — the reconstruction backbone (C2)
 
--- 0005_snapshot.sql
-CREATE TABLE snapshot (
-     id                       text PRIMARY KEY,         -- 'sha256:...' content address
-     source_id                text NOT NULL REFERENCES source(id),
-     object_uri               text NOT NULL,            -- s3://bucket/sha256/...
-     content_hash             text NOT NULL,
-     media_type               text NOT NULL,
-     byte_size                bigint NOT NULL CHECK (byte_size >= 0),
-     request                  jsonb NOT NULL,           -- exact URL, params, headers sent
-     http_status              integer,
-     fetched_at               timestamptz NOT NULL,
-     licence_observed_id text NOT NULL REFERENCES licence(id),             -- at the moment of fetch
-     UNIQUE (content_hash, source_id)
-);
-
-CREATE INDEX snapshot_source_time ON snapshot (source_id, fetched_at DESC);
+The DDL for this section is db/migrations/0005_snapshot.sql.
+db/schema.sql is the generated record of the applied result.
 
 Change detection is free. Identical content_hash for a source means the source did not change, regardless of what
 cadence_stated claims. This is the mechanism behind I7.
 
 3.6 The fact ledger
 
--- 0006_fact.sql
--- Serves: C1–C5, C8, I2, I3, I13.
-CREATE TABLE fact (
-     id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-     parcel_id        uuid NOT NULL REFERENCES parcel(id),
-     field_key        text NOT NULL REFERENCES field_definition(field_key),
-     value            jsonb NOT NULL,
-     unit             text,
-     local_verbatim text,                       -- the source's own string. NEVER discard.
+Serves: C1–C5, C8, I2, I3, I13.
 
-     -- provenance (C1)
-     source_id        text REFERENCES source(id),
-     source_url       text,
-     layer_item_id   text,
-     snapshot_id     text REFERENCES snapshot(id),
-     method           access_method NOT NULL,
-
-     -- time, three separate facts (C8 / I7)
-     retrieved_at               timestamptz,
-     source_published_at       timestamptz,
-     source_cadence_stated text,
-     effective_from timestamptz NOT NULL,           -- valid time
-     effective_to    timestamptz,
-     recorded_at     timestamptz NOT NULL DEFAULT now(),            -- transaction time
-     superseded_at   timestamptz,
-
-     -- rights (C6 / I3)
-     licence_id       text NOT NULL REFERENCES licence(id),
-
-     -- judgement (C4, C5)
-     confidence            confidence_level NOT NULL,
-     confidence_rule_id text NOT NULL,
-     conflict              conflict_state NOT NULL DEFAULT 'agree',
-
-     -- lineage (C3)
-     method_version       text,
-     ruleset_version text,
-     pack_version         text NOT NULL,
-
-     CONSTRAINT fact_valid_time CHECK (effective_to IS NULL OR effective_to > effective_from),
-     CONSTRAINT fact_txn_time         CHECK (superseded_at IS NULL OR superseded_at >= recorded_at),
-
-     -- I2: retrieved facts need a source and a snapshot; derived facts need a method version
-     CONSTRAINT fact_provenance_complete CHECK (
-            (method = 'derived'
-                 AND source_id IS NULL AND snapshot_id IS NULL
-                 AND method_version IS NOT NULL)
-            OR
-            (method <> 'derived'
-                 AND source_id IS NOT NULL AND snapshot_id IS NOT NULL
-                 AND retrieved_at IS NOT NULL AND source_url IS NOT NULL)
-     ),
-
-     -- I13: no human observation ever becomes a fact. Every fact in the system is
-     -- machine-retrieved or deterministically derived, so there is no "unverified"
-     -- class of fact to reason about, label, or accidentally price into a file.
-     CONSTRAINT fact_method_automated CHECK (
-            method IN ('direct','bulk','derived')
-     )
-);
-
--- One current belief per (parcel, field, source). Corrections supersede.
-CREATE UNIQUE INDEX fact_one_current_per_source
-     ON fact (parcel_id, field_key, COALESCE(source_id, '~derived'), COALESCE(method_version, '~'))
-     WHERE superseded_at IS NULL;
-
-CREATE INDEX fact_lookup           ON fact (parcel_id, field_key, recorded_at DESC);
-CREATE INDEX fact_current          ON fact (parcel_id, field_key) WHERE superseded_at IS NULL;
-CREATE INDEX fact_by_source ON fact (source_id, retrieved_at DESC);
-CREATE INDEX fact_conflicts ON fact (conflict) WHERE conflict <> 'agree';
-
--- Lineage as a junction table: FK integrity + clean recursive CTE.
-CREATE TABLE fact_input (
-     fact_id           uuid NOT NULL REFERENCES fact(id) ON DELETE CASCADE,
-     input_fact_id uuid NOT NULL REFERENCES fact(id),
-     ordinal           smallint NOT NULL,
-     role              text NOT NULL,        -- 'lot_area', 'setback_rule', ...
-     PRIMARY KEY (fact_id, input_fact_id),
-     CONSTRAINT fact_input_not_self CHECK (fact_id <> input_fact_id)
-);
+The DDL for this section is db/migrations/0006_fact.sql.
+db/schema.sql is the generated record of the applied result.
 
      v1.2 change to fact_one_current_per_source. The v1.1 index keyed derived facts on the literal '~derived', which made two
      derived facts for the same (parcel, field) under different method_versions collide. method_version is now part of the key.
@@ -515,93 +274,25 @@ CREATE TABLE fact_input (
      insert; the trigger now validates and raises if application code got it wrong. Both invariants hold, nothing fights, and no
      session_replication_role manipulation is required.
 
--- 0007_fact_triggers.sql
--- Serves: I4, I5.
+Serves: I4, I5.
 
--- Ordering of restriction severity, most restrictive first. Single source of
--- truth for both the trigger and core/rights.
-CREATE OR REPLACE FUNCTION restriction_severity(r use_restriction)
-RETURNS smallint AS $$
-     SELECT CASE r
-            WHEN 'unknown'          THEN 0
-            WHEN 'noncommercial' THEN 1
-            WHEN 'no_resale'        THEN 2
-            WHEN 'attribution'      THEN 3
-            WHEN 'open'             THEN 4
-     END;
-$$ LANGUAGE sql IMMUTABLE;
+The DDL for this section is db/migrations/0007_fact_triggers.sql.
+db/schema.sql is the generated record of the applied result.
 
-CREATE TRIGGER fact_no_update BEFORE UPDATE ON fact
-  FOR EACH ROW EXECUTE FUNCTION fact_no_destructive_update();
+fact_no_update locks value, provenance, licence, confidence, conflict, effective time, URLs, method and versions.
+Supersession is the only permitted mutation and is one-way. A correction is a new fact row with lineage to the replaced
+belief; the old row receives only superseded_at.
 
-This locks value, provenance, licence, confidence, conflict, effective time, URLs, method and versions. Supersession is the only permitted
-mutation and is one-way. A correction is a new fact row with lineage to the replaced belief; the old row receives only superseded_at.
-
--- I5: VALIDATE that a derived fact already carries the most restrictive licence
--- among its inputs. Does not mutate. core/store.derive() must compute it.
-CREATE OR REPLACE FUNCTION fact_licence_validate() RETURNS trigger AS $$
-DECLARE
-       required_licence text;
-       actual_licence       text;
-BEGIN
-       SELECT f.licence_id INTO required_licence
-         FROM fact_input fi
-         JOIN fact       f ON f.id = fi.input_fact_id
-         JOIN licence l ON l.id = f.licence_id
-        WHERE fi.fact_id = NEW.fact_id
-        ORDER BY restriction_severity(l.restriction) ASC, f.licence_id ASC
-        LIMIT 1;
-
-       IF required_licence IS NULL THEN
-              RETURN NEW;                         -- no inputs recorded yet
-       END IF;
-
-       SELECT licence_id INTO actual_licence FROM fact WHERE id = NEW.fact_id;
-
-       IF (SELECT restriction_severity(l.restriction) FROM licence l WHERE l.id = actual_licence)
-          > (SELECT restriction_severity(l.restriction) FROM licence l WHERE l.id = required_licence)
-       THEN
-              RAISE EXCEPTION
-                'I5 violated: derived fact % carries licence %, but its inputs require % '
-                '(or something at least as restrictive). Compute inheritance in '
-                'core/store.derive() before insert.',
-                NEW.fact_id, actual_licence, required_licence;
-       END IF;
-
-       RETURN NEW;
-END;
-$$ LANGUAGE plpgsql;
-
-CREATE CONSTRAINT TRIGGER fact_licence_inheritance
-       AFTER INSERT ON fact_input
-       DEFERRABLE INITIALLY DEFERRED
-       FOR EACH ROW EXECUTE FUNCTION fact_licence_validate();
-
-DEFERRABLE INITIALLY DEFERRED lets a transaction insert the derived fact and all its fact_input rows in any order;
-validation runs once at commit, when the full input set is visible. Inserting inputs one at a time under a non-deferred
-trigger would fire on a partial set and raise spuriously.
+fact_licence_inheritance is DEFERRABLE INITIALLY DEFERRED: this lets a transaction insert the derived fact and all its
+fact_input rows in any order; validation runs once at commit, when the full input set is visible. Inserting inputs one at
+a time under a non-deferred trigger would fire on a partial set and raise spuriously.
 
 3.8 Current-fact resolution
 
--- 0008_current_fact.sql
-CREATE MATERIALIZED VIEW current_fact AS
-SELECT DISTINCT ON (f.parcel_id, f.field_key)
-          f.*
-  FROM fact f
-  JOIN parcel p ON p.id = f.parcel_id
-  LEFT JOIN source_rank sr
-               ON sr.jurisdiction_id = p.jurisdiction_id
-              AND sr.field_key         = f.field_key
-              AND sr.source_id         = f.source_id
- WHERE f.superseded_at IS NULL
-   AND (f.effective_to IS NULL OR f.effective_to > now())
- ORDER BY f.parcel_id, f.field_key,
-                COALESCE(sr.rank, 999) ASC,
-                f.confidence ASC,                      -- enum order: high < medium < low
-                f.retrieved_at DESC NULLS LAST;
-
-CREATE UNIQUE INDEX current_fact_pk            ON current_fact (parcel_id, field_key);
-CREATE INDEX                current_fact_field ON current_fact (field_key);
+The DDL for this section is db/migrations/0008_current_fact.sql (the materialized view) and
+db/migrations/0014_current_fact_tiebreak.sql (adds a deterministic f.id tiebreak to its ORDER BY, so two facts tying on
+rank, confidence and retrieved_at no longer resolve arbitrarily).
+db/schema.sql is the generated record of the applied result.
 
 Refresh with REFRESH MATERIALIZED VIEW CONCURRENTLY current_fact; at the end of each ingest job. Application queries
 read current_fact. The composer, the audit path and any reconstruction read fact directly.
@@ -611,31 +302,11 @@ read current_fact. The composer, the audit path and any reconstruction read fact
  Independent review remains preferred. Phase 1 may use a controlled solo-founder attestation only when the same identity authors and
  reviews and an immutable evidence URI is stored.
 
-  -- 0009_rules.sql (v1.6 replacement for review columns)
-  CREATE TYPE public.review_mode AS ENUM ('independent','solo_founder_attestation');
-
-  CREATE TABLE rule (
-     id text PRIMARY KEY,
-     jurisdiction_id text NOT NULL REFERENCES jurisdiction(id),
-     rule_key text NOT NULL, version integer NOT NULL CHECK(version > 0),
-     effective_from date NOT NULL, effective_to date,
-     citation text NOT NULL, source_text_uri text NOT NULL,
-     params jsonb NOT NULL, pack_version text NOT NULL,
-     authored_by text NOT NULL, reviewed_by text NOT NULL,
-     review_mode public.review_mode NOT NULL DEFAULT 'independent',
-     reviewed_at timestamptz NOT NULL, attestation_uri text,
-     UNIQUE(jurisdiction_id, rule_key, version),
-     CHECK (effective_to IS NULL OR effective_to > effective_from),
-     CHECK (
-       (review_mode='independent' AND reviewed_by<>authored_by
-          AND attestation_uri IS NULL)
-       OR
-       (review_mode='solo_founder_attestation' AND reviewed_by=authored_by
-          AND attestation_uri IS NOT NULL AND length(trim(attestation_uri))>0)
-     )
-  );
-  -- authored/reviewed identities, mode, time and URI are immutable.
-  -- A correction creates a new rule version; it never updates review evidence.
+The DDL for this section is db/migrations/0009_rules.sql (table and the review-mode CHECK) and
+db/migrations/0013_rule_triggers.sql (I18: rule_no_update / rule_no_delete triggers enforcing that authored/reviewed
+identities, mode, time and URI are immutable, and that a correction is always a new rule version, never an update or a
+delete).
+db/schema.sql is the generated record of the applied result.
 
      Deployment policy may allow solo-founder mode only during the documented bootstrap period. Existing attested rows remain historical when independent
      review becomes available.
@@ -644,23 +315,11 @@ read current_fact. The composer, the audit path and any reconstruction read fact
 
  Track A outcomes are recorded internally after delivery. They never gate, delay or supplement a customer file and never create a human delivery queue.
 
-  CREATE TABLE parcel_exception (
-     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-     parcel_id uuid NOT NULL REFERENCES parcel(id),
-     jurisdiction_id text NOT NULL REFERENCES jurisdiction(id),
-     type exception_severity NOT NULL, severity exception_severity NOT NULL,
-     detector_key text NOT NULL, detector_version text NOT NULL,
-     ruleset_version text, detail jsonb NOT NULL,
-     detected_at timestamptz NOT NULL DEFAULT now(),
-     outcome exception_outcome NOT NULL DEFAULT 'open',
-     resolved_at timestamptz, resolved_by text, resolution_notes text,
-     CHECK(outcome='open' OR (resolved_at IS NOT NULL AND resolved_by IS NOT NULL))
-  );
-  CREATE TABLE exception_evidence (
-     exception_id uuid NOT NULL REFERENCES parcel_exception(id) ON DELETE CASCADE,
-     fact_id uuid NOT NULL REFERENCES fact(id), role text NOT NULL,
-     PRIMARY KEY(exception_id,fact_id)
-  );
+The DDL for this section is db/migrations/0010_exceptions.sql and
+db/migrations/0015_exception_outcome_biconditional.sql (the outcome/resolution CHECK: outcome='open' requires
+resolved_at and resolved_by both NULL; every other outcome requires both NOT NULL — a two-way biconditional, not a
+one-way check).
+db/schema.sql is the generated record of the applied result.
 
 3.11 Support requests — post-delivery, never pre-delivery
 There is no review queue, no task table and no assignee anywhere in this schema. A human-review queue
@@ -669,25 +328,9 @@ amending I14.
 
 The only human-facing table that remains records contact that happens after a file has already been delivered. It
 measures the product; it never produces it.
--- 0011_support.sql
-CREATE TABLE support_request (
-      id                  uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      property_file_id   uuid,                      -- FK added in 0012
-      jurisdiction_id    text NOT NULL REFERENCES jurisdiction(id),
-      category            support_category NOT NULL,
-      field_key           text REFERENCES field_definition(field_key),
-      opened_at           timestamptz NOT NULL DEFAULT now(),
-      resolved_at         timestamptz,
-      caused_correction boolean NOT NULL DEFAULT false,
-      correcting_fact_id uuid REFERENCES fact(id),        -- must be direct/bulk/derived
-      detail              text,
-      CONSTRAINT support_correction_consistent CHECK (
-           caused_correction = false OR correcting_fact_id IS NOT NULL
-      )
-);
 
-CREATE INDEX support_by_file         ON support_request (property_file_id);
-CREATE INDEX support_rate_idx        ON support_request (jurisdiction_id, opened_at);
+The DDL for this section is db/migrations/0011_support.sql.
+db/schema.sql is the generated record of the applied result.
 
 A support request is not a back door for human facts. If contact reveals that a value is wrong, the fix is a
 source, crosswalk, rule or detector change that makes the pipeline produce the right answer — recorded as a normal
@@ -696,87 +339,11 @@ hand is prohibited (§6.2 rule 12).
 
 3.12 Property files and jobs
 
--- 0012_files_and_jobs.sql
-CREATE TABLE property_file (
-      id                 uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      parcel_id          uuid NOT NULL REFERENCES parcel(id),
-      jurisdiction_id    text NOT NULL REFERENCES jurisdiction(id),
-      channel            output_channel NOT NULL,
-      status             file_status NOT NULL,
-      composed_at        timestamptz NOT NULL DEFAULT now(),
-      as_of              timestamptz NOT NULL,
-      pack_version       text NOT NULL,
-      ruleset_version    text NOT NULL,
-      composer_version text NOT NULL,
-      geometry_tier_used boolean NOT NULL,
-      assumptions        jsonb NOT NULL DEFAULT '{}'::jsonb,
-      refusals           jsonb NOT NULL DEFAULT '[]'::jsonb,
-      omitted_for_rights jsonb NOT NULL DEFAULT '[]'::jsonb,       -- I6, visible not silent
-      attribution        text[] NOT NULL DEFAULT '{}',
-      payload            jsonb NOT NULL,
-      payload_hash       text NOT NULL,             -- v1.2: sha256 of the delivered payload
-      delivered_at       timestamptz,
-
-      -- automated unit economics; replaces v1.0 manual-hour instrumentation (§10)
-      compose_ms             integer NOT NULL,
-      source_calls           integer NOT NULL DEFAULT 0,
-      compute_cost_micros   bigint      NOT NULL DEFAULT 0,   -- metered, not estimated
-      storage_cost_micros   bigint      NOT NULL DEFAULT 0,   -- v1.2: Plan §15 measure 5
-      unmet_fields           text[] NOT NULL DEFAULT '{}', -- required fields not retrieved
-
-      CONSTRAINT file_refusal_reason CHECK (
-           status <> 'refused' OR jsonb_array_length(refusals) > 0
-      ),
-      -- a partial file must say what is missing; silence is not permitted
-      CONSTRAINT file_partial_declares_gap CHECK (
-           status <> 'partial'
-           OR cardinality(unmet_fields) > 0
-           OR jsonb_array_length(refusals) > 0
-      ),
-      -- v1.2: a refused file is never delivered as a product artifact
-      CONSTRAINT file_refused_not_delivered CHECK (
-           status <> 'refused' OR delivered_at IS NULL
-      )
-);
+The DDL for this section is db/migrations/0012_files_and_jobs.sql.
+db/schema.sql is the generated record of the applied result.
 
      v1.6: Property File rows carry delivery outcome and cost telemetry only. Commercial access lives in commerce.access_entitlement and
      commerce.subscription; no accepted price or per-file settlement field exists.
-
-CREATE TABLE property_file_fact (
-     property_file_id uuid NOT NULL REFERENCES property_file(id) ON DELETE CASCADE,
-     fact_id            uuid NOT NULL REFERENCES fact(id),
-     -- v1.2: I6 applies to every fact TOUCHED, not only every fact rendered.
-     -- 'gate' facts resolve jurisdiction and never appear in the payload; they are
-     -- still recorded here and still pass through the licence gate.
-     use                text NOT NULL DEFAULT 'rendered'
-                        CHECK (use IN ('rendered','gate','input')),
-     PRIMARY KEY (property_file_id, fact_id)
-);
-
-CREATE TABLE job_run (
-     id                uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-     job_key           text NOT NULL,
-     jurisdiction_id text REFERENCES jurisdiction(id),
-     source_id         text REFERENCES source(id),
-     status            job_status NOT NULL DEFAULT 'running',
-     started_at        timestamptz NOT NULL DEFAULT now(),
-     finished_at       timestamptz,
-     snapshot_id       text REFERENCES snapshot(id),
-     rows_in           integer,
-     rows_out          integer,
-     schema_drift     jsonb,                          -- fields expected but missing
-     error             text,
-     CONSTRAINT job_terminal CHECK (
-           status = 'running' OR finished_at IS NOT NULL
-     )
-);
-
-CREATE INDEX job_run_recent ON job_run (job_key, started_at DESC);
-
--- deferred FK: support_request was created in 0011, before property_file existed
-ALTER TABLE support_request
-     ADD CONSTRAINT support_property_file_fk
-     FOREIGN KEY (property_file_id) REFERENCES property_file(id);
 
 3.13 Migration conventions
       • db/migrations/NNNN_snake_case.sql, zero-padded, monotonically increasing.
@@ -1802,7 +1369,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.8
+                     Engineering Reference Spec v1.9
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1863,7 +1430,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.8
+                   Engineering Reference Spec v1.9
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1892,7 +1459,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.8
+                Engineering Reference Spec v1.9
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -1958,7 +1525,11 @@ maintained beside the data decays exactly when the evidence matters most.
 
 10.1 Measurement views
 
--- 0013_measurement_views.sql
+-- No migration file exists for these views yet; unlike §3, this section was
+-- never actually built. The filename previously cited here (number 0013,
+-- "measurement views") collided with the real, unrelated rule_triggers
+-- migration under that same number and named a file that has never
+-- existed on disk.
 CREATE VIEW v_track_a AS
 SELECT e.jurisdiction_id,
        e.type,
@@ -2179,6 +1750,27 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              freshness, reliability and required-field completeness rather than fetch       written into the tier table as a downgrade,
                                              mode.                                                                          which would have misread complete coverage as
                                                                                                                             partial coverage.
+
+   Aug 2026             1.9                  §3 no longer restates DDL. Every §3.x subsection now keeps its prose          An external review found six live
+                                             (rationale, invariant mapping, "Serves: X" notes) and points at the           divergences between §3's restated DDL and
+                                             db/migrations/*.sql file(s) it describes instead of duplicating their SQL.    db/migrations: §3.7 showed the pre-TG_OP
+                                             db/schema.sql remains the generated record of the applied result.            licence trigger and never defined
+                                             qa_check.check_spec_references_migrations replaces the deleted duplication:   fact_no_destructive_update; §3.8 lacked the
+                                             every migration file must be named at least once in the spec, and every       f.id tiebreak (0014); §3.10 typed
+                                             migration filename the spec names must exist on disk.                         parcel_exception.type as exception_severity
+                                                                                                                            and carried the pre-0015 one-way CHECK; and
+                                                                                                                            0013-0016 were never mentioned at all.
+                                                                                                                            qa_check passed throughout because it checks
+                                                                                                                            regeneration fidelity against the source .txt,
+                                                                                                                            never parity against db/migrations -- so a
+                                                                                                                            drifted DDL restatement was invisible to CI.
+                                                                                                                            Under I17 an agent reading §3.7 verbatim would
+                                                                                                                            have implemented a broken trigger. Removing the
+                                                                                                                            restated DDL removes the surface that can
+                                                                                                                            drift; a text-diff parity check was rejected
+                                                                                                                            because §3's SQL is pdftotext-mangled prose and
+                                                                                                                            any diff against real migrations would be
+                                                                                                                            unmaintainable noise.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

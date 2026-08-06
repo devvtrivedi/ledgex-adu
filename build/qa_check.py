@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Document QA — the drift gate.
 
-Spec v1.8 sec 0.2: "Document QA fails if any invariant body or enforcement cell
+Spec v1.9 sec 0.2: "Document QA fails if any invariant body or enforcement cell
 differs." This script is that check. Wire it into `make check-boundary`.
 
 It asserts:
@@ -22,6 +22,18 @@ It asserts:
      website/index.html (hand-authored, not covered by check 5) was found
      still reading "v1.7" after the spec bumped to v1.8: the same
      one-layer-out blind spot as check 5 closed, one layer further out.
+  7. Every db/migrations/*.sql file is named at least once in
+     docs/LEDGEX_SPEC.md, and every migration filename the spec names exists
+     on disk. Added when §3 stopped restating DDL (v1.9): §3 used to carry a
+     full copy of each migration's SQL, which had drifted from the real
+     migrations in six places and was invisible to this gate, because it
+     only ever checked regeneration fidelity against the source .txt, never
+     parity against db/migrations. A text-diff parity check was rejected —
+     §3's SQL was pdftotext-mangled prose, and diffing that against real
+     migrations would be unmaintainable noise. This is the cheap structural
+     replacement: it can't verify DDL content matches, but it can catch a
+     migration added without a spec pointer, or a spec pointer to a file
+     that was renamed or never written.
 
 Exit code 0 = pass, 1 = fail.
 """
@@ -131,7 +143,7 @@ def check_no_mangled_invariant_prose():
 def check_regenerates_clean():
     """Rebuild into memory and compare. Catches hand-edited markdown."""
     import importlib
-    for mod_name, path in (("build_spec_v1_8", SPEC), ("build_rules_v1_4", RULES)):
+    for mod_name, path in (("build_spec_v1_9", SPEC), ("build_rules_v1_4", RULES)):
         try:
             mod = importlib.import_module(mod_name)
             importlib.reload(mod)
@@ -222,6 +234,42 @@ def check_website_version_strings():
                     f"v{S.RULES_VERSION}")
 
 
+MIGRATIONS_DIR = ROOT / "db" / "migrations"
+MIGRATION_NAME_RE = re.compile(r"\b(\d{4}_[A-Za-z0-9_]+\.sql)\b")
+
+
+def check_spec_references_migrations():
+    """§3 no longer restates DDL (v1.9) -- replaces that deleted duplication
+    with something cheap instead of a text-diff parity check against
+    db/migrations, which would be unmaintainable noise against §3's
+    pdftotext-mangled prose:
+      - every db/migrations/*.sql file must be named at least once in
+        docs/LEDGEX_SPEC.md
+      - every migration filename the spec names must exist on disk
+    Can't verify DDL content matches -- only that the pointer exists and
+    resolves. Catches a migration added without a spec pointer, and a spec
+    pointer to a file that was renamed or never written.
+    """
+    if not SPEC.exists():
+        return  # already reported by check_presence
+
+    on_disk = {p.name for p in MIGRATIONS_DIR.glob("*.sql")}
+    spec_text = SPEC.read_text(encoding="utf-8")
+    mentioned = set(MIGRATION_NAME_RE.findall(spec_text))
+
+    missing_from_spec = sorted(on_disk - mentioned)
+    if missing_from_spec:
+        failures.append(
+            f"LEDGEX_SPEC.md: migration(s) on disk but never referenced in "
+            f"the spec: {', '.join(missing_from_spec)}")
+
+    phantom_in_spec = sorted(mentioned - on_disk)
+    if phantom_in_spec:
+        failures.append(
+            f"LEDGEX_SPEC.md: spec references migration file(s) that do not "
+            f"exist on disk: {', '.join(phantom_in_spec)}")
+
+
 if __name__ == "__main__":
     check_presence()
     check_no_duplicate_table()
@@ -229,6 +277,7 @@ if __name__ == "__main__":
     check_regenerates_clean()
     check_website_current()
     check_website_version_strings()
+    check_spec_references_migrations()
     if failures:
         print("DOCUMENT QA FAILED\n")
         for f in failures:
@@ -237,4 +286,5 @@ if __name__ == "__main__":
     print(f"DOCUMENT QA PASSED — {len(S.INVARIANTS)} invariants and "
           f"{len(S.MAKE_TARGETS)} make targets verbatim in both artifacts; "
           f"no copied tables; markdown current; website/*.html current; "
-          f"no stale version strings anywhere in website/*.html.")
+          f"no stale version strings anywhere in website/*.html; every "
+          f"migration referenced and resolvable.")

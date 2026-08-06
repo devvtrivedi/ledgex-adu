@@ -40,7 +40,7 @@ PG_DUMP_RESTRICT_KEY ?= ledgexschemadumpfixedkey
 # Regenerate the markdown files of record from build/ledgex_source.py and
 # text/*.txt. Never hand-edit docs/LEDGEX_SPEC.md or docs/LEDGEX_RULES.md.
 docs:
-	$(PYTHON) build/build_spec_v1_8.py
+	$(PYTHON) build/build_spec_v1_9.py
 	$(PYTHON) build/build_rules_v1_4.py
 
 # Presentation artifact rendered from the regenerated markdown. No-ops with
@@ -106,14 +106,29 @@ schema:
 # fails."
 schema-dump:
 	@command -v $(PG_DUMP) >/dev/null 2>&1 || { echo "$(PG_DUMP) not found — install PostgreSQL 16 client tools"; exit 1; }
+	@command -v $(PSQL) >/dev/null 2>&1 || { echo "$(PSQL) not found — install PostgreSQL 16 client tools"; exit 1; }
+	@# postgis/postgis:16-3.4 is a floating tag: it can rebuild on a new 16.x
+	@# point release at any time, with zero schema change, and the dump's own
+	@# "-- Dumped from database version" line (stripped below, same reason as
+	@# the pg_dump build-string strip) would otherwise be the only thing that
+	@# noticed. Assert the major version directly against the server instead
+	@# of inferring it from dump text that no longer exists.
+	@ver=$$($(PSQL) "$(DATABASE_URL)" -tAc "SHOW server_version_num;" | tr -d '[:space:]'); \
+	 case "$$ver" in \
+	   16????) ;; \
+	   *) echo "schema-dump: DATABASE_URL is PostgreSQL server_version_num=$$ver, not 16.x -- refusing to dump (§3 requires PostgreSQL 16)."; exit 1;; \
+	 esac
 	$(PG_DUMP) "$(DATABASE_URL)" --schema-only --no-owner --no-privileges --restrict-key=$(PG_DUMP_RESTRICT_KEY) > $(SCHEMA_DUMP).tmp
 	@# pg_dump embeds its own build string in "-- Dumped by pg_dump version
 	@# X.Y (Platform)" -- Homebrew's build and Ubuntu PGDG's build report
 	@# different platform text even at the identical version (hit this for
 	@# real: local 16.14 Homebrew vs CI 16.14 Ubuntu produced an otherwise
 	@# byte-identical dump that still "differed"). Strip it: it documents
-	@# which pg_dump binary ran, not anything about the schema.
-	@sed -i.bak '/^-- Dumped by pg_dump version/d' $(SCHEMA_DUMP).tmp && rm -f $(SCHEMA_DUMP).tmp.bak
+	@# which pg_dump binary ran, not anything about the schema. Same for
+	@# "-- Dumped from database version": it documents the exact point
+	@# release (e.g. 16.4 vs 16.5) of a floating tag, not a schema property --
+	@# the server_version_num assertion above is the real guarantee now.
+	@sed -i.bak -e '/^-- Dumped by pg_dump version/d' -e '/^-- Dumped from database version/d' $(SCHEMA_DUMP).tmp && rm -f $(SCHEMA_DUMP).tmp.bak
 	@if [ ! -f $(SCHEMA_DUMP) ]; then \
 		mv $(SCHEMA_DUMP).tmp $(SCHEMA_DUMP); \
 		echo "wrote $(SCHEMA_DUMP) (no prior committed dump to compare)"; \
@@ -132,7 +147,7 @@ schema-dump:
 # self-asserting DO block; ON_ERROR_STOP makes a failed assertion abort the
 # script with a nonzero exit code rather than print a misleading pass.
 db-test:
-	@command -v psql >/dev/null 2>&1 || { echo "psql not found"; exit 1; }
+	@command -v $(PSQL) >/dev/null 2>&1 || { echo "$(PSQL) not found"; exit 1; }
 	$(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f db/tests/invariants.sql
 
 # Parameterized pack suite for sources, mappings, rights and dependency

@@ -19,8 +19,8 @@ DOCS = ROOT / "docs"
 DIST = ROOT / "dist"
 
 JOBS = [
-    ("LEDGEX_SPEC.md", "LedgeX_Engineering_Reference_Spec_v1_8.pdf",
-     "LedgeX / ADU.X — Engineering Reference Spec v1.8"),
+    ("LEDGEX_SPEC.md", "LedgeX_Engineering_Reference_Spec_v1_9.pdf",
+     "LedgeX / ADU.X — Engineering Reference Spec v1.9"),
     ("LEDGEX_RULES.md", "LedgeX_Implementation_Rules_v1_4.pdf",
      "LedgeX / ADU.X — Implementation Rules v1.4"),
 ]

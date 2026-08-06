@@ -4,7 +4,6 @@
 
 \restrict ledgexschemadumpfixedkey
 
--- Dumped from database version 16.4 (Debian 16.4-1.pgdg110+2)
 
 SET statement_timeout = 0;
 SET lock_timeout = 0;
