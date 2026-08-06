@@ -3,15 +3,17 @@
 # this project treats as its CI gate, and §3.13 for migration conventions.
 #
 # schema / schema-dump / conformance require a running PostgreSQL 16 +
-# PostGIS 3.4 instance reachable at DATABASE_URL. They are not exercised by
-# `make all`, which only needs Python.
+# PostGIS 3.4 instance reachable at DATABASE_URL. site (and qa's
+# check_website_current) requires pandoc. None of these are exercised by
+# `make all`, which only needs Python. Unlike pdf, site does not degrade
+# gracefully without pandoc — see build/build_website.py for why.
 #
 # db/schema.sql is generated from PostgreSQL 16 + PostGIS 3.4 per §3. A dump
 # taken with pg_dump against any other server version will produce a false
 # diff against the committed file — match PG_DUMP/DATABASE_URL to 16 before
 # regenerating it.
 
-.PHONY: docs pdf qa all clean check-boundary schema schema-dump db-test conformance test golden
+.PHONY: docs pdf site qa all clean check-boundary schema schema-dump db-test conformance test golden
 
 # `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
 # not guaranteed under `make -j`: parallel make can start pdf's docs
@@ -38,7 +40,7 @@ PG_DUMP_RESTRICT_KEY ?= ledgexschemadumpfixedkey
 # Regenerate the markdown files of record from build/ledgex_source.py and
 # text/*.txt. Never hand-edit docs/LEDGEX_SPEC.md or docs/LEDGEX_RULES.md.
 docs:
-	$(PYTHON) build/build_spec_v1_7.py
+	$(PYTHON) build/build_spec_v1_8.py
 	$(PYTHON) build/build_rules_v1_4.py
 
 # Presentation artifact rendered from the regenerated markdown. No-ops with
@@ -46,8 +48,21 @@ docs:
 pdf: docs
 	$(PYTHON) build/make_pdf.py
 
+# website/spec.html and website/rules.html, regenerated from docs/*.md via
+# pandoc. Unlike `pdf`, this does NOT no-op without pandoc: a stale website
+# with no reproducible source was exactly the bug this target exists to
+# close (it published two mangled-prose invariant blocks and a duplicate
+# make-targets table for two weeks after docs/LEDGEX_RULES.md was fixed,
+# because nothing rebuilt it and qa_check.py only read docs/*.md). See
+# build/build_website.py for the full history and the reverse-derived
+# pandoc invocation.
+site: docs
+	$(PYTHON) build/build_website.py
+
 # Document QA — the drift gate. Fails on missing/duplicated invariants,
-# mangled prose duplicates, or a stale (hand-edited) generated file.
+# mangled prose duplicates, a stale (hand-edited) generated file, or
+# website/*.html that no longer matches what `make site` would produce from
+# the current docs.
 qa:
 	$(PYTHON) build/qa_check.py
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Document QA — the drift gate.
 
-Spec v1.7 sec 0.2: "Document QA fails if any invariant body or enforcement cell
+Spec v1.8 sec 0.2: "Document QA fails if any invariant body or enforcement cell
 differs." This script is that check. Wire it into `make check-boundary`.
 
 It asserts:
@@ -11,6 +11,11 @@ It asserts:
   3. Neither markdown file contains a second, differing copy of an invariant ID
      row (a copied table).
   4. The generated markdown is current — regenerating produces no diff.
+  5. website/spec.html and website/rules.html are current — regenerating via
+     build_website.py produces no diff. Added after website/rules.html was
+     found publishing two-week-stale, pre-fix content (mangled invariant
+     prose, a duplicate make-targets table) that this gate never saw because
+     it only read docs/*.md. Requires pandoc; see build/build_website.py.
 
 Exit code 0 = pass, 1 = fail.
 """
@@ -18,6 +23,7 @@ import pathlib, re, sys, subprocess
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent))
 import ledgex_source as S
+import build_website as W
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SPEC = ROOT / "docs" / "LEDGEX_SPEC.md"
@@ -119,7 +125,7 @@ def check_no_mangled_invariant_prose():
 def check_regenerates_clean():
     """Rebuild into memory and compare. Catches hand-edited markdown."""
     import importlib
-    for mod_name, path in (("build_spec_v1_7", SPEC), ("build_rules_v1_4", RULES)):
+    for mod_name, path in (("build_spec_v1_8", SPEC), ("build_rules_v1_4", RULES)):
         try:
             mod = importlib.import_module(mod_name)
             importlib.reload(mod)
@@ -138,11 +144,51 @@ def check_regenerates_clean():
                 f"hand-edited or stale. Run `make docs`.")
 
 
+def check_website_current():
+    """website/*.html must match what build_website.render_page() produces
+    from the current docs/*.md right now. Same shape as
+    check_regenerates_clean, one layer further out: that check catches
+    hand-edited or stale markdown; this one catches a website that fell out
+    of sync with markdown that WAS correctly regenerated, because nothing
+    rebuilt the HTML. No date line to strip here — render_page() doesn't
+    call datetime.today() itself, it only passes through whatever
+    "Generated {date}" text is already baked into the source markdown, so a
+    genuine byte-for-byte comparison is correct, not just close enough.
+
+    Fails loudly, not silently, if pandoc is missing: an unverifiable
+    website is not the same as a verified-current one, and this check
+    exists specifically so staleness can't sit unnoticed.
+    """
+    import shutil
+    if not shutil.which("pandoc"):
+        failures.append(
+            "website/*.html: cannot verify -- pandoc not found. Install "
+            "pandoc; this check does not pass silently without it.")
+        return
+    for md_name, html_name, title in W.JOBS:
+        html_path = ROOT / "website" / html_name
+        if not html_path.exists():
+            failures.append(f"MISSING ARTIFACT: website/{html_name}")
+            continue
+        try:
+            fresh = W.render_page(md_name, title)
+        except Exception as e:  # pragma: no cover
+            failures.append(f"website/{html_name}: build_website failed ({e})")
+            continue
+        on_disk = html_path.read_text(encoding="utf-8")
+        if fresh != on_disk:
+            failures.append(
+                f"website/{html_name}: on-disk file differs from "
+                f"build_website.py output -- stale or hand-edited. Run "
+                f"`make site`.")
+
+
 if __name__ == "__main__":
     check_presence()
     check_no_duplicate_table()
     check_no_mangled_invariant_prose()
     check_regenerates_clean()
+    check_website_current()
     if failures:
         print("DOCUMENT QA FAILED\n")
         for f in failures:
@@ -150,4 +196,4 @@ if __name__ == "__main__":
         sys.exit(1)
     print(f"DOCUMENT QA PASSED — {len(S.INVARIANTS)} invariants and "
           f"{len(S.MAKE_TARGETS)} make targets verbatim in both artifacts; "
-          f"no copied tables; markdown current.")
+          f"no copied tables; markdown current; website/*.html current.")
