@@ -105,33 +105,36 @@ ON CONFLICT (field_key) DO NOTHING;
 -- SOURCES: The three confirmed endpoints
 -- ============================================================================
 
--- active = false, url_verified_at = NULL for all three: licence and scope
--- are confirmed (that's what phase_status='active' asserts), but nobody has
--- actually pinged these endpoints yet. Stamping now() here would only
--- record when this seed script happened to run, not that anyone contacted
--- the endpoint -- source_active_requires_verification exists precisely to
--- keep a source nobody has checked from being switched live. A real
--- liveness check should set active=true and url_verified_at to the real
--- check time once it actually happens -- and per source_active_requires_verification's
--- purpose, that check must confirm the response media type and shape
--- (e.g. actual GeoJSON/CSV matching expected_fields below), not just a 200
--- status code, since a landing page also returns 200.
---
 -- endpoint_url for zoning_districts and building_permits_active corrected
 -- 2026-08-06: both previously pointed at data.sanjoseca.gov dataset landing
 -- pages (HTML for a human), not a machine endpoint, for method='direct'
--- sources. Verified directly (curl, following redirects) rather than
--- guessed:
+-- sources. Corrected to:
 --   zoning_districts:        the ArcGIS Hub GeoJSON download link off the
 --                             dataset's own resource list, same download-API
---                             shape already used for parcels. Resolves
---                             (302 -> 200) to Content-Type: application/json.
+--                             shape already used for parcels.
 --   building_permits_active: the CKAN resource's direct CSV download link.
---                             Resolves (302, to a signed S3 URL) to
---                             Content-Type: text/csv, body confirmed to be
---                             real permit rows (FOLDERNUMBER, ISSUEDATE,
---                             etc.), not HTML.
 -- parcels' endpoint_url was already correct and is unchanged.
+--
+-- All three verified live 2026-08-06 (curl, following redirects, GET --
+-- not HEAD, since building_permits_active's CKAN link 302s to a
+-- presigned S3 URL that 403s on HEAD but serves normally on GET; this is
+-- a property of that specific endpoint, not a failure):
+--   parcels:                 200, Content-Type: application/json. Body is
+--                             a well-formed GeoJSON FeatureCollection,
+--                             225,039 features, geometry type Polygon,
+--                             real APN/PARCELID property values (e.g.
+--                             APN "23712112").
+--   zoning_districts:        200, Content-Type: application/json. Body is
+--                             a well-formed GeoJSON FeatureCollection,
+--                             13,691 features, geometry type Polygon, real
+--                             ZONING/ZONINGABBREV property values.
+--   building_permits_active: 200, Content-Type: text/csv. Body is 17,492
+--                             real permit rows under the header row
+--                             (FOLDERNUMBER, ISSUEDATE, PERMITVALUATION,
+--                             etc.), not HTML or an error page.
+-- All three: status code AND response media type AND body shape were
+-- checked, not status code alone -- a landing page also returns 200.
+-- url_verified_at is the literal date this check was run, not now().
 INSERT INTO source (
   id, jurisdiction_id, display_name, steward, method, phase_status,
   phase_status_reason, endpoint_url, licence_id, active, url_verified_at,
@@ -143,11 +146,11 @@ INSERT INTO source (
    'City of San José',
    'direct',
    'active',
-   'Licence confirmed: CC BY 4.0. Endpoint liveness not yet verified -- pending a real check before activation.',
+   'Licence confirmed: CC BY 4.0. Endpoint verified 2026-08-06: GET, 200, Content-Type application/json, body is a well-formed GeoJSON FeatureCollection (225,039 Polygon features).',
    'https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/4bb085cb99a64eff8e83d2bf92a8d5cb/geojson?layers=270',
    'cc_by_4_0',
-   false,
-   NULL,
+   true,
+   '2026-08-06'::timestamptz,
    '["parcel.apn","parcel.geometry","parcel.lot_area_gis","parcel.situs_address"]'::jsonb),
 
   ('ca_san_jose.zoning_districts',
@@ -156,11 +159,11 @@ INSERT INTO source (
    'City of San José',
    'direct',
    'active',
-   'Licence confirmed: CC BY 4.0. Endpoint liveness not yet verified -- pending a real check before activation.',
+   'Licence confirmed: CC BY 4.0. Endpoint verified 2026-08-06: GET, 200, Content-Type application/json, body is a well-formed GeoJSON FeatureCollection (13,691 Polygon features).',
    'https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/adf17ae739214787ad42945c5f72ccd8/geojson?layers=401',
    'cc_by_4_0',
-   false,
-   NULL,
+   true,
+   '2026-08-06'::timestamptz,
    '["zoning.district","zoning.district_verbatim"]'::jsonb),
 
   ('ca_san_jose.building_permits_active',
@@ -169,11 +172,11 @@ INSERT INTO source (
    'City of San José',
    'direct',
    'active',
-   'Licence confirmed: CC0. Endpoint liveness not yet verified -- pending a real check before activation.',
+   'Licence confirmed: CC0. Endpoint verified 2026-08-06: GET, 200, Content-Type text/csv, body is 17,492 real permit rows (not HTML).',
    'https://data.sanjoseca.gov/dataset/fd9ceb0c-75e0-402e-9fe3-3f6e04f2c23f/resource/761b7ae8-3be1-4ad6-923d-c7af6404a904/download/buildingpermitsactive.csv',
    'cc0',
-   false,
-   NULL,
+   true,
+   '2026-08-06'::timestamptz,
    '["permits.active","permits.series_earliest"]'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
