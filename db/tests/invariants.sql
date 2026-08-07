@@ -2978,6 +2978,101 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T52: a licence_channel row cannot be updated (0033) --
+-- licence_channel_no_update(), an unconditional raise mirroring
+-- licence_no_update/rule_no_update/snapshot_no_update. Like T41/T42/T43,
+-- the licence id below carries a fresh gen_random_uuid() suffix: licence
+-- is immutable (0027), so a fixed literal id would collide with a prior
+-- run's row on this suite's second execution in the same database.
+-- ============================================================================
+
+\echo '### TEST T52: UPDATE licence_channel (should fail)'
+
+DO $$
+DECLARE
+    v_licence_id text := 'test.t52_licence-' || gen_random_uuid()::text;
+BEGIN
+    INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution, observed_at)
+    VALUES (v_licence_id, 'Test Licence T52', 'open', 'allowed', 'allowed', now());
+
+    INSERT INTO licence_channel (licence_id, channel, allowed, rationale)
+    VALUES (v_licence_id, 'free_snapshot', false, 'Test fixture T52: initial state, denied pending review');
+
+    BEGIN
+        UPDATE licence_channel SET allowed = true WHERE licence_id = v_licence_id AND channel = 'free_snapshot';
+        RAISE EXCEPTION 'FAIL T52: UPDATE licence_channel was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'B2/I6 violated:%is immutable%' THEN
+                RAISE NOTICE 'PASS T52: licence_channel update rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T52');
+            ELSE
+                RAISE EXCEPTION 'FAIL T52: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T53: a licence_channel row cannot be deleted (0033) --
+-- licence_channel_no_delete().
+-- ============================================================================
+
+\echo '### TEST T53: DELETE FROM licence_channel (should fail)'
+
+DO $$
+DECLARE
+    v_licence_id text := 'test.t53_licence-' || gen_random_uuid()::text;
+BEGIN
+    INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution, observed_at)
+    VALUES (v_licence_id, 'Test Licence T53', 'open', 'allowed', 'allowed', now());
+
+    INSERT INTO licence_channel (licence_id, channel, allowed, rationale)
+    VALUES (v_licence_id, 'free_snapshot', false, 'Test fixture T53: initial state, denied pending review');
+
+    BEGIN
+        DELETE FROM licence_channel WHERE licence_id = v_licence_id AND channel = 'free_snapshot';
+        RAISE EXCEPTION 'FAIL T53: DELETE FROM licence_channel was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'B2/I6 violated:%cannot be deleted%' THEN
+                RAISE NOTICE 'PASS T53: licence_channel delete rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T53');
+            ELSE
+                RAISE EXCEPTION 'FAIL T53: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T54: a NEW licence_channel row can always be inserted (0033) --
+-- immutability blocks editing an existing row, not creating a new one.
+-- The permissive-no-op control for this trigger pair: T52/T53 alone would
+-- pass equally well against a BEFORE UPDATE/DELETE trigger body that
+-- raised unconditionally on every operation INCLUDING INSERT, if one had
+-- mistakenly been attached to the wrong event -- a negative test alone
+-- cannot distinguish "blocks only UPDATE/DELETE" from "blocks everything"
+-- (the exact class of bug T31-T35 closed for the composite FKs, and the
+-- reason 0027 itself carries the equivalent T43). This proves INSERT is
+-- still live.
+-- ============================================================================
+
+\echo '### TEST T54: INSERT a new licence_channel row (should succeed)'
+
+DO $$
+DECLARE
+    v_licence_id text := 'test.t54_licence-' || gen_random_uuid()::text;
+BEGIN
+    INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution, observed_at)
+    VALUES (v_licence_id, 'Test Licence T54', 'open', 'allowed', 'allowed', now());
+
+    INSERT INTO licence_channel (licence_id, channel, allowed, rationale)
+    VALUES (v_licence_id, 'free_snapshot', true, 'Test fixture T54: new row, proves the lock blocks only UPDATE/DELETE, not INSERT');
+
+    RAISE NOTICE 'PASS T54: new licence_channel row accepted (licence_id=%)', v_licence_id;
+    INSERT INTO test_pass VALUES ('T54');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -3008,8 +3103,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 69 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 69 passing tests, got %', v_pass_count;
+    IF v_pass_count < 72 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 72 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

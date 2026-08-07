@@ -11,3 +11,9 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 Every CHECK constraint in a new migration must be given an explicit `CONSTRAINT <name>` — never let Postgres invent one (`rule_check1` and friends already exist from older migrations; they are not being renamed, but nothing new should add to that list). An auto-generated name can't be targeted by a later migration without first querying `pg_constraint`, which 0015 had to do.
 
 Ingest code refreshing `current_fact`: read `db/README.md` first. The first refresh of a given database must be a plain `REFRESH MATERIALIZED VIEW`, never `CONCURRENTLY` — that only works from the second refresh on.
+
+CI (`db.yml`) applies every migration to an empty database and never runs `db/seeds/`. A migration that corrects already-seeded data therefore runs, in CI, against rows that don't exist yet — verify any such migration against a migrations-only database, not just a seeded one:
+- `UPDATE ... WHERE ...` no-ops harmlessly on absent rows (0023, 0026, 0030).
+- A plain `INSERT` naming a specific seeded id raises `foreign_key_violation` on a missing parent row — it does NOT no-op. Use `INSERT ... SELECT ... WHERE id IN (...)` (or an equivalent existence guard) instead (0032).
+
+Companion rule, from 0026: a guarded migration alone is a permanent no-op on every future fresh install, because migrations apply before any seed runs — a seed file that was never corrected at the source just re-inserts the wrong data right after the guarded migration's WHERE clause matches nothing. A data correction needs both halves, every time: the guarded migration (for a database already seeded before the fix) and the fix at the seed source (for every install after it).

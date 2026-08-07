@@ -188,7 +188,9 @@ CREATE TYPE public.output_channel AS ENUM (
     'free_snapshot',
     'paid_property_file',
     'api',
-    'bulk_export'
+    'bulk_export',
+    'analytics',
+    'model_training'
 );
 
 
@@ -452,6 +454,43 @@ BEGIN
     END IF;
 
     RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: licence_channel_no_delete(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.licence_channel_no_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'B2/I6 violated: licence_channel row (%, %) cannot be deleted. '
+        'Every fact that cites this licence depends on it for the '
+        'channel-eligibility record; deleting it would invalidate their '
+        'rights history without touching them, and would also silently '
+        'fall back to licence_channel''s own default-deny rather than '
+        'leaving a decision on record.', OLD.licence_id, OLD.channel;
+END;
+$$;
+
+
+--
+-- Name: licence_channel_no_update(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.licence_channel_no_update() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'B2/I6 violated: licence_channel row (%, %) is immutable. A '
+        'changed channel decision is a new licence row with a new id, '
+        'never an UPDATE to an existing licence_channel row -- every fact '
+        'that already cites this licence depends on its rights position '
+        'staying exactly as recorded.', OLD.licence_id, OLD.channel;
 END;
 $$;
 
@@ -1350,6 +1389,20 @@ CREATE TRIGGER fact_no_delete BEFORE DELETE ON public.fact FOR EACH ROW EXECUTE 
 --
 
 CREATE TRIGGER fact_no_update BEFORE UPDATE ON public.fact FOR EACH ROW EXECUTE FUNCTION public.fact_no_destructive_update();
+
+
+--
+-- Name: licence_channel licence_channel_no_delete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER licence_channel_no_delete BEFORE DELETE ON public.licence_channel FOR EACH ROW EXECUTE FUNCTION public.licence_channel_no_delete();
+
+
+--
+-- Name: licence_channel licence_channel_no_update; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER licence_channel_no_update BEFORE UPDATE ON public.licence_channel FOR EACH ROW EXECUTE FUNCTION public.licence_channel_no_update();
 
 
 --

@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.15
+ Engineering Reference Spec v1.16
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.15                                       Machine-executed build contract.
+   1        This Spec v1.16                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -218,6 +218,13 @@ db/schema.sql is the generated record of the applied result.
 
      Removed in v1.2: there is no confidence_floor concept and no CONFIDENCE_BELOW_THRESHOLD refusal. See §9.1.
 
+     db/migrations/0031_output_channel_analytics_model_training.sql adds 'analytics' and 'model_training' to
+     output_channel (C9) -- IRREVERSIBLE, PostgreSQL has no DROP VALUE. Queued behind 0029's I5 fix deliberately:
+     adding channels to a broken per-dimension inheritance rule would have extended the wrong logic to a legally
+     consequential dimension. Enum values only; no licence_channel row references either value in this migration
+     -- PG12+ forbids using a value ALTER TYPE ... ADD VALUE just added within the same transaction. See §3.2 for
+     the companion licence_channel rows (0032) and §12's 1.16 entry.
+
 3.2 Registries — jurisdiction, licence, source
 
 Serves: C6, I3, I6, I14.
@@ -257,6 +264,36 @@ source_rank.field_key gains an FK to field_definition in migration 0003, which c
      left out of scope (jurisdiction.tier is designed to be mutated as assessment status changes; source_rank
      carries some of the same day-X reproducibility concern as licence but is a ranking policy expected to
      evolve, not a frozen legal statement -- flagged, not applied). See §12's 1.14 entry.
+
+     db/migrations/0030_licence_channel_pending_clearance.sql corrects finding #3: db/seeds/day4_sources.sql
+     originally opened all four channels for cc0 and cc_by_4_0 with allowed=true while licence.cleared_by,
+     cleared_at and evidence_uri were all NULL -- the Municipal Data & API Audit v1.1's own diligence register
+     lists counsel/owner sign-off as Pending. Licence identification is not the same thing as clearance; I6 gates
+     on the latter. allowed=false, not a deleted row -- default-deny already denies an absent row, but an
+     explicit false with a rationale records the decision and preserves the audit trail. A guarded UPDATE,
+     matched on the specific old allowed=true/rationale value, is a true no-op on a database seeded from the
+     corrected file (0023's pattern); db/seeds/day4_sources.sql is corrected in the same commit. Also reported,
+     not fixed: licence.commercial_use/redistribution are 'allowed' against cleared_by IS NULL for both licences
+     -- 'unknown' is honest under I6, but 0027's licence_no_update blocks correcting them, with no carve-out for
+     a row no fact yet cites. See §12's 1.16 entry.
+
+     db/migrations/0032_licence_channel_analytics_model_training.sql seeds the two channels 0031 (§3.1) adds --
+     analytics, model_training -- false for cc0 and cc_by_4_0, the same Pending-clearance posture as 0030;
+     model_training stays denied for a second, independent reason, since nobody has yet read either licence's
+     terms as applied specifically to model-training use. FK-safe INSERT ... SELECT ... WHERE l.id IN (...),
+     not a literal INSERT: a database that has only ever had migrations applied (CI's, in particular -- the
+     seed is never run there) has no 'cc0'/'cc_by_4_0' licence row yet, and a literal INSERT naming either id
+     would raise a foreign_key_violation rather than no-op. db/seeds/day4_sources.sql seeds the same rows going
+     forward.
+
+     db/migrations/0033_licence_channel_immutability.sql adds licence_channel_no_update and
+     licence_channel_no_delete -- unconditional raises, the same trade 0027 makes for licence itself, applied to
+     the table §7.3 actually names as the sole runtime channel-eligibility authority. A changed channel decision
+     is a new licence row with a new id, never an UPDATE to an existing licence_channel row; INSERT stays legal.
+     Checked before writing: clearance is recorded on licence.cleared_by/cleared_at, already frozen by 0027 with
+     no carve-out, so there is no operational flow that needs an existing licence_channel row to change without
+     its parent licence row also changing -- no permitted-transition carve-out is needed. Sequenced last: 0030
+     and 0032 need the table mutable to land their rows first. See §12's 1.16 entry.
 
 3.3 Canonical field vocabulary
 
@@ -1384,6 +1421,13 @@ To see current posture, query the ledger — do not read a table in a document:
 
 GET /v1/jurisdictions/ca_san_jose/sources
 
+     db/migrations/0030_licence_channel_pending_clearance.sql applies this section to real data (finding #3):
+     licence_channel had recorded all four channels open for cc0/cc_by_4_0 while clearance was still Pending,
+     the exact drift-toward-permissiveness this section exists to prevent. db/migrations/0033_licence_channel_
+     immutability.sql extends B2's licence protection to licence_channel itself, since this is the table named
+     above as the sole runtime authority -- an unprotected licence_channel could silently broaden rights for
+     every existing fact the same way an unprotected licence could. See §3.2 and §12's 1.16 entry.
+
 7.4 Deferred sources — declared and refusal-safe
 
 Five known sources are deferred for Phase 1: Valley Water creek jurisdiction, airport influence, CAL FIRE FHSZ, water/sewer service areas
@@ -1476,7 +1520,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.15
+                     Engineering Reference Spec v1.16
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1537,7 +1581,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.15
+                   Engineering Reference Spec v1.16
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1566,7 +1610,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.15
+                Engineering Reference Spec v1.16
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -2074,6 +2118,39 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              separately replaced with a permissive no-op, to prove it's the
                                              validation LOGIC under test, not merely the trigger's existence.
                                              §3.6 now also cites this file.
+
+   Aug 2026             1.16                 db/migrations/0030_licence_channel_pending_clearance.sql corrects              Finding #3: a second, independent review reversed the original advice to open
+                                             db/seeds/day4_sources.sql and already-seeded rows: cc0/cc_by_4_0 opened all    these channels while counsel/owner sign-off was still Pending per the
+                                             four channels with allowed=true while cleared_by/cleared_at were NULL (finding Municipal Data & API Audit v1.1 diligence register (Evidence Index, p.36). C9:
+                                             #3). Guarded UPDATE matched on the specific old allowed=true/rationale value,  analytics/model_training were queued behind the I5 fix (0029) specifically so
+                                             a true no-op on a database seeded from the corrected file (0023's pattern).    they would not extend a broken per-dimension rule to a legally consequential
+                                             db/migrations/0031_output_channel_analytics_model_training.sql adds            dimension. Landed together, in this order, because ordering matters: the
+                                             output_channel values 'analytics'/'model_training' (C9), unblocked now that    policy correction and the new channels' rows both have to exist before the
+                                             0029 fixed the per-dimension inheritance check these values would otherwise    table locks, so nothing can reopen or misdeclare a channel afterward.
+                                             have extended incorrectly.
+                                             db/migrations/0032_licence_channel_analytics_model_training.sql: an FK-safe
+                                             INSERT...SELECT seeds both new channels false for cc0/cc_by_4_0, split from
+                                             0031 because PG12+ forbids using a just-added enum value in the same
+                                             transaction that added it; db/seeds/day4_sources.sql seeds the same rows going
+                                             forward. db/migrations/0033_licence_channel_immutability.sql adds
+                                             licence_channel_no_update/licence_channel_no_delete, mirroring 0027 --
+                                             licence_channel, not licence's own commercial_use/redistribution/restriction
+                                             columns, is §7.3's sole runtime channel-eligibility authority, and had no
+                                             immutability guard until now; INSERT stays legal. Sequenced last: 0030/0032
+                                             need the table mutable to land the corrected/new rows first. Both new triggers
+                                             negative-controlled two ways -- dropped entirely, and separately replaced with
+                                             a permissive no-op -- mirroring 0029's discipline rather than just 0027's
+                                             drop-and-restore, since a function-body logic bug would not be caught by
+                                             trigger-existence alone. Also reported, not fixed:
+                                             licence.commercial_use/redistribution are 'allowed' against cleared_by IS NULL
+                                             for cc0/cc_by_4_0 -- 'unknown' is honest under I6, but licence_no_update
+                                             (0027) blocks correcting them, with no carve-out for a row no fact yet cites;
+                                             the only path is a new licence row plus a source.licence_id repoint, flagged
+                                             as a gap in 0027's scope, not applied here. db/tests/invariants.sql gains
+                                             three new tests (T52-T54, 72 enforced, up from 69): negative UPDATE, negative
+                                             DELETE and a positive INSERT control proving the lock blocks only
+                                             UPDATE/DELETE, mirroring T41-T43. §3.1, §3.2 and §7.3 now also cite these four
+                                             files.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

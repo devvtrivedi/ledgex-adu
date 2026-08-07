@@ -1,11 +1,11 @@
 LEDGEX / ADU.X
 
  Implementation Rules v1.4
- Operational restatement of Engineering Reference Spec v1.15 and Architecture Addendum A-1
+ Operational restatement of Engineering Reference Spec v1.16 and Architecture Addendum A-1
 
      CONTROL
 
-     Commercial master: Business Plan 2.1.4. Build contract: Engineering Reference Spec v1.15. Rules v1.4 supersedes Rules v1.3 for
+     Commercial master: Business Plan 2.1.4. Build contract: Engineering Reference Spec v1.16. Rules v1.4 supersedes Rules v1.3 for
      engineering execution only. Checklist v1.2 and Audit v1.1 remain unchanged. No commercial threshold, price, credit, allowance, tier,
      runtime fallback or human delivery path is introduced.
 
@@ -92,7 +92,7 @@ LEDGEX / ADU.X
    I20        A footprint provider cannot occupy the active geometry slot unless an immutable approved measured-error       constraint trigger; provider-slot tests
               record exists for the same provider version, method and jurisdiction. Runtime substitution is forbidden.
 
-        Every invariant is operative text. A pointer to absent text or a copied table that differs from Spec v1.15 is non-conforming.
+        Every invariant is operative text. A pointer to absent text or a copied table that differs from Spec v1.16 is non-conforming.
 
  2 / Six make targets
  A target name without execution scope and a pass condition is not a definition of done.
@@ -232,7 +232,7 @@ LEDGEX / ADU.X
 
     READ VERBATIM
     Business Plan 2.1.4 - commercial boundary
-    Engineering Reference Spec v1.15 - executable contract
+    Engineering Reference Spec v1.16 - executable contract
     Implementation Rules v1.4 - operational restatement
 
     PRESERVE

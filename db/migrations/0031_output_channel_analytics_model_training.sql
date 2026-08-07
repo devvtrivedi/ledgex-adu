@@ -1,0 +1,38 @@
+-- 0031_output_channel_analytics_model_training.sql
+-- Serves: C9.
+--
+-- Adds 'analytics' and 'model_training' to output_channel (0001:
+-- 'free_snapshot','paid_property_file','api','bulk_export'). Queued behind
+-- the I5 fix (0029) deliberately: adding channels to a broken
+-- per-dimension inheritance rule (0007's restriction_severity() scalar,
+-- which could not represent two independent restriction dimensions --
+-- see 0029's header for the full defect) would have extended the wrong
+-- logic to a legally consequential dimension. 0029 fixed the rule itself;
+-- this migration is safe to land now that the channel dimension it checks
+-- (fact_licence_validate(), 0029) is checked correctly.
+--
+-- -- IRREVERSIBLE: ALTER TYPE ... ADD VALUE cannot be undone by a later
+-- migration (PostgreSQL has no DROP VALUE). See §12 for the change-record
+-- note this requires under §3.13.
+--
+-- SCOPE: enum values only. This migration deliberately does NOT insert any
+-- licence_channel row referencing either new value -- PostgreSQL 12+
+-- allows ALTER TYPE ... ADD VALUE inside a transaction, but the new value
+-- cannot be USED (referenced by any DML) within that same transaction. A
+-- combined migration -- add the values, then INSERT licence_channel rows
+-- naming them -- would fail outright. Split across two migrations instead:
+-- this one adds the values; 0032_licence_channel_analytics_model_training.sql
+-- inserts the licence_channel rows against them. (This project's migration
+-- runner invokes psql -f per file with no explicit BEGIN/COMMIT and
+-- AUTOCOMMIT on, so each top-level statement in a single file already
+-- commits independently in practice -- but splitting into two migrations
+-- is correct regardless of runner behavior, and is what was asked for.)
+--
+-- No other schema impact: no new column, no new table, no touched FK or
+-- trigger. fact_licence_validate() (0029) already handles an arbitrary
+-- output_channel value generically -- it joins against licence_channel by
+-- channel, not by an enumerated list of channel names -- so it needs no
+-- change to cover these two new values.
+
+ALTER TYPE output_channel ADD VALUE 'analytics';
+ALTER TYPE output_channel ADD VALUE 'model_training';

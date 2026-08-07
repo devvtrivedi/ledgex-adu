@@ -45,20 +45,64 @@ ON CONFLICT (id) DO NOTHING;
 -- LICENCE CHANNELS: Which output channels each licence permits
 -- ============================================================================
 -- Default deny: if a channel row is missing, output is denied.
--- CC0 and CC BY 4.0 both allow all four channels (they're genuinely open).
+--
+-- Corrected 2026-08-07 (finding #3): this seed originally opened all four
+-- channels for both cc0 and cc_by_4_0 with allowed=true, while cleared_by,
+-- cleared_at and evidence_uri above are all NULL -- the audit's own
+-- diligence register (p.36, Evidence Index) lists "San José licence
+-- confirmations -- Per-resource channel posture and counsel/owner sign-off"
+-- as status "Pending", the same Pending status already noted above for
+-- cleared_by/cleared_at. Opening every channel while sign-off is Pending
+-- was wrong: the original advice to open them was reviewed and reversed by
+-- a second, independent pass. Licence IDENTIFICATION is evidenced --
+-- Municipal Data & API Audit v1.1, observed 2026-07-31, records
+-- Parcels/Zoning Districts as CC BY and Active Building Permits as CC0 --
+-- but identification is not sign-off, and I6 blocks on unknown/uncleared
+-- rights, not merely on unknown licence identity. No channel is cleared
+-- for output until counsel/owner sign-off actually completes.
+--
+-- allowed=false, not a deleted row: default-deny already denies an absent
+-- row, but an explicit false with a rationale records the decision and
+-- preserves the audit trail; absence records nothing. Nothing composes or
+-- outputs today (no ingestion has run), so this costs nothing now and
+-- forces a conscious per-channel decision, with a written rationale, when
+-- the composer arrives and sign-off has actually happened.
+--
+-- See db/migrations/0030_licence_channel_pending_clearance.sql for the
+-- correction on any database already seeded from the original version of
+-- this file.
 
 INSERT INTO licence_channel (licence_id, channel, allowed, rationale) VALUES
-  -- CC0: no restrictions at all
-  ('cc0', 'free_snapshot', true, 'CC0 1.0: no restriction on use, redistribution or commercial use'),
-  ('cc0', 'paid_property_file', true, 'CC0 1.0: no restriction on use, redistribution or commercial use'),
-  ('cc0', 'api', true, 'CC0 1.0: no restriction on use, redistribution or commercial use'),
-  ('cc0', 'bulk_export', true, 'CC0 1.0: no restriction on use, redistribution or commercial use'),
+  -- CC0 (Active Building Permits): licence identification confirmed
+  -- (Municipal Data & API Audit v1.1, observed 2026-07-31), but
+  -- counsel/owner sign-off is Pending per the audit's Evidence Index
+  -- (p.36). No channel is cleared for output until sign-off completes.
+  ('cc0', 'free_snapshot', false, 'Licence identification confirmed (Municipal Data & API Audit v1.1, observed 2026-07-31); counsel/owner sign-off Pending per the audit''s diligence register, Evidence Index p.36. No channel cleared for output until sign-off completes.'),
+  ('cc0', 'paid_property_file', false, 'Licence identification confirmed (Municipal Data & API Audit v1.1, observed 2026-07-31); counsel/owner sign-off Pending per the audit''s diligence register, Evidence Index p.36. No channel cleared for output until sign-off completes.'),
+  ('cc0', 'api', false, 'Licence identification confirmed (Municipal Data & API Audit v1.1, observed 2026-07-31); counsel/owner sign-off Pending per the audit''s diligence register, Evidence Index p.36. No channel cleared for output until sign-off completes.'),
+  ('cc0', 'bulk_export', false, 'Licence identification confirmed (Municipal Data & API Audit v1.1, observed 2026-07-31); counsel/owner sign-off Pending per the audit''s diligence register, Evidence Index p.36. No channel cleared for output until sign-off completes.'),
 
-  -- CC BY 4.0: commercial use and redistribution permitted, attribution required
-  ('cc_by_4_0', 'free_snapshot', true, 'CC BY 4.0: permits commercial use and redistribution with attribution'),
-  ('cc_by_4_0', 'paid_property_file', true, 'CC BY 4.0: permits commercial use and redistribution with attribution'),
-  ('cc_by_4_0', 'api', true, 'CC BY 4.0: permits commercial use and redistribution with attribution'),
-  ('cc_by_4_0', 'bulk_export', true, 'CC BY 4.0: permits commercial use and redistribution with attribution')
+  -- CC BY 4.0 (Parcels, Zoning Districts): same posture -- identification
+  -- confirmed, sign-off Pending.
+  ('cc_by_4_0', 'free_snapshot', false, 'Licence identification confirmed (Municipal Data & API Audit v1.1, observed 2026-07-31); counsel/owner sign-off Pending per the audit''s diligence register, Evidence Index p.36. No channel cleared for output until sign-off completes.'),
+  ('cc_by_4_0', 'paid_property_file', false, 'Licence identification confirmed (Municipal Data & API Audit v1.1, observed 2026-07-31); counsel/owner sign-off Pending per the audit''s diligence register, Evidence Index p.36. No channel cleared for output until sign-off completes.'),
+  ('cc_by_4_0', 'api', false, 'Licence identification confirmed (Municipal Data & API Audit v1.1, observed 2026-07-31); counsel/owner sign-off Pending per the audit''s diligence register, Evidence Index p.36. No channel cleared for output until sign-off completes.'),
+  ('cc_by_4_0', 'bulk_export', false, 'Licence identification confirmed (Municipal Data & API Audit v1.1, observed 2026-07-31); counsel/owner sign-off Pending per the audit''s diligence register, Evidence Index p.36. No channel cleared for output until sign-off completes.')
+ON CONFLICT (licence_id, channel) DO NOTHING;
+
+-- C9: analytics and model_training (db/migrations/0031). Same
+-- Pending-clearance posture as the eight rows above for the two
+-- pre-existing channels -- both new channels start denied for both
+-- licences. model_training in particular stays denied until someone
+-- actually reads CC0/CC BY 4.0's terms as applied to training use and
+-- records a rationale; "open licence text usually implies open training
+-- use" is exactly the kind of assumption this seed correction (finding #3)
+-- exists to stop making without evidence.
+INSERT INTO licence_channel (licence_id, channel, allowed, rationale) VALUES
+  ('cc0', 'analytics', false, 'Licence identification confirmed (Municipal Data & API Audit v1.1, observed 2026-07-31); counsel/owner sign-off Pending per the audit''s diligence register, Evidence Index p.36. No channel cleared for output until sign-off completes.'),
+  ('cc0', 'model_training', false, 'Denied pending review: no one has yet read cc0''s terms as applied specifically to model-training use, separately from counsel/owner sign-off on the licence generally. Requires its own rationale before this can flip.'),
+  ('cc_by_4_0', 'analytics', false, 'Licence identification confirmed (Municipal Data & API Audit v1.1, observed 2026-07-31); counsel/owner sign-off Pending per the audit''s diligence register, Evidence Index p.36. No channel cleared for output until sign-off completes.'),
+  ('cc_by_4_0', 'model_training', false, 'Denied pending review: no one has yet read cc_by_4_0''s terms as applied specifically to model-training use, separately from counsel/owner sign-off on the licence generally. Requires its own rationale before this can flip.')
 ON CONFLICT (licence_id, channel) DO NOTHING;
 
 -- ============================================================================
