@@ -34,6 +34,15 @@ It asserts:
      replacement: it can't verify DDL content matches, but it can catch a
      migration added without a spec pointer, or a spec pointer to a file
      that was renamed or never written.
+  8. The refusal-code vocabulary inside 0038_refusals_code_check.sql's
+     refusals_codes_valid() (an IMMUTABLE CHECK function -- an enum's
+     enum_range() would unify this with §9 for free, but enum_range() is
+     STABLE, not IMMUTABLE, so it can't back a CHECK honestly; see 0038's
+     own header) matches §9's own vocabulary in docs/LEDGEX_SPEC.md, in
+     both directions. Added when 0038 landed: a hardcoded copy of a
+     vocabulary that already lives in the spec is exactly the kind of
+     two-copies-drift-apart risk sec 0.2 exists to catch elsewhere: this
+     closes it for this specific pair.
 
 Exit code 0 = pass, 1 = fail.
 """
@@ -270,6 +279,73 @@ def check_spec_references_migrations():
             f"exist on disk: {', '.join(phantom_in_spec)}")
 
 
+REFUSAL_CODE_MIGRATION = MIGRATIONS_DIR / "0038_refusals_code_check.sql"
+SPEC_SECTION_9_RE = re.compile(r"## 9\. Refusal and error codes(.*?)### 9\.1", re.S)
+REFUSAL_CODE_IN_PROSE_RE = re.compile(r"\b[A-Z][A-Z]*(?:_[A-Z]+)+\b")
+REFUSAL_CODE_BLOCK_RE = re.compile(r"REFUSAL_CODES_BEGIN(.*?)REFUSAL_CODES_END", re.S)
+REFUSAL_CODE_LITERAL_RE = re.compile(r"'([A-Z][A-Z_]+)'")
+
+
+def check_refusal_codes_match_spec():
+    """0038_refusals_code_check.sql hardcodes §9's refusal-code vocabulary
+    inside an IMMUTABLE CHECK function (refusals_codes_valid), rather than
+    reading it from a single shared source -- an enum's enum_range() would
+    have given that for free, but enum_range() is STABLE, not IMMUTABLE
+    (0038's own header confirms this directly), so it can't honestly back
+    an IMMUTABLE CHECK. The hardcoded list closes the vocabulary gap I8
+    identifies but opens a duplication gap of its own: the list inside
+    0038's REFUSAL_CODES_BEGIN/END markers and §9's own table in
+    docs/LEDGEX_SPEC.md are now two independent copies of the same
+    vocabulary, and nothing kept them in step before this check existed.
+    Same shape as check_spec_references_migrations: extract both sets,
+    diff in both directions, name exactly what's missing on which side.
+    Bounded regions on both sides (§9's own heading through §9.1's, the
+    explicit BEGIN/END markers in the migration) so this can't accidentally
+    pick up an unrelated ALL_CAPS_TOKEN elsewhere in either file -- §9.1
+    itself names CONFIDENCE_BELOW_THRESHOLD, a code removed in v1.2, which
+    is exactly the kind of stale entry this check must not treat as live.
+    """
+    if not SPEC.exists():
+        return  # already reported by check_presence
+    if not REFUSAL_CODE_MIGRATION.exists():
+        failures.append(
+            f"MISSING ARTIFACT: {REFUSAL_CODE_MIGRATION.relative_to(ROOT)}")
+        return
+
+    spec_text = SPEC.read_text(encoding="utf-8")
+    section_9 = SPEC_SECTION_9_RE.search(spec_text)
+    if section_9 is None:
+        failures.append(
+            "LEDGEX_SPEC.md: could not locate '## 9. Refusal and error "
+            "codes' ... '### 9.1' -- refusal-code vocabulary check "
+            "cannot run")
+        return
+    spec_codes = set(REFUSAL_CODE_IN_PROSE_RE.findall(section_9.group(1)))
+
+    migration_text = REFUSAL_CODE_MIGRATION.read_text(encoding="utf-8")
+    code_block = REFUSAL_CODE_BLOCK_RE.search(migration_text)
+    if code_block is None:
+        failures.append(
+            f"{REFUSAL_CODE_MIGRATION.name}: REFUSAL_CODES_BEGIN/END "
+            f"markers not found -- refusal-code vocabulary check cannot "
+            f"run")
+        return
+    migration_codes = set(REFUSAL_CODE_LITERAL_RE.findall(code_block.group(1)))
+
+    missing_from_migration = sorted(spec_codes - migration_codes)
+    if missing_from_migration:
+        failures.append(
+            f"{REFUSAL_CODE_MIGRATION.name}: §9 names refusal code(s) not "
+            f"in refusals_codes_valid()'s allowed list: "
+            f"{', '.join(missing_from_migration)}")
+
+    phantom_in_migration = sorted(migration_codes - spec_codes)
+    if phantom_in_migration:
+        failures.append(
+            f"{REFUSAL_CODE_MIGRATION.name}: refusals_codes_valid() allows "
+            f"code(s) §9 does not name: {', '.join(phantom_in_migration)}")
+
+
 BUILD_DIR = ROOT / "build"
 BUILD_PY_RE = re.compile(r"\bbuild/([A-Za-z0-9_]+\.py)\b")
 
@@ -326,6 +402,7 @@ if __name__ == "__main__":
     check_website_version_strings()
     check_spec_references_migrations()
     check_build_files_referenced()
+    check_refusal_codes_match_spec()
     if failures:
         print("DOCUMENT QA FAILED\n")
         for f in failures:
@@ -336,4 +413,4 @@ if __name__ == "__main__":
           f"no copied tables; markdown current; website/*.html current; "
           f"no stale version strings anywhere in website/*.html; every "
           f"migration referenced and resolvable; every referenced build/ "
-          f"file exists.")
+          f"file exists; refusals_codes_valid()'s vocabulary matches §9.")

@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.19
+# LedgeX / ADU.X — Engineering Reference Spec v1.20
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -43,7 +43,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.19 | Machine-executed build contract. |
+| 1 | This Spec v1.20 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -116,7 +116,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.19 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.20 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -516,8 +516,25 @@ FOREIGN KEY (snapshot_id, source_id) REFERENCES snapshot (id, source_id), matchi
 already-correct pattern from 0018).
 db/schema.sql is the generated record of the applied result.
 
-v1.6: Property File rows carry delivery outcome and cost telemetry only. Commercial access lives in commerce.access_entitlement and
-commerce.subscription; no accepted price or per-file settlement field exists.
+db/migrations/0038_refusals_code_check.sql adds property_file_refusal_codes_known, a CHECK on refusals backed
+by refusals_codes_valid(refusals jsonb), a LANGUAGE sql IMMUTABLE function rejecting any element whose code is
+not one of §9's 19 named refusal codes. I8 ("refusal is a typed return value, not an exception") was enforced
+at the shape level only (jsonb array, conventional code/stage/message/detail keys) with nothing stopping a typo
+or an invented code from landing in a live row. A CHECK constraint cannot itself contain a subquery -- confirmed
+directly before writing this that a function wrapping one internally is legal to call from a CHECK regardless.
+An enum backing this via enum_range() was considered and rejected: enum_range() is STABLE, not IMMUTABLE
+(confirmed directly against pg_proc.provolatile), and Postgres does not reject a mislabeled wrapper at DDL time
+```sql
+     -- it trusts the declared label without verifying it -- so the failure mode is a function lying about its own
+     immutability the day the vocabulary next grows, not a DDL-time error today. The hardcoded list in
+     refusals_codes_valid() is genuinely immutable (its only legal change is a future CREATE OR REPLACE FUNCTION),
+     at the cost of needing its own drift guard: build/qa_check.py's check_refusal_codes_match_spec diffs this
+     function's list against §9's own vocabulary in both directions and fails CI if they diverge. See §12's 1.20
+     entry.
+
+     v1.6: Property File rows carry delivery outcome and cost telemetry only. Commercial access lives in commerce.access_entitlement and
+     commerce.subscription; no accepted price or per-file settlement field exists.
+```
 
 ### 3.13 Migration conventions
 
@@ -1564,7 +1581,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.19
+Engineering Reference Spec v1.20
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1625,7 +1642,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.19
+Engineering Reference Spec v1.20
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1656,7 +1673,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.19
+Engineering Reference Spec v1.20
 
 ## 9. Refusal and error codes
 
@@ -2305,6 +2322,20 @@ a hand-typed literal, and as_of captured once via clock_timestamp() and       li
 threaded explicitly into both the current_fact_at(ts) read and the            purpose is to record an identity, filled with something that doesn't track
 property_file INSERT, rather than relying on two separate now() calls being   it. as_of/composed_at matching was correct only because Postgres freezes
 identical only because Postgres freezes now() for one transaction.            now() for a transaction's life -- incidental, not designed.
+
+Aug 2026             1.20                 db/migrations/0038_refusals_code_check.sql adds                              I8 ("refusal is a typed return value, not an exception") was enforced at
+property_file_refusal_codes_known, a CHECK backed by                          the shape level only -- jsonb array, conventional code/stage/message/
+refusals_codes_valid(refusals jsonb), a LANGUAGE sql IMMUTABLE function       detail keys -- with nothing stopping a typo or an invented code from
+rejecting any refusals element whose code is not one of §9's 19 named        landing in a live row. An enum backing the vocabulary via enum_range()
+codes. A CHECK constraint cannot itself contain a subquery -- confirmed       was considered and rejected: enum_range() is STABLE, not IMMUTABLE
+directly that a function wrapping one internally is legal to call from a     (confirmed directly against pg_proc.provolatile), and Postgres does not
+CHECK regardless. build/qa_check.py's check_refusal_codes_match_spec         reject a wrapper function mislabeled IMMUTABLE at DDL time -- it trusts
+(new in this commit) diffs the hardcoded list inside                         the declared label without verifying it -- so the real failure mode is a
+refusals_codes_valid() against §9's own vocabulary in both directions        function silently lying about its own immutability the day the
+and fails CI if they diverge, closing the duplication this hardcoded         vocabulary next grows, not a DDL-time error today. The hardcoded list is
+list would otherwise open.                                                   genuinely immutable -- its only legal change is a future CREATE OR
+REPLACE FUNCTION -- at the cost of needing this drift guard instead of
+getting one for free from the type system.
 
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

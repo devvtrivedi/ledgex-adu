@@ -3261,6 +3261,84 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T60: property_file.refusals rejects a code outside §9's vocabulary
+-- (0038, property_file_refusal_codes_known). Proves the CHECK is actually
+-- wired to refusals_codes_valid() and actually fires, not just that the
+-- function returns false in isolation (already confirmed directly against
+-- a scratch database while writing 0038 -- this is the permanent,
+-- rerun-safe regression guard).
+-- ============================================================================
+
+\echo '### TEST T60: property_file.refusals with an unknown code (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, refusals,
+            payload, payload_hash, compose_ms
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+            'v1.0', 'v1.0', false,
+            '[{"code": "MADE_UP_CODE", "stage": "L8", "message": "not a real code", "detail": {}}]'::jsonb,
+            '{}'::jsonb, 'testhash_t60', 1
+        );
+        RAISE EXCEPTION 'FAIL T60: property_file with an unknown refusal code was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_refusal_codes_known' THEN
+                RAISE NOTICE 'PASS T60: unknown refusal code rejected';
+                INSERT INTO test_pass VALUES ('T60');
+            ELSE
+                RAISE EXCEPTION 'FAIL T60: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T61: property_file.refusals accepts every code §9 actually names
+-- (0038). The negative case (T60) alone would pass even if the CHECK
+-- rejected everything unconditionally -- this is the positive control,
+-- proving the vocabulary itself, not just the mechanism.
+-- ============================================================================
+
+\echo '### TEST T61: property_file.refusals with a real §9 code (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_id        uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO property_file (
+        parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+        ruleset_version, composer_version, geometry_tier_used, refusals,
+        payload, payload_hash, compose_ms
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        'v1.0', 'v1.0', false,
+        '[{"code": "RIGHTS_BLOCKED", "stage": "L8", "message": "test", "detail": {}}]'::jsonb,
+        '{}'::jsonb, 'testhash_t61', 1
+    )
+    RETURNING id INTO v_id;
+
+    IF v_id IS NULL THEN
+        RAISE EXCEPTION 'FAIL T61: property_file with a valid §9 refusal code was rejected';
+    END IF;
+
+    RAISE NOTICE 'PASS T61: property_file % with a valid §9 refusal code accepted', v_id;
+    INSERT INTO test_pass VALUES ('T61');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -3291,8 +3369,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 77 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 77 passing tests, got %', v_pass_count;
+    IF v_pass_count < 79 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 79 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

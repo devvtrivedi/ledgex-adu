@@ -604,6 +604,41 @@ $$;
 
 
 --
+-- Name: refusals_codes_valid(jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.refusals_codes_valid(refusals jsonb) RETURNS boolean
+    LANGUAGE sql IMMUTABLE
+    AS $$
+    SELECT NOT EXISTS (
+        SELECT 1
+        FROM jsonb_array_elements(refusals) AS elem
+        WHERE elem ->> 'code' NOT IN (
+            'JURISDICTION_UNRESOLVED',
+            'JURISDICTION_UNSUPPORTED',
+            'JURISDICTION_BOUNDARY_CONFLICT',
+            'PARCEL_NOT_FOUND',
+            'SOURCE_UNVERIFIED',
+            'SOURCE_UNAVAILABLE',
+            'SOURCE_NOT_MACHINE_READABLE',
+            'SOURCE_DEFERRED',
+            'CROSSWALK_UNMAPPED',
+            'RULE_UNAVAILABLE',
+            'PERMIT_SERIES_TOO_SHALLOW',
+            'GEOMETRY_TIER_DISABLED',
+            'COVERAGE_GAP',
+            'PERMIT_LAYER_UNAVAILABLE',
+            'RIGHTS_BLOCKED',
+            'LICENCE_UNKNOWN',
+            'INSUFFICIENT_COVERAGE',
+            'DISCLOSURE_NOT_ACCEPTED',
+            'ACCESS_NOT_ENTITLED'
+        )
+    );
+$$;
+
+
+--
 -- Name: rule_no_delete(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -952,6 +987,7 @@ CREATE TABLE public.property_file (
     CONSTRAINT file_refused_not_delivered CHECK (((status <> 'refused'::public.file_status) OR (delivered_at IS NULL))),
     CONSTRAINT property_file_compose_ms_nonnegative CHECK ((compose_ms >= 0)),
     CONSTRAINT property_file_compute_cost_micros_nonnegative CHECK ((compute_cost_micros >= 0)),
+    CONSTRAINT property_file_refusal_codes_known CHECK (public.refusals_codes_valid(refusals)),
     CONSTRAINT property_file_source_calls_nonnegative CHECK ((source_calls >= 0)),
     CONSTRAINT property_file_storage_cost_micros_nonnegative CHECK ((storage_cost_micros >= 0))
 );
