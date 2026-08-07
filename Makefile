@@ -40,7 +40,7 @@ PG_DUMP_RESTRICT_KEY ?= ledgexschemadumpfixedkey
 # Regenerate the markdown files of record from build/ledgex_source.py and
 # text/*.txt. Never hand-edit docs/LEDGEX_SPEC.md or docs/LEDGEX_RULES.md.
 docs:
-	$(PYTHON) build/build_spec_v1_13.py
+	$(PYTHON) build/build_spec_v1_14.py
 	$(PYTHON) build/build_rules_v1_4.py
 
 # Presentation artifact rendered from the regenerated markdown. No-ops with

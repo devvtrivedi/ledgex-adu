@@ -200,7 +200,9 @@ INSERT INTO field_definition (
   ('test.t37_field', 'Test Field T37', 'public_record', 'string', 'test', 'T37 invariant test field'),
   ('test.t38_field', 'Test Field T38', 'public_record', 'string', 'test', 'T38 invariant test field'),
   ('test.t39_field', 'Test Field T39', 'public_record', 'string', 'test', 'T39 invariant test field'),
-  ('test.t40_field', 'Test Field T40', 'public_record', 'string', 'test', 'T40 invariant test field')
+  ('test.t40_field', 'Test Field T40', 'public_record', 'string', 'test', 'T40 invariant test field'),
+  ('test.t44_field', 'Test Field T44', 'public_record', 'string', 'test', 'T44 invariant test field'),
+  ('test.t45_field', 'Test Field T45', 'public_record', 'string', 'test', 'T45 invariant test field')
 ON CONFLICT (field_key) DO NOTHING;
 
 -- Cross-block scratch state for this run: the fresh parcel id, and (later)
@@ -2409,6 +2411,144 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T41: a licence cannot be updated (0027) -- licence_no_update(), an
+-- unconditional raise mirroring rule_no_update/snapshot_no_update.
+-- T41/T42/T43's licence ids carry a fresh gen_random_uuid() suffix, unlike
+-- most other throwaway ids in this file: licence is now immutable, so a
+-- test row created under a literal id can never be deleted or updated on
+-- a later run either -- reusing 'test.t41_licence' verbatim would collide
+-- on licence_pkey the second time this suite runs against the same
+-- database (confirmed directly: it did, before this fix).
+-- ============================================================================
+
+\echo '### TEST T41: UPDATE licence (should fail)'
+
+DO $$
+DECLARE
+    v_licence_id text := 'test.t41_licence-' || gen_random_uuid()::text;
+BEGIN
+    INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution, observed_at)
+    VALUES (v_licence_id, 'Test Licence T41', 'open', 'allowed', 'allowed', now());
+
+    BEGIN
+        UPDATE licence SET commercial_use = 'prohibited' WHERE id = v_licence_id;
+        RAISE EXCEPTION 'FAIL T41: UPDATE licence was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'B2/I3 violated:%is immutable%' THEN
+                RAISE NOTICE 'PASS T41: licence update rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T41');
+            ELSE
+                RAISE EXCEPTION 'FAIL T41: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T42: a licence cannot be deleted (0027) -- licence_no_delete(), an
+-- unconditional raise mirroring rule_no_delete/fact_no_delete/snapshot_no_delete.
+-- ============================================================================
+
+\echo '### TEST T42: DELETE FROM licence (should fail)'
+
+DO $$
+DECLARE
+    v_licence_id text := 'test.t42_licence-' || gen_random_uuid()::text;
+BEGIN
+    INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution, observed_at)
+    VALUES (v_licence_id, 'Test Licence T42', 'open', 'allowed', 'allowed', now());
+
+    BEGIN
+        DELETE FROM licence WHERE id = v_licence_id;
+        RAISE EXCEPTION 'FAIL T42: DELETE FROM licence was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'B2/I3 violated:%cannot be deleted%' THEN
+                RAISE NOTICE 'PASS T42: licence delete rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T42');
+            ELSE
+                RAISE EXCEPTION 'FAIL T42: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T43: a NEW licence row can always be inserted (0027) -- immutability
+-- blocks editing an existing row, not creating a new one when terms change.
+-- ============================================================================
+
+\echo '### TEST T43: INSERT a new licence row (should succeed)'
+
+DO $$
+DECLARE
+    v_licence_id text := 'test.t43_licence-' || gen_random_uuid()::text;
+BEGIN
+    INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution, observed_at)
+    VALUES (v_licence_id, 'Test Licence T43', 'open', 'allowed', 'allowed', now());
+
+    RAISE NOTICE 'PASS T43: new licence row accepted (id=%)', v_licence_id;
+    INSERT INTO test_pass VALUES ('T43');
+END $$;
+
+-- ============================================================================
+-- TEST T44: a fact with source_asserted_as_of NULL succeeds (0028) -- the
+-- ordinary case, a source that states no as-of date.
+-- ============================================================================
+
+\echo '### TEST T44: fact with source_asserted_as_of NULL (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_fact_id   uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t44_field', '"value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_fact_id;
+
+    RAISE NOTICE 'PASS T44: fact with source_asserted_as_of NULL accepted (id=%)', v_fact_id;
+    INSERT INTO test_pass VALUES ('T44');
+END $$;
+
+-- ============================================================================
+-- TEST T45: a fact with source_asserted_as_of set succeeds (0028), including
+-- a value AFTER retrieved_at -- no CHECK ties the two, a source can state an
+-- as-of date ahead of its own publication date.
+-- ============================================================================
+
+\echo '### TEST T45: fact with source_asserted_as_of set (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_fact_id   uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version, source_asserted_as_of
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t45_field', '"value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0',
+        now() + interval '30 days'
+    ) RETURNING id INTO v_fact_id;
+
+    RAISE NOTICE 'PASS T45: fact with source_asserted_as_of set (after retrieved_at) accepted (id=%)', v_fact_id;
+    INSERT INTO test_pass VALUES ('T45');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -2439,8 +2579,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 58 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 58 passing tests, got %', v_pass_count;
+    IF v_pass_count < 63 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 63 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

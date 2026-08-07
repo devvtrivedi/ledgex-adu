@@ -1,0 +1,40 @@
+-- 0028_fact_source_asserted_as_of.sql
+-- Serves: I2 (provenance completeness).
+--
+-- One nullable column: source_asserted_as_of, the SOURCE's own stated
+-- currency date for a fact -- distinct from every other time already on
+-- this row. The ML review's B3 claimed valid time was missing from this
+-- schema; that claim is wrong and this migration's header says so
+-- explicitly rather than silently reusing B3's framing: fact has carried
+-- valid time (effective_from/effective_to) since 0006, and recorded_at/
+-- superseded_at are transaction time since the same migration -- the
+-- schema has been bitemporal from the start. What was actually missing is
+-- a third, narrower thing: the date the SOURCE ITSELF claims a value was
+-- current as of, when the source states one.
+--
+-- Phase C (scripts/ingest_parcels.py) is the evidence this distinction is
+-- real, not theoretical: ca_san_jose.parcels carries no per-feature
+-- effective date, so effective_from was set to snapshot.fetched_at --
+-- "true as of this observation" -- and LASTUPDATE (present on every
+-- feature) was deliberately left uninterpreted rather than assumed to
+-- mean "this value became true on this date," because nothing confirms
+-- what LASTUPDATE actually tracks in the county's own system. That
+-- uninterpreted LASTUPDATE is exactly what source_asserted_as_of exists
+-- to hold, for a source that DOES make its "as of" claim legible enough
+-- to trust: a value the source itself states, recorded as what the source
+-- said, not folded into effective_from (which remains our own belief
+-- about validity) or treated as fetched_at (which only says when we
+-- happened to observe it).
+--
+-- Nullable: most sources, including ca_san_jose.parcels today, don't
+-- state one, and there is no fallback value that would be honest here.
+--
+-- No CHECK relating it to retrieved_at. A source can legitimately assert
+-- an as-of date AFTER its own publication date (a scheduled update
+-- published ahead of its effective date is a normal, real pattern -- a
+-- zoning change enacted on a future date, stated in advance), so
+-- source_asserted_as_of > retrieved_at is not a defect to constrain
+-- against.
+
+ALTER TABLE fact
+    ADD COLUMN source_asserted_as_of timestamptz;

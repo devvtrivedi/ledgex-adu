@@ -383,6 +383,40 @@ $$;
 
 
 --
+-- Name: licence_no_delete(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.licence_no_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'B2/I3 violated: licence % cannot be deleted. Every fact and '
+        'snapshot that cites it depends on it for provenance; deleting '
+        'it would invalidate their rights history without touching '
+        'them.', OLD.id;
+END;
+$$;
+
+
+--
+-- Name: licence_no_update(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.licence_no_update() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'B2/I3 violated: licence % is immutable. A changed licence is a '
+        'new licence row with a new id, never an UPDATE to an existing '
+        'one -- every fact that already cites this licence depends on '
+        'its terms staying exactly as recorded.', OLD.id;
+END;
+$$;
+
+
+--
 -- Name: restriction_severity(public.use_restriction); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -536,6 +570,7 @@ CREATE TABLE public.fact (
     jurisdiction_id text NOT NULL,
     supersedes_fact_id uuid,
     supersession_reason public.supersession_reason,
+    source_asserted_as_of timestamp with time zone,
     CONSTRAINT fact_method_automated CHECK ((method = ANY (ARRAY['direct'::public.access_method, 'bulk'::public.access_method, 'derived'::public.access_method]))),
     CONSTRAINT fact_provenance_complete CHECK ((((method = 'derived'::public.access_method) AND (source_id IS NULL) AND (snapshot_id IS NULL) AND (method_version IS NOT NULL)) OR ((method <> 'derived'::public.access_method) AND (source_id IS NOT NULL) AND (snapshot_id IS NOT NULL) AND (retrieved_at IS NOT NULL) AND (source_url IS NOT NULL)))),
     CONSTRAINT fact_supersedes_not_self CHECK ((supersedes_fact_id <> id)),
@@ -1262,6 +1297,20 @@ CREATE TRIGGER fact_no_delete BEFORE DELETE ON public.fact FOR EACH ROW EXECUTE 
 --
 
 CREATE TRIGGER fact_no_update BEFORE UPDATE ON public.fact FOR EACH ROW EXECUTE FUNCTION public.fact_no_destructive_update();
+
+
+--
+-- Name: licence licence_no_delete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER licence_no_delete BEFORE DELETE ON public.licence FOR EACH ROW EXECUTE FUNCTION public.licence_no_delete();
+
+
+--
+-- Name: licence licence_no_update; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER licence_no_update BEFORE UPDATE ON public.licence FOR EACH ROW EXECUTE FUNCTION public.licence_no_update();
 
 
 --

@@ -11,6 +11,17 @@ Phases (run with --phase b / c / d, or no flag for all three in order):
      NOT parse the GeoJSON. Then re-fetches once more to prove the same
      content hashes to the same key (job_run.status='skipped_unchanged',
      no second snapshot row -- the id would collide on the PK anyway).
+     C7 policy: a snapshot row is written for EVERY fetch, including a
+     zero-result response and an HTTP error, with http_status recorded --
+     run_one_fetch never raises on a non-2xx status, it snapshots the
+     response anyway and marks job_run 'failed'; only a genuine exception
+     (network failure, upload failure) skips writing the row. Verified
+     against real requests, not simulated: a real 403 (365-byte XML error
+     body) got hashed, uploaded and snapshotted with job_run='failed';
+     a real 200 with a genuinely empty body produced
+     sha256("")=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+     and job_run='succeeded' -- 0021's content_hash format CHECK and
+     byte_size >= 0 both already permit this, no schema change needed.
   C: inspect the downloaded file (property keys, geometry types, APN
      uniqueness, expected_fields coverage). Loads nothing into the
      database.
@@ -120,16 +131,22 @@ def fail_job_run(conn, job_run_id, error):
     conn.commit()
 
 
-def fetch_and_hash(dest_path):
+def fetch_and_hash(dest_path, url=None):
     """GET the endpoint, following redirects, streaming to dest_path while
-    hashing incrementally. Returns (digest, byte_size, media_type, http_status,
-    fetched_at)."""
+    hashing incrementally. Deliberately does NOT raise_for_status(): C7
+    policy is to snapshot every fetch, including a zero-result response and
+    an HTTP error, with http_status recorded -- a failed fetch is part of
+    the provenance record, not something that skips writing a snapshot row.
+    Returns (digest, byte_size, media_type, http_status, fetched_at)."""
     hasher = hashlib.sha256()
     byte_size = 0
-    with requests.get(ENDPOINT_URL, stream=True, allow_redirects=True, timeout=300) as resp:
-        resp.raise_for_status()
+    with requests.get(url or ENDPOINT_URL, stream=True, allow_redirects=True, timeout=300) as resp:
         http_status = resp.status_code
-        media_type = resp.headers.get("Content-Type", "").split(";")[0].strip()
+        # A non-2xx response (or one with no body) can arrive with no
+        # Content-Type at all; snapshot_media_type_not_blank (0021) requires
+        # a non-blank value, so an empty header falls back to a real,
+        # honest placeholder rather than leaving it blank.
+        media_type = resp.headers.get("Content-Type", "").split(";")[0].strip() or "application/octet-stream"
         with open(dest_path, "wb") as f:
             for chunk in resp.iter_content(chunk_size=CHUNK_SIZE):
                 if not chunk:
@@ -172,10 +189,10 @@ def upload_and_verify(s3, bucket, path, digest, byte_size):
     return key
 
 
-def insert_snapshot(conn, digest, byte_size, media_type, http_status, fetched_at, bucket):
+def insert_snapshot(conn, digest, byte_size, media_type, http_status, fetched_at, bucket, url=None):
     sid = snapshot_id_for(digest)
     uri = object_uri(bucket, digest)
-    request_payload = json.dumps({"url": ENDPOINT_URL, "method": "GET", "params": {}})
+    request_payload = json.dumps({"url": url or ENDPOINT_URL, "method": "GET", "params": {}})
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -206,30 +223,44 @@ def finish_job_run(conn, job_run_id, status, snapshot_id):
     conn.commit()
 
 
-def run_one_fetch(conn, s3, bucket, dest_path, label):
-    """One full job_run: fetch, hash, and either upload+record (first time
-    for this content) or discover it's unchanged and skip (dedupe)."""
+def run_one_fetch(conn, s3, bucket, dest_path, label, url=None):
+    """One full job_run: fetch, hash, and ALWAYS record a snapshot row for
+    whatever came back -- a successful response, an HTTP error, or an
+    empty body (C7 policy). Content is stored and a snapshot row inserted
+    the same way regardless of http_status; only job_run's terminal status
+    differs: succeeded/skipped_unchanged for a 2xx response, failed for
+    anything else -- the snapshot itself is written either way, because a
+    failed fetch is part of the provenance record, not something to
+    silently skip."""
     print(f"\n--- {label} ---")
     job_run_id = start_job_run(conn)
     try:
         t0 = time.monotonic()
-        digest, byte_size, media_type, http_status, fetched_at = fetch_and_hash(dest_path)
+        digest, byte_size, media_type, http_status, fetched_at = fetch_and_hash(dest_path, url=url)
         elapsed = time.monotonic() - t0
-        print(f"  fetched {byte_size:,} bytes in {elapsed:.1f}s, media_type={media_type}, http_status={http_status}")
+        ok = 200 <= http_status < 300
+        print(f"  fetched {byte_size:,} bytes in {elapsed:.1f}s, media_type={media_type}, http_status={http_status}"
+              + ("" if ok else " (non-2xx -- snapshotting anyway per C7)"))
         print(f"  sha256: {digest}")
 
         sid = snapshot_id_for(digest)
-        if snapshot_exists(conn, sid):
+        already_had_snapshot = snapshot_exists(conn, sid)
+        if already_had_snapshot:
             print(f"  snapshot {sid} already exists -- content unchanged, skipping upload")
-            finish_job_run(conn, job_run_id, "skipped_unchanged", sid)
-            print(f"  job_run {job_run_id} -> skipped_unchanged")
         else:
             key = upload_and_verify(s3, bucket, dest_path, digest, byte_size)
             print(f"  uploaded and verified at key: {key}")
-            sid = insert_snapshot(conn, digest, byte_size, media_type, http_status, fetched_at, bucket)
+            sid = insert_snapshot(conn, digest, byte_size, media_type, http_status, fetched_at, bucket, url=url)
             print(f"  snapshot inserted: {sid}")
-            finish_job_run(conn, job_run_id, "succeeded", sid)
-            print(f"  job_run {job_run_id} -> succeeded")
+
+        if not ok:
+            status = "failed"
+        elif already_had_snapshot:
+            status = "skipped_unchanged"
+        else:
+            status = "succeeded"
+        finish_job_run(conn, job_run_id, status, sid)
+        print(f"  job_run {job_run_id} -> {status}")
         return digest, sid
     except Exception as e:
         fail_job_run(conn, job_run_id, e)
