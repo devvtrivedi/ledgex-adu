@@ -173,3 +173,61 @@ exception. `parcel.apn` (the column) is left `NULL` for that parcel too
 (0034: no fact means no cache value either), which is itself informative —
 a `NULL` `parcel.apn` with an open `coverage_gap` exception on file reads
 differently from a `NULL` that just hasn't been looked at yet.
+
+## Whether a parcel's absence from a source means anything depends on `source.method`
+
+`fact` records what a parcel HAS. Nothing in its own columns records what a
+parcel's *absence* from a particular source's results means — that has to be
+read off `source.method`, and the rule is not written down anywhere else, so
+it lives here.
+
+**`method='bulk'`** (parcels, zoning_districts, building_permits_active,
+today): the source publishes its complete dataset in one snapshot, and that
+snapshot is retained (`snapshot.object_uri`, content-addressed). A parcel
+absent from a bulk source's results is itself an observation: the source, as
+of that snapshot, does not consider this parcel to have whatever the source
+describes (an active permit, a zoning classification, and so on). This is
+exactly why `building_permits_active`'s ingest (`scripts/ingest_zoning_permits.py`
+`load_permits`) writes no `permits.active` fact at all for a parcel that
+never appears in the file, rather than writing `permits.active=false` — the
+absence is *itself* the signal, already fully recorded by the snapshot that
+exists and the fact that doesn't. Writing an explicit `false` fact would
+claim a redundant second observation for something the absence already says.
+
+**`method='direct'`** (per-record query APIs; none live yet, but declared in
+`access_method`, 0001): a parcel's absence from what you happened to query
+means only that you didn't ask about it, or the query missed it — not that
+the source has no answer. There is no complete-dataset snapshot to reason
+against. Absence is ambiguous and must never be read as a fact the way it can
+be for `method='bulk'`.
+
+Someone reading `fact` alone, for a parcel with no `permits.*` rows, cannot
+tell these two situations apart without also checking the relevant
+`source.method` — the table itself does not carry this distinction. Any
+future code that infers something from a parcel's absence from a source's
+results (a "no active permits" badge, a coverage metric, anything) must
+gate on `method='bulk'` first, or it will silently misread a `method='direct'`
+source's incomplete query as a confirmed negative.
+
+## `job_run` has no metrics slot, and stretching `schema_drift` for one is a stopgap
+
+Every non-trivial ingest so far has wanted a second number beyond
+`rows_in`/`rows_out` (total attempted vs. total succeeded, one axis) to
+describe *why* the gap between them exists: Phase E's blank/placeholder
+split, zoning's zero-match/multi-match split, permits' blank/not-found/
+ambiguous split (the last one persisted in `job_run.schema_drift`, by
+`ingest_zoning_permits.py`'s `load_permits`, with an explicit comment at
+that call site — `schema_drift`'s declared purpose, per 0012, is "fields
+expected but missing," a source dropping an expected *column*, not a
+per-row match-outcome distribution; using it for the latter is a real
+semantic reach, done because the alternative (`job_run.error`, a text
+column with no shape contract, used on a `status='succeeded'` row) is
+worse, not because it's a good fit).
+
+The honest fix is a general `metrics jsonb` column on `job_run` — every one
+of these breakdowns would sit there uniformly instead of each new ingest
+arguing its way into a column named for something else. Not added: it's a
+schema change, and every ingest pass so far has run under a no-schema-
+changes rule. Recorded here so the next one doesn't have to rediscover the
+need from scratch, or add a fourth thing to `schema_drift` that has even
+less to do with schema drift than the third did.
