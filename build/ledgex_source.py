@@ -2,10 +2,13 @@
 LedgeX / ADU.X — ONE INVARIANT SOURCE.
 
 This module is the single source of truth for the invariant table (I1-I20) and
-the six make targets. build_spec_v1_16.py and build_rules_v1_4.py both import
-from here. Neither builder may contain a copied invariant table.
+the six make targets. build_spec.py and build_rules.py both import
+from here. Neither builder may contain a copied invariant table. This is also
+the only place SPEC_VERSION/RULES_VERSION are set -- every other reference to
+either version, anywhere in build/ or text/*.txt, is derived from these two
+constants rather than hand-swept on every bump.
 
-Spec v1.16 sec 0.2 "One invariant source" and A-1 "Structural drift prevention".
+Spec sec 0.2 "One invariant source" and A-1 "Structural drift prevention".
 Invariant I17: these strings are authoritative only when read verbatim from the
 filesystem. Change the text HERE, once, then regenerate both artifacts.
 """
@@ -17,7 +20,7 @@ REVISION_DATE = "August 2026"
 
 # --------------------------------------------------------------------------
 # INVARIANTS - I1 to I20. (id, invariant_body, enforcement)
-# Verbatim from Engineering Reference Spec v1.16 sec 1.
+# Verbatim from the Engineering Reference Spec, current SPEC_VERSION, sec 1.
 # --------------------------------------------------------------------------
 INVARIANTS = [
     ("I1",

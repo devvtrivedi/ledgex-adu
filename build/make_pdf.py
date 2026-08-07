@@ -13,16 +13,20 @@ the markdown is the file of record, so a missing PDF engine must never block
 a build.
 """
 import pathlib, shutil, subprocess, sys
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+import ledgex_source as S
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 DIST = ROOT / "dist"
 
+# Filenames and titles derived from ledgex_source.SPEC_VERSION/RULES_VERSION
+# rather than hardcoded -- see build_website.py's JOBS comment for why.
 JOBS = [
-    ("LEDGEX_SPEC.md", "LedgeX_Engineering_Reference_Spec_v1_16.pdf",
-     "LedgeX / ADU.X — Engineering Reference Spec v1.16"),
-    ("LEDGEX_RULES.md", "LedgeX_Implementation_Rules_v1_4.pdf",
-     "LedgeX / ADU.X — Implementation Rules v1.4"),
+    ("LEDGEX_SPEC.md", f"LedgeX_Engineering_Reference_Spec_v{S.SPEC_VERSION.replace('.', '_')}.pdf",
+     f"LedgeX / ADU.X — Engineering Reference Spec v{S.SPEC_VERSION}"),
+    ("LEDGEX_RULES.md", f"LedgeX_Implementation_Rules_v{S.RULES_VERSION.replace('.', '_')}.pdf",
+     f"LedgeX / ADU.X — Implementation Rules v{S.RULES_VERSION}"),
 ]
 
 

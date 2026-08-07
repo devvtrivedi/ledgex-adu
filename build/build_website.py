@@ -40,16 +40,21 @@ import shutil
 import subprocess
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).parent))
+import ledgex_source as S
+
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 DOCS = ROOT / "docs"
 WEBSITE = ROOT / "website"
 
-# (source markdown, output HTML, <title> text). Title is a literal, not
-# parsed from the doc's own H1, matching build/make_pdf.py's JOBS convention
-# -- bump it in the same commit that bumps the version in ledgex_source.py.
+# (source markdown, output HTML, <title> text). Title is derived from
+# ledgex_source.SPEC_VERSION/RULES_VERSION, not a literal -- previously a
+# literal that had to be hand-bumped in the same commit as the version in
+# ledgex_source.py, which is exactly the class of manual sweep this project
+# ended up doing eight times over for other version references.
 JOBS = [
-    ("LEDGEX_SPEC.md", "spec.html", "Engineering Reference Spec v1.16"),
-    ("LEDGEX_RULES.md", "rules.html", "Implementation Rules v1.4"),
+    ("LEDGEX_SPEC.md", "spec.html", f"Engineering Reference Spec v{S.SPEC_VERSION}"),
+    ("LEDGEX_RULES.md", "rules.html", f"Implementation Rules v{S.RULES_VERSION}"),
 ]
 
 TEMPLATE = """<!DOCTYPE html>
@@ -96,7 +101,7 @@ def render_page(md_name: str, title: str) -> str:
     """Full HTML file content for one page, rendered fresh from docs/{md_name}.
 
     Imported by build/qa_check.py's check_website_current, the same way
-    check_regenerates_clean imports build_spec_v1_16.render_md() -- one
+    check_regenerates_clean imports build_spec.render_md() -- one
     render function, called from both the writer and the gate, so they
     can never independently drift from each other.
     """
