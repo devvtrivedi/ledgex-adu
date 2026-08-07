@@ -860,7 +860,8 @@ CREATE TABLE public.licence_channel (
     licence_id text NOT NULL,
     channel public.output_channel NOT NULL,
     allowed boolean NOT NULL,
-    rationale text NOT NULL
+    rationale text NOT NULL,
+    created_at timestamp with time zone DEFAULT now()
 );
 
 

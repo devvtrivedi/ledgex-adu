@@ -1,0 +1,71 @@
+-- 0037_licence_channel_created_at.sql
+-- Serves: C6, I6.
+--
+-- THE GAP. Replaying a refused property_file requires reconstructing
+-- "what did licence_channel say, as of composed_at." licence_channel's
+-- VALUES are immutable (0033: no UPDATE, no DELETE), so a row that
+-- already existed at composition time reads identically today and
+-- then -- confirmed directly during a real replay: current_fact_at
+-- (property_file.as_of), re-run today, reproduced the exact
+-- property_file_fact fact-id set, 0 rows different either direction.
+-- But 0033 left INSERT legal, deliberately (a new licence row's
+-- companion channel decisions have to be insertable). Nothing recorded
+-- WHEN an existing row first came into being, so a currently-present
+-- (licence_id, channel) row that was ABSENT at some past composed_at
+-- -- default-deny, per §7.3 -- is indistinguishable from one that
+-- already existed then. Absence is itself a rights decision here; a
+-- later INSERT changes the answer replay would get, and nothing said
+-- so.
+--
+-- THE FIX. One nullable column, no backfill:
+--
+--   ALTER TABLE licence_channel ADD COLUMN created_at timestamptz;
+--   ALTER TABLE licence_channel ALTER COLUMN created_at SET DEFAULT now();
+--
+-- Two statements, not one -- confirmed directly, not assumed, that this
+-- matters: ALTER TABLE ... ADD COLUMN created_at timestamptz DEFAULT
+-- now() in a single statement does NOT leave existing rows NULL. now()
+-- is volatile, so Postgres cannot use the fast metadata-only path a
+-- constant default gets (PG11+); it rewrites the table and evaluates
+-- now() ONCE for the whole statement, stamping every pre-existing row
+-- with that identical single timestamp. Verified on a scratch database
+-- before writing this: the single-statement form gave all 12 seeded
+-- rows the exact same value; the two-step form above left all 12 NULL
+-- and only a subsequently INSERTed row picked up a real timestamp from
+-- the now-set DEFAULT. Stamping existing rows with the migration's own
+-- run time would assert a creation date that is false -- they were not
+-- created when this migration happened to run.
+--
+-- NULL on an existing row means "existed before tracking began," which
+-- for replay purposes is equivalent to "existed at all times tracking
+-- could have cared about" -- exactly the case this migration cannot
+-- make false and does not try to. A database seeded AFTER this
+-- migration lands gets real timestamps for every row, seed included,
+-- with no special-casing: the seed's own INSERT never names
+-- created_at, so it takes whatever DEFAULT is in effect at seed time,
+-- same as any other caller.
+--
+-- Confirmed, not assumed: ADD COLUMN (DDL) does not fire
+-- licence_channel_no_update (0033) -- verified directly on a scratch
+-- database, both ALTER statements above ran clean against the live
+-- trigger with no error. A row-level BEFORE UPDATE trigger fires on a
+-- logical UPDATE statement; ADD COLUMN's occasional table rewrite for a
+-- volatile default is an internal storage operation, not a DML
+-- statement the trigger machinery ever sees.
+--
+-- NOT added to licence. The asymmetry is deliberate, not an oversight
+-- to fix later for symmetry's sake: a NEW licence row can never
+-- retroactively change what an OLD file's rights position was, because
+-- every fact cites a licence_id that already existed at the time the
+-- fact was recorded (I2/I3) -- a licence created after the fact simply
+-- isn't reachable from it. Only licence_channel has the property that
+-- makes a creation timestamp meaningful for replay: its ABSENCE is
+-- itself a value (default-deny, §7.3), and that value can change
+-- forward in time via a later INSERT for a previously-uncovered
+-- channel, in a way a licence's mere existence-or-not cannot. If a
+-- future reader is tempted to add created_at to licence too "for
+-- consistency," this paragraph is why not: licence has no absence-as-
+-- decision property for a timestamp to disambiguate.
+
+ALTER TABLE licence_channel ADD COLUMN created_at timestamptz;
+ALTER TABLE licence_channel ALTER COLUMN created_at SET DEFAULT now();

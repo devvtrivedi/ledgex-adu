@@ -3222,6 +3222,45 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T59: a newly INSERTed licence_channel row gets created_at
+-- populated from the column's DEFAULT now() (0037) -- proves the
+-- two-step ALTER (ADD COLUMN, then SET DEFAULT) actually left a live
+-- default in effect for new rows, not just that it left old rows NULL
+-- (0037's own migration already confirmed the NULL half directly
+-- against a scratch database before landing; this is the permanent,
+-- rerun-safe positive half). Fresh uuid-suffixed licence id, matching
+-- T52-T54's convention -- licence is immutable, so a literal id would
+-- collide with a prior run's row.
+-- ============================================================================
+
+\echo '### TEST T59: new licence_channel row gets created_at from DEFAULT now() (should succeed)'
+
+DO $$
+DECLARE
+    v_licence_id text := 'test.t59_licence-' || gen_random_uuid()::text;
+    v_created_at timestamptz;
+BEGIN
+    INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution, observed_at)
+    VALUES (v_licence_id, 'Test Licence T59', 'open', 'allowed', 'allowed', now());
+
+    INSERT INTO licence_channel (licence_id, channel, allowed, rationale)
+    VALUES (v_licence_id, 'free_snapshot', false, 'Test fixture T59: created_at should default to now()');
+
+    SELECT created_at INTO v_created_at
+      FROM licence_channel WHERE licence_id = v_licence_id AND channel = 'free_snapshot';
+
+    IF v_created_at IS NULL THEN
+        RAISE EXCEPTION 'FAIL T59: created_at is NULL on a newly inserted licence_channel row -- DEFAULT now() did not apply';
+    END IF;
+    IF v_created_at < now() - interval '1 minute' OR v_created_at > now() + interval '1 minute' THEN
+        RAISE EXCEPTION 'FAIL T59: created_at (%) is not close to now() -- unexpected value', v_created_at;
+    END IF;
+
+    RAISE NOTICE 'PASS T59: new licence_channel row got created_at=% from DEFAULT now()', v_created_at;
+    INSERT INTO test_pass VALUES ('T59');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -3252,8 +3291,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 76 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 76 passing tests, got %', v_pass_count;
+    IF v_pass_count < 77 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 77 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

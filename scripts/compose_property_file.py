@@ -44,6 +44,7 @@ import argparse
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import time
 import uuid
@@ -52,7 +53,56 @@ import psycopg2
 import psycopg2.extras
 from dotenv import load_dotenv
 
-COMPOSER_VERSION = "compose@0.1.0-minimal"
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def get_composer_version():
+    """Derive composer_version from git, not a hand-typed literal --
+    the same defect class as url_verified_at = now(): a column whose
+    purpose is to record an identity, filled with something that
+    doesn't actually track it. A hand-set string like the
+    "compose@0.1.0-minimal" this replaces survives a real code change
+    with zero signal that anything changed underneath it.
+
+    "compose@<sha>": the exact commit this file's tree matches.
+    "compose@<sha>-dirty": HEAD is <sha>, but the working tree has
+    uncommitted changes -- recording the SHA alone here would claim a
+    clean, reviewable commit produced this row when it didn't; the
+    marker says so instead of staying silent about it.
+
+    git unavailable (binary missing, not a git repo, no HEAD yet):
+    recorded as "compose@no-git:<reason>" -- deliberately not a
+    40-hex-char string, so it can never be mistaken for a real SHA by
+    anything that later reads this column, and deliberately not a
+    fabricated placeholder SHA either. Composition still proceeds: the
+    gap this closes is "can I trust the SHA," not "can this row exist
+    at all," and refusing to compose over a missing git binary would
+    make the identity problem worse, not better, for the one thing
+    that would actually need the record (a refusal, unaffected by
+    whether the git binary happens to be installed on this host).
+    """
+    def run(args):
+        try:
+            result = subprocess.run(
+                args, cwd=REPO_ROOT, capture_output=True, text=True, timeout=10,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired) as e:
+            return None, str(e)
+        if result.returncode != 0:
+            return None, result.stderr.strip() or f"exit {result.returncode}"
+        return result.stdout.strip(), None
+
+    sha, err = run(["git", "rev-parse", "HEAD"])
+    if sha is None:
+        return f"compose@no-git:{err}"
+
+    status, err = run(["git", "status", "--porcelain"])
+    if status is None:
+        # Got a SHA but couldn't determine dirty state -- do not claim
+        # clean when that claim wasn't actually checked.
+        return f"compose@{sha}-dirty-unknown:{err}"
+
+    return f"compose@{sha}-dirty" if status else f"compose@{sha}"
 
 
 def env(name):
@@ -71,8 +121,23 @@ def get_db():
 
 def compose(conn, apn, channel):
     t0 = time.monotonic()
+    composer_version = get_composer_version()
 
     with conn.cursor() as cur:
+        # Captured ONCE, explicitly, and reused for both the read below and
+        # as_of on the INSERT -- not two separate now() calls relying on
+        # Postgres freezing now() for the life of one transaction. That
+        # freezing is real (confirmed while investigating the first
+        # replay: composed_at and as_of came out identical because both
+        # were now() inside one uncommitted transaction) but it is a
+        # property of THIS transaction's shape, not of this function's
+        # design -- a future version that commits between the read and
+        # the write would silently break it with no error. Explicit
+        # capture makes as_of correct by construction instead of by
+        # transaction scoping.
+        cur.execute("SELECT clock_timestamp()")
+        as_of = cur.fetchone()[0]
+
         cur.execute("SELECT id, jurisdiction_id FROM parcel WHERE apn = %s", (apn,))
         row = cur.fetchone()
         if row is None:
@@ -84,9 +149,10 @@ def compose(conn, apn, channel):
 
         # C5 (0036): the point-in-time read path, not the cached matview --
         # this is a live composition, not a report against a stale refresh.
+        # Same as_of captured above, not a second now().
         cur.execute(
-            "SELECT id, field_key, licence_id, value FROM current_fact_at(now()) WHERE parcel_id = %s",
-            (parcel_id,),
+            "SELECT id, field_key, licence_id, value FROM current_fact_at(%s) WHERE parcel_id = %s",
+            (as_of, parcel_id),
         )
         touched = cur.fetchall()
         if not touched:
@@ -146,15 +212,15 @@ def compose(conn, apn, channel):
                 geometry_tier_used, refusals, omitted_for_rights, attribution,
                 payload, payload_hash, delivered_at, compose_ms
             ) VALUES (
-                %s, %s, %s, %s, 'refused', now(),
+                %s, %s, %s, %s, 'refused', %s,
                 %s, %s, %s,
                 false, %s::jsonb, '[]'::jsonb, '{}',
                 %s::jsonb, %s, NULL, %s
             )
             """,
             (
-                property_file_id, parcel_id, jurisdiction_id, channel,
-                pack_version, "unevaluated -- refused before L5 Rules", COMPOSER_VERSION,
+                property_file_id, parcel_id, jurisdiction_id, channel, as_of,
+                pack_version, "unevaluated -- refused before L5 Rules", composer_version,
                 json.dumps(refusals), payload_json, payload_hash, elapsed_ms,
             ),
         )

@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.18
+ Engineering Reference Spec v1.19
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.18                                       Machine-executed build contract.
+   1        This Spec v1.19                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -294,6 +294,25 @@ source_rank.field_key gains an FK to field_definition in migration 0003, which c
      no carve-out, so there is no operational flow that needs an existing licence_channel row to change without
      its parent licence row also changing -- no permitted-transition carve-out is needed. Sequenced last: 0030
      and 0032 need the table mutable to land their rows first. See §12's 1.16 entry.
+
+     db/migrations/0037_licence_channel_created_at.sql adds licence_channel.created_at, nullable, no backfill.
+     The gap: 0033 made licence_channel's VALUES immutable but left INSERT legal, and nothing recorded WHEN an
+     existing row first came into being -- a currently-present (licence_id, channel) row that was ABSENT at some
+     past composed_at (default-deny, §7.3) is indistinguishable from one that already existed then, so a later
+     INSERT for a previously-uncovered channel silently changes what a replay of an old property_file would
+     conclude. Two ALTER statements, not one -- confirmed directly, not assumed: ALTER TABLE ... ADD COLUMN
+     created_at timestamptz DEFAULT now() in a single statement does not leave existing rows NULL, since now() is
+     volatile and Postgres evaluates it once for the whole table-rewrite, stamping every pre-existing row with an
+     identical false creation time; ADD COLUMN with no default, followed by ALTER COLUMN SET DEFAULT, correctly
+     leaves existing rows NULL (verified on a scratch database: 12/12 seeded rows NULL) and only a subsequent
+     INSERT picks up a real timestamp. NULL on an existing row means "existed before tracking began," equivalent
+     for replay purposes to "existed at all times replay could ask about." Also confirmed directly: ADD COLUMN
+     does not fire licence_channel_no_update (0033) -- a row-level BEFORE UPDATE trigger fires on a logical UPDATE
+     statement, and ADD COLUMN's occasional table rewrite is an internal storage operation the trigger machinery
+     never sees. Deliberately not added to licence: a new licence row can never retroactively change an old
+     fact's rights position, since every fact cites a licence_id that already existed when the fact was recorded
+     (I2/I3) -- only licence_channel has the absence-is-itself-a-decision property that makes a creation timestamp
+     meaningful for replay. See §12's 1.19 entry.
 
 3.3 Canonical field vocabulary
 
@@ -1568,7 +1587,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.18
+                     Engineering Reference Spec v1.19
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1629,7 +1648,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.18
+                   Engineering Reference Spec v1.19
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1658,7 +1677,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.18
+                Engineering Reference Spec v1.19
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -2275,6 +2294,24 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              merely the function's existence. §3.8 and §4.1 (the ?as_of= convention, now
                                              explicitly backed by current_fact_at rather than an unstated mechanism) now
                                              also cite this file.
+
+   Aug 2026             1.19                 db/migrations/0037_licence_channel_created_at.sql adds                       licence_channel's VALUES are immutable (0033) but INSERT stays legal, and
+                                             licence_channel.created_at, nullable, no backfill. Two ALTER statements,      nothing recorded when an existing row first came into being. A currently-
+                                             not one -- confirmed directly, not assumed: a single ADD COLUMN ...           present (licence_id, channel) row that was ABSENT at some past composed_at
+                                             DEFAULT now() does not leave existing rows NULL, since now() is volatile      -- default-deny, §7.3 -- is indistinguishable from one that already existed
+                                             and Postgres evaluates it once for the whole table rewrite, stamping every    then, so a later INSERT for a previously-uncovered channel silently changes
+                                             pre-existing row with one false creation time; ADD COLUMN with no default,    what a replay of an old property_file concludes. NULL on an existing row
+                                             then ALTER COLUMN SET DEFAULT, correctly leaves existing rows NULL (12/12     means "existed before tracking began" -- equivalent for replay purposes to
+                                             seeded rows verified NULL). Also confirmed directly: ADD COLUMN does not      "existed at every time replay could ask about" -- and is not a claim this
+                                             fire licence_channel_no_update (0033) -- a row-level BEFORE UPDATE trigger    migration has to falsify. Not added to licence: a new licence row can never
+                                             fires on a logical UPDATE statement, and ADD COLUMN's table rewrite for a     retroactively change an old fact's rights position, since every fact cites
+                                             volatile default is an internal storage operation the trigger machinery       a licence_id that already existed when the fact was recorded (I2/I3) -- only
+                                             never sees. scripts/compose_property_file.py also fixed, same pass:           licence_channel has the absence-is-itself-a-decision property that makes a
+                                             composer_version now derived from git (SHA + dirty-tree marker) instead of    creation timestamp meaningful for replay. composer_version as a hand-typed
+                                             a hand-typed literal, and as_of captured once via clock_timestamp() and       literal was the same defect class as url_verified_at = now(): a column whose
+                                             threaded explicitly into both the current_fact_at(ts) read and the            purpose is to record an identity, filled with something that doesn't track
+                                             property_file INSERT, rather than relying on two separate now() calls being   it. as_of/composed_at matching was correct only because Postgres freezes
+                                             identical only because Postgres freezes now() for one transaction.            now() for a transaction's life -- incidental, not designed.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
