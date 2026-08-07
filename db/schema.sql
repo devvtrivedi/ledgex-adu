@@ -269,6 +269,80 @@ CREATE TYPE public.use_restriction AS ENUM (
 );
 
 
+SET default_tablespace = '';
+
+SET default_table_access_method = heap;
+
+--
+-- Name: fact; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.fact (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    parcel_id uuid NOT NULL,
+    field_key text NOT NULL,
+    value jsonb NOT NULL,
+    unit text,
+    local_verbatim text,
+    source_id text,
+    source_url text,
+    layer_item_id text,
+    snapshot_id text,
+    method public.access_method NOT NULL,
+    retrieved_at timestamp with time zone,
+    source_published_at timestamp with time zone,
+    source_cadence_stated text,
+    effective_from timestamp with time zone NOT NULL,
+    effective_to timestamp with time zone,
+    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
+    superseded_at timestamp with time zone,
+    licence_id text NOT NULL,
+    confidence public.confidence_level NOT NULL,
+    confidence_rule_id text NOT NULL,
+    conflict public.conflict_state DEFAULT 'agree'::public.conflict_state NOT NULL,
+    method_version text,
+    ruleset_version text,
+    pack_version text NOT NULL,
+    jurisdiction_id text NOT NULL,
+    supersedes_fact_id uuid,
+    supersession_reason public.supersession_reason,
+    source_asserted_as_of timestamp with time zone,
+    CONSTRAINT fact_method_automated CHECK ((method = ANY (ARRAY['direct'::public.access_method, 'bulk'::public.access_method, 'derived'::public.access_method]))),
+    CONSTRAINT fact_provenance_complete CHECK ((((method = 'derived'::public.access_method) AND (source_id IS NULL) AND (snapshot_id IS NULL) AND (method_version IS NOT NULL)) OR ((method <> 'derived'::public.access_method) AND (source_id IS NOT NULL) AND (snapshot_id IS NOT NULL) AND (retrieved_at IS NOT NULL) AND (source_url IS NOT NULL)))),
+    CONSTRAINT fact_supersedes_not_self CHECK ((supersedes_fact_id <> id)),
+    CONSTRAINT fact_supersession_reason_biconditional CHECK ((((supersedes_fact_id IS NULL) AND (supersession_reason IS NULL)) OR ((supersedes_fact_id IS NOT NULL) AND (supersession_reason IS NOT NULL)))),
+    CONSTRAINT fact_txn_time CHECK (((superseded_at IS NULL) OR (superseded_at >= recorded_at))),
+    CONSTRAINT fact_valid_time CHECK (((effective_to IS NULL) OR (effective_to > effective_from)))
+);
+
+
+--
+-- Name: current_fact_at(timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.current_fact_at(ts timestamp with time zone) RETURNS SETOF public.fact
+    LANGUAGE sql STABLE
+    AS $$
+    SELECT DISTINCT ON (f.parcel_id, f.field_key)
+           f.*
+      FROM fact f
+      JOIN parcel p ON p.id = f.parcel_id
+      LEFT JOIN source_rank sr
+             ON sr.jurisdiction_id = p.jurisdiction_id
+            AND sr.field_key       = f.field_key
+            AND sr.source_id       = f.source_id
+     WHERE f.recorded_at <= ts
+       AND (f.superseded_at IS NULL OR f.superseded_at > ts)
+       AND f.effective_from <= ts
+       AND (f.effective_to IS NULL OR f.effective_to > ts)
+     ORDER BY f.parcel_id, f.field_key,
+              COALESCE(sr.rank, 999) ASC,
+              f.confidence ASC,                      -- enum order: high < medium < low
+              f.retrieved_at DESC NULLS LAST,
+              f.id;                                   -- deterministic tiebreak; no ranking meaning
+$$;
+
+
 --
 -- Name: fact_licence_validate(); Type: FUNCTION; Schema: public; Owner: -
 --
@@ -625,132 +699,41 @@ END;
 $$;
 
 
-SET default_tablespace = '';
-
-SET default_table_access_method = heap;
-
---
--- Name: fact; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.fact (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    parcel_id uuid NOT NULL,
-    field_key text NOT NULL,
-    value jsonb NOT NULL,
-    unit text,
-    local_verbatim text,
-    source_id text,
-    source_url text,
-    layer_item_id text,
-    snapshot_id text,
-    method public.access_method NOT NULL,
-    retrieved_at timestamp with time zone,
-    source_published_at timestamp with time zone,
-    source_cadence_stated text,
-    effective_from timestamp with time zone NOT NULL,
-    effective_to timestamp with time zone,
-    recorded_at timestamp with time zone DEFAULT now() NOT NULL,
-    superseded_at timestamp with time zone,
-    licence_id text NOT NULL,
-    confidence public.confidence_level NOT NULL,
-    confidence_rule_id text NOT NULL,
-    conflict public.conflict_state DEFAULT 'agree'::public.conflict_state NOT NULL,
-    method_version text,
-    ruleset_version text,
-    pack_version text NOT NULL,
-    jurisdiction_id text NOT NULL,
-    supersedes_fact_id uuid,
-    supersession_reason public.supersession_reason,
-    source_asserted_as_of timestamp with time zone,
-    CONSTRAINT fact_method_automated CHECK ((method = ANY (ARRAY['direct'::public.access_method, 'bulk'::public.access_method, 'derived'::public.access_method]))),
-    CONSTRAINT fact_provenance_complete CHECK ((((method = 'derived'::public.access_method) AND (source_id IS NULL) AND (snapshot_id IS NULL) AND (method_version IS NOT NULL)) OR ((method <> 'derived'::public.access_method) AND (source_id IS NOT NULL) AND (snapshot_id IS NOT NULL) AND (retrieved_at IS NOT NULL) AND (source_url IS NOT NULL)))),
-    CONSTRAINT fact_supersedes_not_self CHECK ((supersedes_fact_id <> id)),
-    CONSTRAINT fact_supersession_reason_biconditional CHECK ((((supersedes_fact_id IS NULL) AND (supersession_reason IS NULL)) OR ((supersedes_fact_id IS NOT NULL) AND (supersession_reason IS NOT NULL)))),
-    CONSTRAINT fact_txn_time CHECK (((superseded_at IS NULL) OR (superseded_at >= recorded_at))),
-    CONSTRAINT fact_valid_time CHECK (((effective_to IS NULL) OR (effective_to > effective_from)))
-);
-
-
---
--- Name: parcel; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.parcel (
-    id uuid DEFAULT gen_random_uuid() NOT NULL,
-    jurisdiction_id text NOT NULL,
-    apn text,
-    situs_address text,
-    geom public.geometry(MultiPolygon,4326),
-    centroid public.geometry(Point,4326),
-    first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
-    last_seen_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
--- Name: COLUMN parcel.apn; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.parcel.apn IS 'Non-authoritative cache of the most recently observed parcel.apn fact -- NOT unique (49 confirmed source collisions), NOT required (9 confirmed source blanks; also NULL for a parcel whose only identifying feature carried an unresolved "???" placeholder, per policy: no fact is written for a non-value, so no cache value exists either). The fact ledger (query current_fact / fact for field_key=''parcel.apn'') is authoritative; this column reflects it only as of the last write and does not update on supersession. See 0034 for the evidence this was demoted on.';
-
-
---
--- Name: COLUMN parcel.situs_address; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON COLUMN public.parcel.situs_address IS 'Non-authoritative cache of the most recently observed parcel.situs_address fact, same status as parcel.apn -- see its comment. Currently always NULL: ca_san_jose.parcels does not supply an address-shaped property (0026), so no fact and no cache value exists yet for any row.';
-
-
---
--- Name: source_rank; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.source_rank (
-    jurisdiction_id text NOT NULL,
-    field_key text NOT NULL,
-    source_id text NOT NULL,
-    rank smallint NOT NULL,
-    rationale text NOT NULL,
-    CONSTRAINT source_rank_rank_check CHECK ((rank > 0))
-);
-
-
 --
 -- Name: current_fact; Type: MATERIALIZED VIEW; Schema: public; Owner: -
 --
 
 CREATE MATERIALIZED VIEW public.current_fact AS
- SELECT DISTINCT ON (f.parcel_id, f.field_key) f.id,
-    f.parcel_id,
-    f.field_key,
-    f.value,
-    f.unit,
-    f.local_verbatim,
-    f.source_id,
-    f.source_url,
-    f.layer_item_id,
-    f.snapshot_id,
-    f.method,
-    f.retrieved_at,
-    f.source_published_at,
-    f.source_cadence_stated,
-    f.effective_from,
-    f.effective_to,
-    f.recorded_at,
-    f.superseded_at,
-    f.licence_id,
-    f.confidence,
-    f.confidence_rule_id,
-    f.conflict,
-    f.method_version,
-    f.ruleset_version,
-    f.pack_version
-   FROM ((public.fact f
-     JOIN public.parcel p ON ((p.id = f.parcel_id)))
-     LEFT JOIN public.source_rank sr ON (((sr.jurisdiction_id = p.jurisdiction_id) AND (sr.field_key = f.field_key) AND (sr.source_id = f.source_id))))
-  WHERE ((f.superseded_at IS NULL) AND ((f.effective_to IS NULL) OR (f.effective_to > now())) AND (f.effective_from <= now()))
-  ORDER BY f.parcel_id, f.field_key, COALESCE((sr.rank)::integer, 999), f.confidence, f.retrieved_at DESC NULLS LAST, f.id
+ SELECT id,
+    parcel_id,
+    field_key,
+    value,
+    unit,
+    local_verbatim,
+    source_id,
+    source_url,
+    layer_item_id,
+    snapshot_id,
+    method,
+    retrieved_at,
+    source_published_at,
+    source_cadence_stated,
+    effective_from,
+    effective_to,
+    recorded_at,
+    superseded_at,
+    licence_id,
+    confidence,
+    confidence_rule_id,
+    conflict,
+    method_version,
+    ruleset_version,
+    pack_version,
+    jurisdiction_id,
+    supersedes_fact_id,
+    supersession_reason,
+    source_asserted_as_of
+   FROM public.current_fact_at(now()) current_fact_at(id, parcel_id, field_key, value, unit, local_verbatim, source_id, source_url, layer_item_id, snapshot_id, method, retrieved_at, source_published_at, source_cadence_stated, effective_from, effective_to, recorded_at, superseded_at, licence_id, confidence, confidence_rule_id, conflict, method_version, ruleset_version, pack_version, jurisdiction_id, supersedes_fact_id, supersession_reason, source_asserted_as_of)
   WITH NO DATA;
 
 
@@ -879,6 +862,36 @@ CREATE TABLE public.licence_channel (
     allowed boolean NOT NULL,
     rationale text NOT NULL
 );
+
+
+--
+-- Name: parcel; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.parcel (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    jurisdiction_id text NOT NULL,
+    apn text,
+    situs_address text,
+    geom public.geometry(MultiPolygon,4326),
+    centroid public.geometry(Point,4326),
+    first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
+    last_seen_at timestamp with time zone DEFAULT now() NOT NULL
+);
+
+
+--
+-- Name: COLUMN parcel.apn; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.parcel.apn IS 'Non-authoritative cache of the most recently observed parcel.apn fact -- NOT unique (49 confirmed source collisions), NOT required (9 confirmed source blanks; also NULL for a parcel whose only identifying feature carried an unresolved "???" placeholder, per policy: no fact is written for a non-value, so no cache value exists either). The fact ledger (query current_fact / fact for field_key=''parcel.apn'') is authoritative; this column reflects it only as of the last write and does not update on supersession. See 0034 for the evidence this was demoted on.';
+
+
+--
+-- Name: COLUMN parcel.situs_address; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.parcel.situs_address IS 'Non-authoritative cache of the most recently observed parcel.situs_address fact, same status as parcel.apn -- see its comment. Currently always NULL: ca_san_jose.parcels does not supply an address-shaped property (0026), so no fact and no cache value exists yet for any row.';
 
 
 --
@@ -1032,6 +1045,20 @@ CREATE TABLE public.source (
     CONSTRAINT source_active_requires_machine_access CHECK (((active = false) OR (method = ANY (ARRAY['direct'::public.access_method, 'bulk'::public.access_method])))),
     CONSTRAINT source_active_requires_verification CHECK (((active = false) OR (url_verified_at IS NOT NULL))),
     CONSTRAINT source_endpoint_required CHECK (((method = 'manual'::public.access_method) OR (endpoint_url IS NOT NULL)))
+);
+
+
+--
+-- Name: source_rank; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.source_rank (
+    jurisdiction_id text NOT NULL,
+    field_key text NOT NULL,
+    source_id text NOT NULL,
+    rank smallint NOT NULL,
+    rationale text NOT NULL,
+    CONSTRAINT source_rank_rank_check CHECK ((rank > 0))
 );
 
 

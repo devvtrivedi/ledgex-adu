@@ -295,7 +295,8 @@ INSERT INTO field_definition (
   ('test.t46_field_a', 'Test Field T46a', 'public_record', 'string', 'test', 'T46 invariant test field, input 1'),
   ('test.t46_field_b', 'Test Field T46b', 'public_record', 'string', 'test', 'T46 invariant test field, input 2'),
   ('test.t47_field_a', 'Test Field T47a', 'public_record', 'string', 'test', 'T47 invariant test field, input 1'),
-  ('test.t47_field_b', 'Test Field T47b', 'public_record', 'string', 'test', 'T47 invariant test field, input 2')
+  ('test.t47_field_b', 'Test Field T47b', 'public_record', 'string', 'test', 'T47 invariant test field, input 2'),
+  ('test.t58_field', 'Test Field T58', 'public_record', 'string', 'test', 'T58 invariant test field')
 ON CONFLICT (field_key) DO NOTHING;
 
 -- Cross-block scratch state for this run: the fresh parcel id, and (later)
@@ -3133,6 +3134,94 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T57: current_fact_at(now()) is row-for-row identical to current_fact
+-- (0036) -- proves the matview's redefinition (SELECT * FROM
+-- current_fact_at(now())) produces exactly what the old inline query
+-- produced, over the full, accumulated fixture set every prior test in
+-- this file has built up (a global comparison, not scoped to one fixture
+-- -- deliberately: the stronger claim is that the two never disagree,
+-- not that they agree on one hand-picked row). REFRESH first: nothing
+-- else in this file refreshes current_fact, so without it the matview
+-- would still hold its CREATE-time (empty) snapshot and the comparison
+-- would show a spurious mismatch that is not this test's concern.
+-- ============================================================================
+
+\echo '### TEST T57: current_fact_at(now()) matches current_fact exactly (should succeed)'
+
+DO $$
+DECLARE
+    v_only_in_matview  bigint;
+    v_only_in_function bigint;
+BEGIN
+    REFRESH MATERIALIZED VIEW current_fact;
+
+    SELECT count(*) INTO v_only_in_matview
+      FROM (SELECT * FROM current_fact EXCEPT SELECT * FROM current_fact_at(now())) x;
+    SELECT count(*) INTO v_only_in_function
+      FROM (SELECT * FROM current_fact_at(now()) EXCEPT SELECT * FROM current_fact) x;
+
+    IF v_only_in_matview <> 0 OR v_only_in_function <> 0 THEN
+        RAISE EXCEPTION 'FAIL T57: current_fact and current_fact_at(now()) disagree -- % rows only in current_fact, % rows only in current_fact_at(now())',
+            v_only_in_matview, v_only_in_function;
+    END IF;
+
+    RAISE NOTICE 'PASS T57: current_fact_at(now()) matches current_fact exactly (0 rows differ, either direction)';
+    INSERT INTO test_pass VALUES ('T57');
+END $$;
+
+-- ============================================================================
+-- TEST T58: current_fact_at(ts) excludes a fact recorded AFTER ts, even
+-- when that fact's valid-time window (effective_from/effective_to)
+-- covers ts (0036) -- the look-ahead-bias case C5 exists to close. A
+-- fact with effective_from in 2019 but recorded_at forced to 2025 must
+-- NOT appear when reconstructing belief as of 2020-06-01: the system did
+-- not know it yet. It DOES appear in current_fact_at(now()), proving the
+-- fact itself is live and correctly resolved -- the exclusion is
+-- specific to the past ts, not a broken insert.
+-- ============================================================================
+
+\echo '### TEST T58: current_fact_at(past ts) excludes a not-yet-recorded fact (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id      uuid;
+    v_fact_id        uuid;
+    v_seen_at_past   boolean;
+    v_seen_at_now    boolean;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, recorded_at, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t58_field', '"value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        '2019-01-01'::timestamptz, 'https://example.com', 'test.cc0', 'high', 'rule_1',
+        '2019-01-01'::timestamptz, '2025-01-01'::timestamptz, 'v1.0'
+    ) RETURNING id INTO v_fact_id;
+
+    SELECT EXISTS (
+        SELECT 1 FROM current_fact_at('2020-06-01'::timestamptz) WHERE id = v_fact_id
+    ) INTO v_seen_at_past;
+
+    SELECT EXISTS (
+        SELECT 1 FROM current_fact_at(now()) WHERE id = v_fact_id
+    ) INTO v_seen_at_now;
+
+    IF v_seen_at_past THEN
+        RAISE EXCEPTION 'FAIL T58: fact recorded 2025-01-01 wrongly visible in current_fact_at(2020-06-01) -- look-ahead bias';
+    END IF;
+    IF NOT v_seen_at_now THEN
+        RAISE EXCEPTION 'FAIL T58: fact wrongly absent from current_fact_at(now()) -- not an insert problem, exclusion should be specific to the past ts';
+    END IF;
+
+    RAISE NOTICE 'PASS T58: fact excluded from current_fact_at(2020-06-01), present in current_fact_at(now()) (id=%)', v_fact_id;
+    INSERT INTO test_pass VALUES ('T58');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -3163,8 +3252,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 74 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 74 passing tests, got %', v_pass_count;
+    IF v_pass_count < 76 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 76 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

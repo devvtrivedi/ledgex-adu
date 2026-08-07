@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.17
+# LedgeX / ADU.X — Engineering Reference Spec v1.18
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -43,7 +43,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.17 | Machine-executed build contract. |
+| 1 | This Spec v1.18 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -116,7 +116,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.17 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.18 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -401,6 +401,25 @@ applies equally to the pre-existing effective_to filter, not something 0019 intr
 Refresh with REFRESH MATERIALIZED VIEW CONCURRENTLY current_fact; at the end of each ingest job. Application queries
 read current_fact. The composer, the audit path and any reconstruction read fact directly.
 
+db/migrations/0036_current_fact_at.sql (C5, ML review, corrected) closes the look-ahead-bias gap current_fact's
+now-only shape left structural: every consumer of current_fact was now-only by default, with no path to
+reconstruct "what did the system believe as of date X" for §4.1's ?as_of= or for an audit. The review's own
+proposal -- a function as source of truth, the matview as "a thin wrapper" (a VIEW) over it -- does not work:
+a VIEW re-executes on every read, so a VIEW over a function is not materialized at all. The corrected shape is
+current_fact_at(ts timestamptz), a LANGUAGE sql STABLE function owning the entire resolution query (byte-identical
+to 0019's, now() replaced by ts), with current_fact redefined as SELECT * FROM current_fact_at(now()) -- still a
+real MATERIALIZED VIEW (REFRESH re-executes the whole defining query, confirmed already true of this view before
+0036 touched it), still REFRESH-CONCURRENTLY-capable, owning zero resolution logic of its own: there is exactly
+one place the DISTINCT ON/JOIN/ORDER BY exists, so the two objects cannot diverge. Confirmed by EXPLAIN, not
+assumed: the LANGUAGE sql function body inlines into the calling query's plan, so REFRESH's plan is unchanged by
+the indirection. Adds a transaction-time bound (f.recorded_at <= ts AND (f.superseded_at IS NULL OR
+f.superseded_at > ts)) that was invisible at ts = now() -- always trivially satisfied there -- but is not trivial,
+and is exactly the look-ahead-bias fix, once ts is an arbitrary past timestamp: without it, a fact recorded after
+ts would leak into a reconstruction of belief as of ts. Confirmed row-for-row identical to the pre-0036
+current_fact on the full test fixture set (0 rows differ, either direction); confirmed the transaction-time bound
+is load-bearing by temporarily reverting current_fact_at to the naive valid-time-only shape and observing the
+look-ahead case leak through. See §12's 1.18 entry.
+
 ### 3.9 Rules — review-mode contract
 
 Independent review remains preferred. Phase 1 may use a controlled solo-founder attestation only when the same identity authors and
@@ -498,7 +517,8 @@ commerce.subscription; no accepted price or per-file settlement field exists.
 4xx/5xx with application/problem+json.
 - Every response containing facts includes attribution[] and omitted_for_rights[]. Both are always present,
 even when empty.
-- ?as_of=<timestamp> on any read replays the system’s belief at that moment. Default now().
+- ?as_of=<timestamp> on any read replays the system’s belief at that moment. Default now(). Backed by
+current_fact_at(ts) (§3.8, 0036) — a real point-in-time reconstruction over fact, not a cache read.
 - Idempotency: POST accepts Idempotency-Key.
 
 ### 4.2 Endpoint table
@@ -1525,7 +1545,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.17
+Engineering Reference Spec v1.18
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1586,7 +1606,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.17
+Engineering Reference Spec v1.18
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1617,7 +1637,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.17
+Engineering Reference Spec v1.18
 
 ## 9. Refusal and error codes
 
@@ -2207,6 +2227,46 @@ as a matching key -- no uniqueness constraint, no FK, no change to parcel.id
                                              parcels sharing an apn, both previously rejected, both now required to succeed
                                              -- plain constraint changes, no trigger/function body, so no permissive-no-op
                                              control applies (unlike T52-T54). §3.4 and §8 now also cite these two files.
+```
+
+Aug 2026             1.18                 db/migrations/0036_current_fact_at.sql (C5, ML review, corrected). The review  current_fact was the only read path and was now-only by construction. Left
+proposed a function as source of truth with current_fact as "a thin wrapper"   alone, every future consumer -- the composer, an audit, a dispute, §4.1's own
+(a VIEW) over it -- rejected: a VIEW re-executes on every read, so a VIEW over ?as_of= convention -- inherits now-only behavior by default, and point-in-time
+a function is not materialized at all, it would delete current_fact's caching  reconstruction becomes structurally impossible rather than merely unbuilt.
+while keeping its name. Corrected shape: current_fact_at(ts timestamptz), a    Doing this before the scale ingest, not after, because a materialized view
+LANGUAGE sql STABLE function owning the entire resolution query -- the         redefinition is strictly cheaper over the zero rows this database holds today
+DISTINCT ON, the source_rank join, the confidence/recency/id tiebreak, byte-   than over 675k+ after loading the real parcel set, and because the composer
+identical to 0019's with now() replaced by ts -- and current_fact redefined as this would otherwise need to migrate around does not exist yet.
+```sql
+                                             SELECT * FROM current_fact_at(now()). Still a real MATERIALIZED VIEW: REFRESH
+                                             re-executes the whole defining query (already true of this view before 0036,
+                                             per 0008's own comment), so REFRESH still caches a fresh point-in-time
+                                             snapshot rather than recomputing on every read. There is exactly one place the
+                                             resolution logic exists; current_fact cannot diverge from current_fact_at
+                                             because it owns none of its own. Confirmed by EXPLAIN, not assumed: the
+                                             function body inlines into the calling query's plan, so REFRESH's plan at
+                                             scale is unchanged by the indirection. Adds a transaction-time bound --
+                                             f.recorded_at <= ts AND (f.superseded_at IS NULL OR f.superseded_at > ts) --
+                                             invisible at ts = now() (always trivially satisfied there: recorded_at cannot
+                                             postdate a real now(), and a real superseded_at cannot exceed it either) but
+                                             load-bearing once ts is an arbitrary past timestamp: without it, a fact
+                                             recorded after ts would leak into a reconstruction of belief as of ts, using
+                                             information the system did not have yet -- look-ahead bias, concretely. Landed
+                                             before the scale ingest deliberately: redefining a materialized view over
+                                             675k+ rows costs strictly more than over zero, and the composer that would
+                                             depend on this does not exist yet to migrate. db/tests/invariants.sql gains
+                                             two new tests (T57-T58, 76 enforced, up from 74): T57 asserts
+                                             current_fact_at(now()) is row-for-row identical to current_fact (0 rows
+                                             differ, either direction) over the full accumulated fixture set; T58
+                                             constructs the look-ahead case directly (effective_from 2019, recorded_at
+                                             forced to 2025) and asserts current_fact_at(2020-06-01) excludes it while
+                                             current_fact_at(now()) includes it. T58's own discipline confirmed by a manual
+                                             permissive-no-op control, not assumed: temporarily reverted current_fact_at to
+                                             the naive valid-time-only shape and confirmed the look-ahead case wrongly
+                                             leaks through, proving T58 exercises the added transaction-time bound and not
+                                             merely the function's existence. §3.8 and §4.1 (the ?as_of= convention, now
+                                             explicitly backed by current_fact_at rather than an unstated mechanism) now
+                                             also cite this file.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
