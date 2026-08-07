@@ -195,7 +195,12 @@ INSERT INTO field_definition (
   ('test.t32_field', 'Test Field T32', 'public_record', 'string', 'test', 'T32 invariant test field'),
   ('test.t33_field', 'Test Field T33', 'public_record', 'string', 'test', 'T33 invariant test field'),
   ('test.t34_field', 'Test Field T34', 'public_record', 'string', 'test', 'T34 invariant test field'),
-  ('test.t35_field', 'Test Field T35', 'public_record', 'string', 'test', 'T35 invariant test field')
+  ('test.t35_field', 'Test Field T35', 'public_record', 'string', 'test', 'T35 invariant test field'),
+  ('test.t36_field', 'Test Field T36', 'public_record', 'string', 'test', 'T36 invariant test field'),
+  ('test.t37_field', 'Test Field T37', 'public_record', 'string', 'test', 'T37 invariant test field'),
+  ('test.t38_field', 'Test Field T38', 'public_record', 'string', 'test', 'T38 invariant test field'),
+  ('test.t39_field', 'Test Field T39', 'public_record', 'string', 'test', 'T39 invariant test field'),
+  ('test.t40_field', 'Test Field T40', 'public_record', 'string', 'test', 'T40 invariant test field')
 ON CONFLICT (field_key) DO NOTHING;
 
 -- Cross-block scratch state for this run: the fresh parcel id, and (later)
@@ -2217,6 +2222,193 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T36: supersedes_fact_id set without supersession_reason is rejected
+-- (0025) -- fact_supersession_reason_biconditional.
+-- ============================================================================
+
+\echo '### TEST T36: supersedes_fact_id set with supersession_reason NULL (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_target_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+    SELECT value::uuid INTO v_target_id FROM test_state WHERE key = 'i4_fact_id';
+
+    BEGIN
+        INSERT INTO fact (
+            parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+            retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+            effective_from, pack_version, supersedes_fact_id
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'test.t36_field', '"value"'::jsonb, 'direct',
+            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+            now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0', v_target_id
+        );
+        RAISE EXCEPTION 'FAIL T36: supersedes_fact_id set with supersession_reason NULL was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'fact_supersession_reason_biconditional' THEN
+                RAISE NOTICE 'PASS T36: supersedes_fact_id without supersession_reason rejected';
+                INSERT INTO test_pass VALUES ('T36');
+            ELSE
+                RAISE EXCEPTION 'FAIL T36: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T37: supersession_reason set without supersedes_fact_id is rejected
+-- (0025) -- fact_supersession_reason_biconditional.
+-- ============================================================================
+
+\echo '### TEST T37: supersession_reason set with supersedes_fact_id NULL (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO fact (
+            parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+            retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+            effective_from, pack_version, supersession_reason
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'test.t37_field', '"value"'::jsonb, 'direct',
+            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+            now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0', 'world_change'
+        );
+        RAISE EXCEPTION 'FAIL T37: supersession_reason set with supersedes_fact_id NULL was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'fact_supersession_reason_biconditional' THEN
+                RAISE NOTICE 'PASS T37: supersession_reason without supersedes_fact_id rejected';
+                INSERT INTO test_pass VALUES ('T37');
+            ELSE
+                RAISE EXCEPTION 'FAIL T37: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T38: a fact with supersedes_fact_id AND supersession_reason both
+-- NULL succeeds (0025) -- the ordinary case, a fact that supersedes
+-- nothing.
+-- ============================================================================
+
+\echo '### TEST T38: fact with supersedes_fact_id and supersession_reason both NULL (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_fact_id   uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t38_field', '"value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_fact_id;
+
+    RAISE NOTICE 'PASS T38: fact with both supersession columns NULL accepted (id=%)', v_fact_id;
+    INSERT INTO test_pass VALUES ('T38');
+END $$;
+
+-- ============================================================================
+-- TEST T39: a fact with supersedes_fact_id AND supersession_reason both
+-- set, validly, succeeds (0025).
+-- ============================================================================
+
+\echo '### TEST T39: fact with both supersedes_fact_id and supersession_reason set, valid (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id      uuid;
+    v_original_id    uuid;
+    v_superseding_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t39_field', '"original_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_original_id;
+
+    -- Supersede the original -- the one legal UPDATE on a fact row (I4).
+    UPDATE fact SET superseded_at = now() WHERE id = v_original_id;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version, supersedes_fact_id, supersession_reason
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t39_field', '"corrected_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0',
+        v_original_id, 'source_correction'
+    ) RETURNING id INTO v_superseding_id;
+
+    RAISE NOTICE 'PASS T39: fact superseding another, with a stated reason, accepted (superseding=%, original=%)',
+        v_superseding_id, v_original_id;
+    INSERT INTO test_pass VALUES ('T39');
+END $$;
+
+-- ============================================================================
+-- TEST T40: a fact cannot supersede itself (0025) -- fact_supersedes_not_self.
+-- ============================================================================
+
+\echo '### TEST T40: supersedes_fact_id = own id (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_new_id     uuid := gen_random_uuid();
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO fact (
+            id, parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+            retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+            effective_from, pack_version, supersedes_fact_id, supersession_reason
+        ) VALUES (
+            v_new_id, v_parcel_id, 'ca_san_jose', 'test.t40_field', '"value"'::jsonb, 'direct',
+            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+            now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0',
+            v_new_id, 'world_change'
+        );
+        RAISE EXCEPTION 'FAIL T40: fact with supersedes_fact_id = own id was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'fact_supersedes_not_self' THEN
+                RAISE NOTICE 'PASS T40: self-supersession rejected';
+                INSERT INTO test_pass VALUES ('T40');
+            ELSE
+                RAISE EXCEPTION 'FAIL T40: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -2247,8 +2439,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 53 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 53 passing tests, got %', v_pass_count;
+    IF v_pass_count < 58 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 58 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

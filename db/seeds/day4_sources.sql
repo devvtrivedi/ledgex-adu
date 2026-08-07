@@ -90,30 +90,46 @@ ON CONFLICT (id) DO NOTHING;
 -- FIELD DEFINITIONS: Every field the three sources supply
 -- ============================================================================
 
+-- parcel.lot_area_gis and parcel.situs_address: phase1_deferred = true.
+-- scripts/ingest_parcels.py's Phase C inspection (real ~210MB GeoJSON,
+-- 225,039 features, every property key enumerated) found ca_san_jose.parcels
+-- supplies neither. No address-shaped property exists anywhere in the
+-- feature set. A SHAPE_Area property is present but is NOT treated as
+-- lot_area_gis: this field is declared unit=square_feet, and SHAPE_Area's
+-- actual unit and computation basis are unconfirmed against this export's
+-- EPSG:4326 (geographic, degrees) coordinates -- asserting square_feet
+-- without confirming it would fabricate a unit, not record an observation.
+-- Both fields already have required_for_file = false (the default, never
+-- set true below), so field_deferred_not_required is satisfied. See
+-- db/migrations/0026_correct_parcels_expected_fields.sql for the
+-- companion correction on databases seeded before this fix existed.
 INSERT INTO field_definition (
-  field_key, display_name, claim, value_type, unit, category, description
+  field_key, display_name, claim, value_type, unit, category, description,
+  phase1_deferred, deferral_reason
 ) VALUES
   -- From parcels source
   ('parcel.apn', 'Assessor Parcel Number', 'public_record', 'string', NULL, 'parcel',
-   'Unique parcel identifier from Santa Clara County Assessor'),
+   'Unique parcel identifier from Santa Clara County Assessor', false, NULL),
   ('parcel.geometry', 'Parcel Geometry', 'public_record', 'geometry', NULL, 'parcel',
-   'Parcel boundary as MultiPolygon (GIS data)'),
+   'Parcel boundary as MultiPolygon (GIS data)', false, NULL),
   ('parcel.lot_area_gis', 'Lot Area (from GIS)', 'public_record', 'number', 'square_feet', 'parcel',
-   'Lot area in square feet, measured from GIS geometry'),
+   'Lot area in square feet, measured from GIS geometry', true,
+   'ca_san_jose.parcels does not supply a declared lot_area_gis field. SHAPE_Area is present on every feature but is not treated as equivalent: unit and computation basis unconfirmed against this export''s EPSG:4326 coordinates. Confirmed via scripts/ingest_parcels.py Phase C, 2026-08-07.'),
   ('parcel.situs_address', 'Situs Address', 'public_record', 'string', NULL, 'parcel',
-   'Street address of the parcel (mailing address)'),
+   'Street address of the parcel (mailing address)', true,
+   'ca_san_jose.parcels does not supply this field. No address-shaped property exists anywhere in the GeoJSON feature set (checked all 225,039 features). Confirmed via scripts/ingest_parcels.py Phase C, 2026-08-07.'),
 
   -- From zoning source
   ('zoning.district', 'Zoning District', 'public_record', 'string', NULL, 'zoning',
-   'Zoning classification assigned by the City of San José'),
+   'Zoning classification assigned by the City of San José', false, NULL),
   ('zoning.district_verbatim', 'Zoning District (Verbatim)', 'public_record', 'string', NULL, 'zoning',
-   'Exact zoning designation as stored in the City''s GIS system'),
+   'Exact zoning designation as stored in the City''s GIS system', false, NULL),
 
   -- From building_permits_active source
   ('permits.active', 'Active Building Permit', 'public_record', 'boolean', NULL, 'permits',
-   'Whether the parcel has an active building permit'),
+   'Whether the parcel has an active building permit', false, NULL),
   ('permits.series_earliest', 'Earliest Active Permit Date', 'public_record', 'date', NULL, 'permits',
-   'Date of the earliest currently-active building permit')
+   'Date of the earliest currently-active building permit', false, NULL)
 ON CONFLICT (field_key) DO NOTHING;
 
 -- ============================================================================
@@ -180,12 +196,12 @@ INSERT INTO source (
    'City of San José',
    'bulk',
    'active',
-   'Licence confirmed: CC BY 4.0. Endpoint verified 2026-08-06: GET, 200, Content-Type application/json, body is a well-formed GeoJSON FeatureCollection (225,039 Polygon features).',
+   'Licence confirmed: CC BY 4.0. Endpoint verified 2026-08-06: GET, 200, Content-Type application/json, body is a well-formed GeoJSON FeatureCollection (225,039 Polygon features). expected_fields corrected 2026-08-07: scripts/ingest_parcels.py Phase C found the source supplies neither parcel.lot_area_gis nor parcel.situs_address -- see field_definition.deferral_reason on both.',
    'https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/4bb085cb99a64eff8e83d2bf92a8d5cb/geojson?layers=270',
    'cc_by_4_0',
    true,
    '2026-08-06'::timestamptz,
-   '["parcel.apn","parcel.geometry","parcel.lot_area_gis","parcel.situs_address"]'::jsonb),
+   '["parcel.apn","parcel.geometry"]'::jsonb),
 
   ('ca_san_jose.zoning_districts',
    'ca_san_jose',

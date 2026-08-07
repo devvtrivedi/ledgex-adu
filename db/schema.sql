@@ -228,6 +228,19 @@ CREATE TYPE public.source_phase_status AS ENUM (
 
 
 --
+-- Name: supersession_reason; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.supersession_reason AS ENUM (
+    'world_change',
+    'source_correction',
+    'refetch_no_change',
+    'ingestion_logic_change',
+    'unknown'
+);
+
+
+--
 -- Name: support_category; Type: TYPE; Schema: public; Owner: -
 --
 
@@ -521,8 +534,12 @@ CREATE TABLE public.fact (
     ruleset_version text,
     pack_version text NOT NULL,
     jurisdiction_id text NOT NULL,
+    supersedes_fact_id uuid,
+    supersession_reason public.supersession_reason,
     CONSTRAINT fact_method_automated CHECK ((method = ANY (ARRAY['direct'::public.access_method, 'bulk'::public.access_method, 'derived'::public.access_method]))),
     CONSTRAINT fact_provenance_complete CHECK ((((method = 'derived'::public.access_method) AND (source_id IS NULL) AND (snapshot_id IS NULL) AND (method_version IS NOT NULL)) OR ((method <> 'derived'::public.access_method) AND (source_id IS NOT NULL) AND (snapshot_id IS NOT NULL) AND (retrieved_at IS NOT NULL) AND (source_url IS NOT NULL)))),
+    CONSTRAINT fact_supersedes_not_self CHECK ((supersedes_fact_id <> id)),
+    CONSTRAINT fact_supersession_reason_biconditional CHECK ((((supersedes_fact_id IS NULL) AND (supersession_reason IS NULL)) OR ((supersedes_fact_id IS NOT NULL) AND (supersession_reason IS NOT NULL)))),
     CONSTRAINT fact_txn_time CHECK (((superseded_at IS NULL) OR (superseded_at >= recorded_at))),
     CONSTRAINT fact_valid_time CHECK (((effective_to IS NULL) OR (effective_to > effective_from)))
 );
@@ -1401,6 +1418,14 @@ ALTER TABLE ONLY public.fact
 
 ALTER TABLE ONLY public.fact
     ADD CONSTRAINT fact_source_method_fk FOREIGN KEY (source_id, method) REFERENCES public.source(id, method);
+
+
+--
+-- Name: fact fact_supersedes_fact_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_supersedes_fact_fk FOREIGN KEY (supersedes_fact_id) REFERENCES public.fact(id);
 
 
 --
