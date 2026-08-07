@@ -63,3 +63,38 @@ nothing further is needed there.
 
 0008's own comment is not being changed (migrations are forward-only and this
 one is applied); this file is where the first-refresh caveat lives instead.
+
+## `source.method` becomes immutable once any fact references it
+
+`fact_source_method_fk` (0018) is `fact (source_id, method) REFERENCES source
+(id, method)`, with no `ON UPDATE CASCADE`. That means once any fact row
+carries a given `source_id`, Postgres refuses to change that source's
+`method` at all, because doing so would leave the fact's FK pointing at a
+`(id, method)` pair that no longer exists in `source`. Verified directly:
+
+```sql
+UPDATE source SET method = 'bulk' WHERE id = 'ca_san_jose.test_source';
+```
+
+```
+ERROR:  update or delete on table "source" violates foreign key constraint "fact_source_method_fk" on table "fact"
+DETAIL:  Key (id, method)=(ca_san_jose.test_source, direct) is still referenced from table "fact".
+```
+
+This is correct behaviour, not a defect: retroactively changing a source's
+declared access method would falsify the provenance of every fact already
+recorded under it. But it has a real consequence for operations —
+`0016_source_access_method_corrections.sql` exists precisely because
+`source.method` needed a plain in-place `UPDATE` correction after seeding,
+and that route only works before any fact references the source. Once
+ingestion has run and facts exist, the same kind of correction can no longer
+be a migration that just updates the row.
+
+**What the correction path becomes instead, once facts exist:** supersede
+every fact recorded under the source's old (wrong) method first — same
+mechanism I4 already requires for any fact correction, a new fact row with
+`superseded_at` set on the old one, never an `UPDATE` or `DELETE` on `fact`
+itself (0017 blocks the latter outright) — then update `source.method`. The
+`UPDATE` on `source` will only succeed once no fact row still references the
+old `(id, method)` pair, i.e. once every fact under that source has been
+superseded, not merely re-ingested alongside the old rows.
