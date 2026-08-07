@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.16
+ Engineering Reference Spec v1.17
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.16                                       Machine-executed build contract.
+   1        This Spec v1.17                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -312,6 +312,32 @@ db/schema.sql is the generated record of the applied result.
 
 The DDL for this section is db/migrations/0004_parcel.sql.
 db/schema.sql is the generated record of the applied result.
+
+     db/migrations/0034_parcel_apn_not_identity.sql drops UNIQUE (jurisdiction_id, apn) and apn's NOT NULL --
+     the parcel identity diagnostic found 49 real APN collisions across 102 features in the live source (24 of
+     58 pairwise relationships geometrically disjoint, LOTNUM differing in 44 of 49 groups, the source's own
+     working MultiPolygon convention unused by any of them -- not a multi-part-parcel export defect) and 9
+     features with no APN at all, acknowledged by the source's own reviewers. apn and situs_address are KEPT
+     as columns, not dropped -- demoted to a non-authoritative cache of the current fact, the same trade
+     source.phase_status already makes against licence_channel (§7.3): kept for a human-readable ledger,
+     documented as non-authoritative via COMMENT ON COLUMN, with no enforcement available across the
+     parcel/fact table boundary (unlike phase_status's narrow same-row CHECK) -- a deliberately accepted,
+     not a solved, gap. See §12's 1.17 entry for the full evidence and the case against this decision.
+
+     db/migrations/0035_parcel_source_parcel_id_field.sql adds field_definition row parcel.source_parcel_id
+     (PARCELID as supplied by the source -- confirmed unique and fully populated across all 225,039 features,
+     unlike APN) and the matching source.expected_fields entry for ca_san_jose.parcels. Captured as an
+     observation with full provenance, not adopted as a matching key or given any uniqueness constraint --
+     that decision waits on an observed source-side change to compare a superseding fact against, which
+     capturing the fact now is what makes possible. INTID is not captured separately (confirmed identical to
+     int(PARCELID), zero exceptions); OBJECTID is not captured at all (its persistent-counter-like range is an
+     untested hypothesis, not a finding).
+
+     An unresolvable APN (blank, or the literal '???' placeholder substring found in 9 of the 49 duplicate
+     groups) gets no parcel.apn fact at all -- recording a non-value as a public_record observation would
+     misrepresent it as one. Ingest raises a parcel_exception (type='coverage_gap') instead, needing no
+     schema change: 0010/0015 already accept an open exception with resolved_at/resolved_by both NULL. See
+     db/README.md for the verified-directly proof and the full policy.
 
 3.5 Snapshots — the reconstruction backbone (C2)
 
@@ -1462,9 +1488,11 @@ and school attendance boundaries. Deferred means not integrated; it never means 
   field_key                                            claim                         type               unit          stale          core         def.       notes
   jurisdiction.incorporated                            public_record                 boolean            —             180            Y                       Minimum core; LD-1 blocks all channels.
 
-  parcel.apn                                           public_record                 string             —             —              Y                       Minimum parcel identity.
+  parcel.apn                                           public_record                 string             —             —              Y                       Non-authoritative cache (0034); not unique, not required for identity. See §3.4.
 
-  parcel.situs_address                                 public_record                 string             —             400                                    Display identity.
+  parcel.source_parcel_id                              public_record                 string             —             —                                      County GIS internal id (PARCELID). Observation only, not a matching key. See §3.4/0035.
+
+  parcel.situs_address                                 public_record                 string             —             400                                    Display identity. Non-authoritative cache (0034).
 
   parcel.geometry                                      public_record                 geometry           —             400            Y                       Minimum spatial core.
 
@@ -1520,7 +1548,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.16
+                     Engineering Reference Spec v1.17
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1581,7 +1609,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.16
+                   Engineering Reference Spec v1.17
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1610,7 +1638,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.16
+                Engineering Reference Spec v1.17
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -2151,6 +2179,44 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              DELETE and a positive INSERT control proving the lock blocks only
                                              UPDATE/DELETE, mirroring T41-T43. §3.1, §3.2 and §7.3 now also cite these four
                                              files.
+
+   Aug 2026             1.17                 db/migrations/0034_parcel_apn_not_identity.sql drops UNIQUE (jurisdiction_id,  Acting on the parcel identity diagnostic: settle what the evidence settled,
+                                             apn) and apn's NOT NULL: the parcel identity diagnostic found 49 real APN      defer what it could not. B4 (ML review) argued APN identity breaks at splits
+                                             collisions across 102 features in the live source (24 of 58 pairwise           and renumbering over time; the diagnostic found it already broken within a
+                                             relationships geometrically disjoint, LOTNUM differing in 44 of 49 groups, the single point-in-time export, a stronger claim than B4 made. The multi-part-
+                                             source's own working MultiPolygon convention -- 89 native features -- unused   parcel hypothesis (one legal parcel wrongly exported as separate features, a
+                                             by any of them; not a multi-part-parcel export defect) and 9 features with no  schema/ingest question) was tested first and explicitly disproven, not merely
+                                             APN at all, acknowledged by the source's own reviewers ("No APN, data reviewer unconfirmed -- so this is a source identity defect, not an ingest defect, and
+                                             correction."). Reported before writing, not decided silently: does parcel.apn  the fix is narrowing what APN's columns and constraints claim, not merging
+                                             survive as a column? KEPT, not dropped -- demoted to a non-authoritative       features. PARCELID is captured now, deliberately inert as identity, so that
+                                             cache, the same trade source.phase_status already makes against                the day the source renumbers it -- which its own NOTES field proves already
+                                             licence_channel (§7.3): a human-readable column with no enforcement across the happens -- there is a prior fact to compare the correction against. Explicitly
+                                             parcel/fact table boundary (Postgres CHECK cannot reach another table, unlike  out of scope: any matching-key decision, a PARCELID uniqueness constraint, a
+                                             phase_status's narrow same-row check), documented via COMMENT ON COLUMN rather change to parcel.id, and parcel_lineage -- all still deferred, none of which
+                                             than solved. situs_address demoted identically for the same reason; needed no  this diagnostic produced evidence to decide.
+                                             DDL change, already nullable and unconstrained.
+                                             db/migrations/0035_parcel_source_parcel_id_field.sql adds field_definition row
+                                             parcel.source_parcel_id (PARCELID: confirmed unique and fully populated across
+                                             all 225,039 features, unlike APN, and actively renumbered by the source's own
+                                             reviewers per one dup group's NOTES) and the matching source.expected_fields
+                                             entry. Captured as an observation with full provenance, explicitly NOT adopted
+                                             as a matching key -- no uniqueness constraint, no FK, no change to parcel.id
+                                             -- because the stability question needs an observed source-side change to
+                                             compare against, which capturing the fact now is the prerequisite for, not an
+                                             answer to. INTID skipped (confirmed identical to int(PARCELID), zero
+                                             exceptions -- no information). OBJECTID skipped (its range suggests a
+                                             persistent edit counter, but that is an untested hypothesis, not a finding).
+                                             An unresolvable APN (blank, or one of the 9 duplicate groups whose value is
+                                             the literal '???' placeholder substring) gets no parcel.apn fact -- recording
+                                             a non-value as a public_record observation would misrepresent it as one -- and
+                                             instead raises a parcel_exception (type='coverage_gap'). No schema change
+                                             needed: 0010/0015 already accept an open exception with
+                                             resolved_at/resolved_by both NULL, verified directly against the live
+                                             constraints; policy recorded in db/README.md. db/tests/invariants.sql gains
+                                             two new tests (T55-T56, 74 enforced, up from 72): a NULL-apn parcel and two
+                                             parcels sharing an apn, both previously rejected, both now required to succeed
+                                             -- plain constraint changes, no trigger/function body, so no permissive-no-op
+                                             control applies (unlike T52-T54). §3.4 and §8 now also cite these two files.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

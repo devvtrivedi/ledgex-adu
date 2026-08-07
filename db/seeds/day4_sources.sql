@@ -162,6 +162,14 @@ INSERT INTO field_definition (
   ('parcel.situs_address', 'Situs Address', 'public_record', 'string', NULL, 'parcel',
    'Street address of the parcel (mailing address)', true,
    'ca_san_jose.parcels does not supply this field. No address-shaped property exists anywhere in the GeoJSON feature set (checked all 225,039 features). Confirmed via scripts/ingest_parcels.py Phase C, 2026-08-07.'),
+  -- parcel.source_parcel_id (PARCELID) is NOT seeded here: unlike the
+  -- fields above, it did not exist in any earlier version of this file
+  -- to correct. db/migrations/0035_parcel_source_parcel_id_field.sql
+  -- INSERTs it directly, per §6.1 task shape B step 1 ("Add to
+  -- field_definition (migration)") -- migrations always run before any
+  -- seed, so that INSERT alone is sufficient for every future install;
+  -- duplicating it here would only be a second place its description
+  -- text could drift out of sync.
 
   -- From zoning source
   ('zoning.district', 'Zoning District', 'public_record', 'string', NULL, 'zoning',
@@ -240,12 +248,12 @@ INSERT INTO source (
    'City of San José',
    'bulk',
    'active',
-   'Licence confirmed: CC BY 4.0. Endpoint verified 2026-08-06: GET, 200, Content-Type application/json, body is a well-formed GeoJSON FeatureCollection (225,039 Polygon features). expected_fields corrected 2026-08-07: scripts/ingest_parcels.py Phase C found the source supplies neither parcel.lot_area_gis nor parcel.situs_address -- see field_definition.deferral_reason on both.',
+   'Licence confirmed: CC BY 4.0. Endpoint verified 2026-08-06: GET, 200, Content-Type application/json, body is a well-formed GeoJSON FeatureCollection (225,039 Polygon features). expected_fields corrected 2026-08-07: scripts/ingest_parcels.py Phase C found the source supplies neither parcel.lot_area_gis nor parcel.situs_address -- see field_definition.deferral_reason on both. parcel.source_parcel_id added 2026-08-07 (0035): PARCELID confirmed unique and fully populated across all 225,039 features by the parcel identity diagnostic.',
    'https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/4bb085cb99a64eff8e83d2bf92a8d5cb/geojson?layers=270',
    'cc_by_4_0',
    true,
    '2026-08-06'::timestamptz,
-   '["parcel.apn","parcel.geometry"]'::jsonb),
+   '["parcel.apn","parcel.geometry","parcel.source_parcel_id"]'::jsonb),
 
   ('ca_san_jose.zoning_districts',
    'ca_san_jose',

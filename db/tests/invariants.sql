@@ -3073,6 +3073,66 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T55: a parcel with NULL apn is accepted (0034) -- the parcel
+-- identity diagnostic found 9 features in the real source with a
+-- genuinely blank APN, acknowledged by the source's own reviewers
+-- ("No APN, data reviewer correction."), not an ingest defect to reject.
+-- Plain constraint change (apn NOT NULL dropped), no trigger/function
+-- body involved -- no permissive-no-op control applies here, unlike
+-- T52-T54.
+-- ============================================================================
+
+\echo '### TEST T55: parcel with NULL apn (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    INSERT INTO parcel (jurisdiction_id, apn, geom)
+    VALUES ('ca_san_jose', NULL, ST_Multi(ST_SetSRID(ST_GeomFromText(
+        'POLYGON((-121.9 37.3, -121.9 37.31, -121.89 37.31, -121.89 37.3, -121.9 37.3))'), 4326)))
+    RETURNING id INTO v_parcel_id;
+
+    RAISE NOTICE 'PASS T55: parcel with NULL apn accepted (id=%)', v_parcel_id;
+    INSERT INTO test_pass VALUES ('T55');
+END $$;
+
+-- ============================================================================
+-- TEST T56: two parcels sharing the same (jurisdiction_id, apn) are both
+-- accepted (0034) -- the diagnostic found 49 real APN collisions across
+-- 102 features in the source, none of which were the same legal parcel
+-- exported twice (see 0034's header for the full evidence). Fresh
+-- uuid-suffixed apn, matching this file's top-of-run convention, so this
+-- test can never collide with a previous run's row -- unlike licence/
+-- licence_channel, parcel carries no immutability trigger, but the shared
+-- apn value itself must still be unique to THIS run to keep the test
+-- meaningful (proving two DIFFERENT parcels share one apn, not that the
+-- same literal string merely appears once more).
+-- ============================================================================
+
+\echo '### TEST T56: two parcels sharing one apn (should succeed)'
+
+DO $$
+DECLARE
+    v_shared_apn text := 'TEST-DUP-' || gen_random_uuid()::text;
+    v_parcel_id_1 uuid;
+    v_parcel_id_2 uuid;
+BEGIN
+    INSERT INTO parcel (jurisdiction_id, apn, geom)
+    VALUES ('ca_san_jose', v_shared_apn, ST_Multi(ST_SetSRID(ST_GeomFromText(
+        'POLYGON((-121.9 37.3, -121.9 37.31, -121.89 37.31, -121.89 37.3, -121.9 37.3))'), 4326)))
+    RETURNING id INTO v_parcel_id_1;
+
+    INSERT INTO parcel (jurisdiction_id, apn, geom)
+    VALUES ('ca_san_jose', v_shared_apn, ST_Multi(ST_SetSRID(ST_GeomFromText(
+        'POLYGON((-121.5 37.5, -121.5 37.51, -121.49 37.51, -121.49 37.5, -121.5 37.5))'), 4326)))
+    RETURNING id INTO v_parcel_id_2;
+
+    RAISE NOTICE 'PASS T56: two parcels sharing apn=% accepted (id1=%, id2=%)', v_shared_apn, v_parcel_id_1, v_parcel_id_2;
+    INSERT INTO test_pass VALUES ('T56');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -3103,8 +3163,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 72 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 72 passing tests, got %', v_pass_count;
+    IF v_pass_count < 74 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 74 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

@@ -679,13 +679,27 @@ CREATE TABLE public.fact (
 CREATE TABLE public.parcel (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     jurisdiction_id text NOT NULL,
-    apn text NOT NULL,
+    apn text,
     situs_address text,
     geom public.geometry(MultiPolygon,4326),
     centroid public.geometry(Point,4326),
     first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
     last_seen_at timestamp with time zone DEFAULT now() NOT NULL
 );
+
+
+--
+-- Name: COLUMN parcel.apn; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.parcel.apn IS 'Non-authoritative cache of the most recently observed parcel.apn fact -- NOT unique (49 confirmed source collisions), NOT required (9 confirmed source blanks; also NULL for a parcel whose only identifying feature carried an unresolved "???" placeholder, per policy: no fact is written for a non-value, so no cache value exists either). The fact ledger (query current_fact / fact for field_key=''parcel.apn'') is authoritative; this column reflects it only as of the last write and does not update on supersession. See 0034 for the evidence this was demoted on.';
+
+
+--
+-- Name: COLUMN parcel.situs_address; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.parcel.situs_address IS 'Non-authoritative cache of the most recently observed parcel.situs_address fact, same status as parcel.apn -- see its comment. Currently always NULL: ca_san_jose.parcels does not supply an address-shaped property (0026), so no fact and no cache value exists yet for any row.';
 
 
 --
@@ -1134,14 +1148,6 @@ ALTER TABLE ONLY public.parcel_exception
 
 ALTER TABLE ONLY public.parcel
     ADD CONSTRAINT parcel_id_jurisdiction_id_unique UNIQUE (id, jurisdiction_id);
-
-
---
--- Name: parcel parcel_jurisdiction_id_apn_key; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.parcel
-    ADD CONSTRAINT parcel_jurisdiction_id_apn_key UNIQUE (jurisdiction_id, apn);
 
 
 --

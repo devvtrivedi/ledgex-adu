@@ -135,3 +135,41 @@ participated in, a seed change, and a decision about what the old source id
 means going forward (retired but still the accurate provenance record for
 every fact recorded under it, presumably — never deleted, since deleting it
 would orphan those facts' `source_id` FK).
+
+## An unresolvable `parcel.apn` is an exception, not a fact
+
+The parcel identity diagnostic (2026-08) found 9 features in
+`ca_san_jose.parcels` with a genuinely blank APN and 9 more duplicate-APN
+groups where the APN itself is a literal `'???'` placeholder substring
+(e.g. `'27704???'`) — not a real value, just an unresolved suffix marker
+the source never replaced. Neither is a value.
+
+Ingest code (Phase D today; `core/store.derive()`/L4 once it exists) must
+**not** write a `parcel.apn` fact for either case. Recording `'27704???'`
+or an empty string as a `public_record` observation would store a
+non-value as if it were one — the exact thing I2/claim types exist to
+prevent. Instead, raise one `parcel_exception` per affected parcel:
+`type='coverage_gap'`, a stable `detector_key`/`detector_version`, and
+`detail` carrying the raw source value (or its absence) and which case it
+is (`blank` vs. `placeholder`).
+
+This needs no schema change — `parcel_exception` (0010) and its
+outcome/resolution biconditional (0015) already accept this shape exactly
+as written. Verified directly, not assumed:
+
+```sql
+INSERT INTO parcel_exception (
+    parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail
+) VALUES (
+    '<parcel id>', 'ca_san_jose', 'coverage_gap', 'info',
+    'parcel_apn_unresolvable', '1.0',
+    '{"raw_apn": "27704???", "reason": "placeholder"}'::jsonb
+);
+```
+
+succeeds with `outcome='open'`, `resolved_at`/`resolved_by` both `NULL` —
+0015's biconditional already requires exactly that combination for an open
+exception. `parcel.apn` (the column) is left `NULL` for that parcel too
+(0034: no fact means no cache value either), which is itself informative —
+a `NULL` `parcel.apn` with an open `coverage_gap` exception on file reads
+differently from a `NULL` that just hasn't been looked at yet.
