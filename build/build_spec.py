@@ -27,6 +27,19 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 BODY = ROOT / "text" / f"LedgeX_Engineering_Reference_Spec_v{S.SPEC_VERSION.replace('.', '_')}.txt"
 OUT  = ROOT / "docs" / "LEDGEX_SPEC.md"
 
+# The source text cross-references both builders by name in prose (§0.2's
+# "One invariant source" paragraph). {{BUILD_SPEC_PY}} derives from this
+# script's own filename -- pathlib.Path(__file__).name, not a literal --
+# so a future rename can't leave a stale name behind the way
+# build_spec_v1_8.py did (found in both .txt sources, discovered on the
+# v1.16->de-versioning pass; neither instance had reached the generated
+# docs yet, but both were wrong). BUILD_RULES_PY names a stable sibling
+# file this script doesn't own; a literal is fine here since it no longer
+# changes on every version bump, but the token still means one string to
+# fix, not a grep-and-sweep, if it's ever renamed again.
+BUILD_SPEC_PY = pathlib.Path(__file__).name
+BUILD_RULES_PY = "build_rules.py"
+
 CONTENTS = [
     ("0",  "How to use this file",                      "Always, before any change."),
     ("1",  "Invariants and internal-fact gate",         "Always. Every change is checked against these."),
@@ -153,8 +166,10 @@ def render_md():
     # Start at Section 2. Section 1 is rendered above from ledgex_source.py
     # and must not appear twice — a second copy would be a copied invariant
     # table, which sec 0.2 prohibits.
-    p.append(md_convert.convert(BODY.read_text(encoding="utf-8"),
-                                drop_before="Section 2"))
+    body_text = (BODY.read_text(encoding="utf-8")
+                 .replace("{{BUILD_SPEC_PY}}", BUILD_SPEC_PY)
+                 .replace("{{BUILD_RULES_PY}}", BUILD_RULES_PY))
+    p.append(md_convert.convert(body_text, drop_before="Section 2"))
     p.append("")
     p.append("---")
     p.append("")

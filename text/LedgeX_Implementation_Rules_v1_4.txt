@@ -21,7 +21,7 @@ LEDGEX / ADU.X
 
      ONE INVARIANT SOURCE
 
-     This builder owns INVARIANTS. build_spec_v1_8.py imports the same object. A change that produces different invariant text in the two
+     This builder owns INVARIANTS. {{BUILD_SPEC_PY}} imports the same object. A change that produces different invariant text in the two
      PDFs fails document QA.
 
  1 / Invariants - I1 to I7

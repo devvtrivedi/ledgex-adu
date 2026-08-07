@@ -72,7 +72,7 @@ LEDGEX / ADU.X
 
  0.2 One invariant source
 
- build_rules_v1_4.py owns INVARIANTS and MAKE_TARGETS. build_spec_v1_8.py imports those objects. Neither PDF is generated from a copied
+ {{BUILD_RULES_PY}} owns INVARIANTS and MAKE_TARGETS. {{BUILD_SPEC_PY}} imports those objects. Neither PDF is generated from a copied
  invariant table. Document QA fails if any invariant body or enforcement cell differs.
 
      NO CLAIM OF APPLICATION EXECUTION

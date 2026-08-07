@@ -31,6 +31,15 @@ OUT  = ROOT / "docs" / "LEDGEX_RULES.md"
 # carries a token instead and this builder substitutes it.
 SPEC_VERSION_TOKEN = "{{SPEC_VERSION}}"
 
+# Same idea, one layer down: the Rules source text names the Spec's builder
+# by filename too ("build_spec_v1_8.py imports the same object" -- stale
+# even before the v1.16 de-versioning pass, since the Spec builder had
+# already moved past v1_8 long ago). A literal is fine here since this
+# script doesn't own that file and it no longer changes on every version
+# bump, but the token still means one string to fix if it's ever renamed.
+BUILD_SPEC_PY_TOKEN = "{{BUILD_SPEC_PY}}"
+BUILD_SPEC_PY = "build_spec.py"
+
 
 def render_md():
     p = []
@@ -104,7 +113,9 @@ def render_md():
     # closing prose from the make-targets section ("All six targets run
     # locally and in CI with zero required skips...") along with the
     # duplicate table — accepted; that line isn't stated anywhere else.
-    body_text = BODY.read_text(encoding="utf-8").replace(SPEC_VERSION_TOKEN, S.SPEC_VERSION)
+    body_text = (BODY.read_text(encoding="utf-8")
+                 .replace(SPEC_VERSION_TOKEN, S.SPEC_VERSION)
+                 .replace(BUILD_SPEC_PY_TOKEN, BUILD_SPEC_PY))
     p.append(md_convert.convert(body_text,
                                 drop_before="3 / A-1.1 licence gate and document repair"))
     p.append("")
