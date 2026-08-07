@@ -127,7 +127,8 @@ INSERT INTO field_definition (
   ('test.t4_field',  'Test Field T4',  'public_record', 'string', 'test', 'T4 invariant test field'),
   ('test.t5_field',  'Test Field T5',  'public_record', 'string', 'test', 'T5 invariant test field'),
   ('test.t6_field',  'Test Field T6',  'public_record', 'string', 'test', 'T6 invariant test field (future effective_from)'),
-  ('test.t6b_field', 'Test Field T6b', 'public_record', 'string', 'test', 'T6 invariant test field (present effective_from, control)')
+  ('test.t6b_field', 'Test Field T6b', 'public_record', 'string', 'test', 'T6 invariant test field (present effective_from, control)'),
+  ('test.t17_field', 'Test Field T17', 'public_record', 'string', 'test', 'T17 invariant test field')
 ON CONFLICT (field_key) DO NOTHING;
 
 -- Cross-block scratch state for this run: the fresh parcel id, and (later)
@@ -1482,6 +1483,56 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T17: source.method remains immutable even after every fact that
+-- references it has been superseded (0018) -- db/README.md previously and
+-- wrongly documented supersession as a way to release the FK reference and
+-- allow the UPDATE; that claim was never actually run. PostgreSQL FK
+-- enforcement does not look at superseded_at or any other column when
+-- deciding whether a referenced key is "still referenced" -- a superseded
+-- row references (source_id, method) exactly as much as a live one does.
+-- ============================================================================
+
+\echo '### TEST T17: UPDATE source.method after superseding its only referencing fact (should still fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_fact_id    uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test.t17_field', '"value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
+        'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_fact_id;
+
+    -- Supersede it -- the one legal UPDATE on a fact row (I4). If
+    -- supersession released the FK reference the way the (wrong) README
+    -- claim assumed, the UPDATE below would succeed; it must not.
+    UPDATE fact SET superseded_at = now() WHERE id = v_fact_id;
+
+    BEGIN
+        UPDATE source SET method = 'bulk' WHERE id = 'ca_san_jose.test_source';
+        RAISE EXCEPTION 'FAIL T17: source.method UPDATE succeeded after superseding its only referencing fact';
+    EXCEPTION
+        WHEN foreign_key_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'fact_source_method_fk' THEN
+                RAISE NOTICE 'PASS T17: source.method remains immutable after supersession (rejected by fact_source_method_fk)';
+                INSERT INTO test_pass VALUES ('T17');
+            ELSE
+                RAISE EXCEPTION 'FAIL T17: foreign_key_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -1512,8 +1563,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 34 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 34 passing tests, got %', v_pass_count;
+    IF v_pass_count < 35 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 35 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

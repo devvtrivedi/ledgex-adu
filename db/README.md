@@ -87,14 +87,51 @@ recorded under it. But it has a real consequence for operations —
 `0016_source_access_method_corrections.sql` exists precisely because
 `source.method` needed a plain in-place `UPDATE` correction after seeding,
 and that route only works before any fact references the source. Once
-ingestion has run and facts exist, the same kind of correction can no longer
-be a migration that just updates the row.
+ingestion has run and facts exist, the same kind of correction is no longer
+available at all — not merely harder.
 
-**What the correction path becomes instead, once facts exist:** supersede
-every fact recorded under the source's old (wrong) method first — same
-mechanism I4 already requires for any fact correction, a new fact row with
-`superseded_at` set on the old one, never an `UPDATE` or `DELETE` on `fact`
-itself (0017 blocks the latter outright) — then update `source.method`. The
-`UPDATE` on `source` will only succeed once no fact row still references the
-old `(id, method)` pair, i.e. once every fact under that source has been
-superseded, not merely re-ingested alongside the old rows.
+**Supersession does not release the FK reference.** An earlier version of
+this note claimed superseding every fact under the source first would free
+`source.method` up for a plain `UPDATE`. That is wrong, and was never
+actually run before being written down. Supersession sets `superseded_at`;
+the fact row itself stays exactly where it is, `(source_id, method)` and
+all, and PostgreSQL FK enforcement does not look at `superseded_at` or any
+other column when deciding whether a referenced key is "still referenced" —
+a superseded row counts exactly the same as a live one. Verified directly:
+
+```sql
+-- insert a fact under ca_san_jose.test_source (method='direct'), then
+-- supersede it -- the one legal UPDATE on a fact row (I4)
+UPDATE fact SET superseded_at = now() WHERE id = '<the fact just inserted>';
+
+UPDATE source SET method = 'bulk' WHERE id = 'ca_san_jose.test_source';
+```
+
+```
+ERROR:  update or delete on table "source" violates foreign key constraint "fact_source_method_fk" on table "fact"
+DETAIL:  Key (id, method)=(ca_san_jose.test_source, direct) is still referenced from table "fact".
+```
+
+Identical error, before and after superseding. `source.method` is
+**permanently** immutable once any fact references the source — not
+immutable-until-superseded. The only thing that would release the FK
+reference is removing the fact row outright, and 0017 forbids that
+unconditionally; there is no path from "fact exists under this source" back
+to "source.method can change" once a fact has ever been inserted.
+
+`ON UPDATE CASCADE` would not fix this either, so don't reach for it as a
+patch: the cascade works by issuing an `UPDATE` against every referencing row
+in `fact`, and `fact_no_destructive_update` (0007) rejects any `UPDATE` on
+`fact` that isn't setting `superseded_at` from `NULL` — a cascaded method
+change is exactly the kind of destructive update that trigger exists to
+block. Adding the cascade would just move the failure from the FK to the
+trigger.
+
+**The actual correction path is a new `source` row**, not a correction to
+the existing one: a new `id` with the right `method`, ingestion re-pointed
+at it going forward. That drags real cost with it, not just a rename —
+new `source_rank` rows for every jurisdiction/field pairing the old source
+participated in, a seed change, and a decision about what the old source id
+means going forward (retired but still the accurate provenance record for
+every fact recorded under it, presumably — never deleted, since deleting it
+would orphan those facts' `source_id` FK).
