@@ -70,10 +70,13 @@ jobs:
       - name: make schema
         run: make schema DATABASE_URL="$DATABASE_URL" PSQL="$PSQL"
 
-      # The 19-test self-asserting invariant suite (I2-I5, I13, I18, the
-      # parcel_exception biconditional, and S1's source-access-method
-      # check). Every test aborts the script with a nonzero exit on any
-      # wrong outcome under ON_ERROR_STOP -- there is no soft-pass path.
+      # The 34-test self-asserting invariant suite (I2-I5, I13, I18, the
+      # parcel_exception biconditional, S1's source-access-method check, and
+      # Tier 2's T1-T16 provenance/lifecycle constraint tests) plus a
+      # separately-reported known_gaps table (I5c) that does not count
+      # toward the enforced-coverage floor. Every test aborts the script
+      # with a nonzero exit on any wrong outcome under ON_ERROR_STOP --
+      # there is no soft-pass path.
       - name: make db-test
         run: make db-test DATABASE_URL="$DATABASE_URL" PSQL="$PSQL"
 

@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.9
+ Engineering Reference Spec v1.10
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.9                                       Machine-executed build contract.
+   1        This Spec v1.10                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -266,6 +266,12 @@ db/schema.sql is the generated record of the applied result.
      derived facts for the same (parcel, field) under different method_versions collide. method_version is now part of the key.
      Retrieved facts are unaffected (method_version is null for them and coalesces to '~').
 
+     v1.10 adds db/migrations/0018_provenance_integrity.sql: composite foreign keys tying fact.snapshot_id to
+     snapshot.source_id and fact.source_id to source.method, so a fact can no longer claim one source while citing another
+     source's snapshot, or a method its own source never declared. Both use MATCH SIMPLE and are no-ops for derived facts
+     (source_id, snapshot_id and method are all NULL for those). The same migration adds fact_id_parcel_id_unique,
+     load-bearing for the property_file_fact and exception_evidence parcel checks in §3.10 and §3.12.
+
 3.7 Fact triggers — I4 and I5
 
      v1.2 fixes a defect that made v1.1 unrunnable.            In v1.1 the licence-inheritance trigger performed an UPDATE fact
@@ -276,12 +282,19 @@ db/schema.sql is the generated record of the applied result.
 
 Serves: I4, I5.
 
-The DDL for this section is db/migrations/0007_fact_triggers.sql.
+The DDL for this section is db/migrations/0007_fact_triggers.sql and
+db/migrations/0017_fact_no_delete.sql (fact_no_delete: an unconditional BEFORE DELETE raise, closing the gap
+fact_no_update left open — fact_no_update only intercepts UPDATE, so an unreferenced fact row could still be deleted
+outright, which is not immutability, only a harder way to overwrite in place).
 db/schema.sql is the generated record of the applied result.
 
 fact_no_update locks value, provenance, licence, confidence, conflict, effective time, URLs, method and versions.
 Supersession is the only permitted mutation and is one-way. A correction is a new fact row with lineage to the replaced
 belief; the old row receives only superseded_at.
+
+fact_input.fact_id still carries ON DELETE CASCADE (0006). That FK action is now unreachable — fact_no_delete fires
+BEFORE DELETE and raises before Postgres would ever cascade — and documents an intent (deleting a fact cleans up its
+lineage rows) that can no longer occur. Left as-is; a later migration may drop it, but it is inert, not a bug.
 
 fact_licence_inheritance is DEFERRABLE INITIALLY DEFERRED: this lets a transaction insert the derived fact and all its
 fact_input rows in any order; validation runs once at commit, when the full input set is visible. Inserting inputs one at
@@ -289,10 +302,18 @@ a time under a non-deferred trigger would fire on a partial set and raise spurio
 
 3.8 Current-fact resolution
 
-The DDL for this section is db/migrations/0008_current_fact.sql (the materialized view) and
+The DDL for this section is db/migrations/0008_current_fact.sql (the materialized view),
 db/migrations/0014_current_fact_tiebreak.sql (adds a deterministic f.id tiebreak to its ORDER BY, so two facts tying on
-rank, confidence and retrieved_at no longer resolve arbitrarily).
+rank, confidence and retrieved_at no longer resolve arbitrarily) and
+db/migrations/0019_current_fact_effective_from.sql (adds AND f.effective_from <= now() to the WHERE clause — the view
+previously filtered effective_to but not effective_from, so a fact effective in the future appeared immediately instead
+of on its effective date; both indexes are dropped and recreated with the view, identically).
 db/schema.sql is the generated record of the applied result.
+
+current_fact is materialized: now() in its defining query is evaluated at REFRESH time, not at query time against the
+view's rows. A fact whose effective_from arrives between two refreshes will not appear until the next
+REFRESH MATERIALIZED VIEW CONCURRENTLY current_fact runs, even though it is already true — inherent to a matview, and
+applies equally to the pre-existing effective_to filter, not something 0019 introduced.
 
 Refresh with REFRESH MATERIALIZED VIEW CONCURRENTLY current_fact; at the end of each ingest job. Application queries
 read current_fact. The composer, the audit path and any reconstruction read fact directly.
@@ -315,10 +336,14 @@ db/schema.sql is the generated record of the applied result.
 
  Track A outcomes are recorded internally after delivery. They never gate, delay or supplement a customer file and never create a human delivery queue.
 
-The DDL for this section is db/migrations/0010_exceptions.sql and
+The DDL for this section is db/migrations/0010_exceptions.sql,
 db/migrations/0015_exception_outcome_biconditional.sql (the outcome/resolution CHECK: outcome='open' requires
 resolved_at and resolved_by both NULL; every other outcome requires both NOT NULL — a two-way biconditional, not a
-one-way check).
+one-way check), db/migrations/0018_provenance_integrity.sql (exception_evidence gains a parcel_id column and two
+composite FKs, one against parcel_exception(id, parcel_id) and one against fact(id, parcel_id), forcing an exception's
+evidence onto the same parcel as the exception itself) and db/migrations/0020_lifecycle_constraints.sql
+(parcel_exception_resolved_after_detected: resolved_at IS NULL OR resolved_at >= detected_at, closing the one bound
+0015's biconditional never covered).
 db/schema.sql is the generated record of the applied result.
 
 3.11 Support requests — post-delivery, never pre-delivery
@@ -329,7 +354,15 @@ amending I14.
 The only human-facing table that remains records contact that happens after a file has already been delivered. It
 measures the product; it never produces it.
 
-The DDL for this section is db/migrations/0011_support.sql.
+The DDL for this section is db/migrations/0011_support.sql and db/migrations/0020_lifecycle_constraints.sql
+(support_request_correction_consistent_biconditional replaces the old one-way support_correction_consistent CHECK:
+caused_correction=false now requires correcting_fact_id IS NULL, not just caused_correction=true requiring it NOT
+NULL — the reverse case, a caused_correction=false row that still carried a correcting_fact_id, was previously legal).
+A related gap — a correction could reference a fact belonging to a different parcel than the property_file the
+support request is about — is not closed here: property_file_id is nullable and support_request carries no parcel_id
+column, so there is no reliable anchor for a MATCH SIMPLE FK without first deciding how a parcel_id gets populated
+when only one of property_file_id/correcting_fact_id is set, or neither. Recorded as a design question, not a defect
+fixed in this revision.
 db/schema.sql is the generated record of the applied result.
 
 A support request is not a back door for human facts. If contact reveals that a value is wrong, the fix is a
@@ -339,7 +372,15 @@ hand is prohibited (§6.2 rule 12).
 
 3.12 Property files and jobs
 
-The DDL for this section is db/migrations/0012_files_and_jobs.sql.
+The DDL for this section is db/migrations/0012_files_and_jobs.sql,
+db/migrations/0018_provenance_integrity.sql (property_file_fact gains a parcel_id column and two composite FKs, one
+against property_file(id, parcel_id) and one against fact(id, parcel_id), forcing a Property File's facts onto its own
+parcel — the single-column FKs this replaces stay in place, unchanged, as strictly-additional redundancy) and
+db/migrations/0020_lifecycle_constraints.sql (job_run_status_finished_at_biconditional replaces the old one-way
+job_terminal CHECK the same way §3.11 describes for support_request; job_run_finished_after_started,
+job_run_rows_in_nonnegative and job_run_rows_out_nonnegative; property_file_compose_ms_nonnegative,
+property_file_source_calls_nonnegative, property_file_compute_cost_micros_nonnegative and
+property_file_storage_cost_micros_nonnegative).
 db/schema.sql is the generated record of the applied result.
 
      v1.6: Property File rows carry delivery outcome and cost telemetry only. Commercial access lives in commerce.access_entitlement and
@@ -1369,7 +1410,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.9
+                     Engineering Reference Spec v1.10
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1430,7 +1471,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.9
+                   Engineering Reference Spec v1.10
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1459,7 +1500,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.9
+                Engineering Reference Spec v1.10
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -1771,6 +1812,23 @@ signal to a caching artifact would be an expensive way to save tokens.
                                                                                                                             because §3's SQL is pdftotext-mangled prose and
                                                                                                                             any diff against real migrations would be
                                                                                                                             unmaintainable noise.
+
+   Aug 2026             1.10                 Tier 2 integrity constraints: db/migrations/0017_fact_no_delete.sql          An external review found four remaining
+                                             (I4: fact_no_delete blocks DELETE, closing the gap fact_no_update left        integrity gaps cheap to close before
+                                             open); 0018_provenance_integrity.sql (composite FKs tying fact.snapshot_id    ingestion and expensive after: a fact could
+                                             to snapshot.source_id, fact.method to source.method, and property_file_fact  claim one source's snapshot while citing a
+                                             / exception_evidence to a shared parcel_id with their fact/property_file/    different source's method or snapshot; a
+                                             exception parent, all MATCH SIMPLE and so no-ops for derived facts);         Property File or exception could cite a fact
+                                             0019_current_fact_effective_from.sql (current_fact now filters              belonging to a different parcel; current_fact
+                                             f.effective_from <= now() as well as effective_to, so a fact effective in    ignored effective_from, so a future-dated fact
+                                             the future no longer appears early); 0020_lifecycle_constraints.sql          appeared immediately; job_run, support_request
+                                             (job_run_status_finished_at_biconditional and                               and parcel_exception each carried a one-way or
+                                             support_request_correction_consistent_biconditional replace two             missing bound. db/tests/invariants.sql gained
+                                             remaining one-way CHECKs with the two-way shape 1.7's                       one test per new constraint (34 enforced tests,
+                                             parcel_exception_outcome_resolution_biconditional established; plus         up from 18) and a separate known_gaps table so
+                                             explicit nonnegative/ordering bounds on job_run timing and row counts,      an intentionally-unenforced invariant (I5c) can
+                                             property_file cost telemetry, and parcel_exception resolution timing).      no longer inflate the enforced-coverage floor.
+                                             §3.6, §3.7, §3.8, §3.10 and §3.12 now also cite these four files.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

@@ -84,6 +84,31 @@ INSERT INTO snapshot (
    200, now(), 'test.cc0')
 ON CONFLICT (id) DO NOTHING;
 
+-- Second source + snapshot, method='bulk' (deliberately different from
+-- test_source's 'direct'): T2 needs a snapshot that belongs to a
+-- DIFFERENT source than the one a fact claims (0018's
+-- fact_snapshot_source_fk), and T3 needs a second source with a different
+-- declared method to prove fact_source_method_fk (0018's other composite
+-- FK) actually discriminates on method, not just on source identity.
+INSERT INTO source (
+  id, jurisdiction_id, display_name, steward, method, phase_status,
+  phase_status_reason, endpoint_url, licence_id, active
+) VALUES
+  ('ca_san_jose.test_source_b', 'ca_san_jose', 'Test Source B', 'City of San José',
+   'bulk', 'active', 'Second test source for provenance-integrity tests',
+   'https://example.com/api-b', 'test.cc0', false)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO snapshot (
+  id, source_id, object_uri, content_hash, media_type, byte_size,
+  request, http_status, fetched_at, licence_observed_id
+) VALUES
+  ('sha256:test456', 'ca_san_jose.test_source_b', 's3://bucket/test-b',
+   'def456', 'application/json', 100,
+   '{"url":"https://example.com/b","params":{}}'::jsonb,
+   200, now(), 'test.cc0')
+ON CONFLICT (id) DO NOTHING;
+
 -- One field_key per test group -- see header note on isolation.
 INSERT INTO field_definition (
   field_key, display_name, claim, value_type, category, description
@@ -95,7 +120,14 @@ INSERT INTO field_definition (
   ('test.i4a_field', 'Test Field I4a', 'public_record', 'string', 'test', 'I4a/I4b/I4c invariant test field'),
   ('test.i5a_field', 'Test Field I5a', 'public_record', 'string', 'test', 'I5a invariant test field'),
   ('test.i5b_field', 'Test Field I5b', 'public_record', 'string', 'test', 'I5b invariant test field'),
-  ('test.i5c_field', 'Test Field I5c', 'public_record', 'string', 'test', 'I5c invariant test field')
+  ('test.i5c_field', 'Test Field I5c', 'public_record', 'string', 'test', 'I5c invariant test field'),
+  ('test.t1_field',  'Test Field T1',  'public_record', 'string', 'test', 'T1 invariant test field'),
+  ('test.t2_field',  'Test Field T2',  'public_record', 'string', 'test', 'T2 invariant test field'),
+  ('test.t3_field',  'Test Field T3',  'public_record', 'string', 'test', 'T3 invariant test field'),
+  ('test.t4_field',  'Test Field T4',  'public_record', 'string', 'test', 'T4 invariant test field'),
+  ('test.t5_field',  'Test Field T5',  'public_record', 'string', 'test', 'T5 invariant test field'),
+  ('test.t6_field',  'Test Field T6',  'public_record', 'string', 'test', 'T6 invariant test field (future effective_from)'),
+  ('test.t6b_field', 'Test Field T6b', 'public_record', 'string', 'test', 'T6 invariant test field (present effective_from, control)')
 ON CONFLICT (field_key) DO NOTHING;
 
 -- Cross-block scratch state for this run: the fresh parcel id, and (later)
@@ -107,6 +139,14 @@ CREATE TEMP TABLE test_state (key text PRIMARY KEY, value text);
 -- this table, not a literal, so it can't drift from what the file actually
 -- contains the way a hand-maintained "N/N" string could.
 CREATE TEMP TABLE test_pass (name text PRIMARY KEY);
+
+-- Separate from test_pass: a test that documents an UNENFORCED invariant
+-- (I5c) is not the same claim as a test that documents an enforced one.
+-- Counting I5c into test_pass and the floor would let "coverage" include a
+-- known gap -- inflating the number with a test that, by design, can never
+-- go red no matter what the schema does. known_gaps is reported separately
+-- in the summary and never contributes to the floor.
+CREATE TEMP TABLE known_gaps (name text PRIMARY KEY, note text);
 
 DO $$
 DECLARE
@@ -498,7 +538,7 @@ BEGIN
     SET CONSTRAINTS fact_licence_inheritance IMMEDIATE;
 
     RAISE NOTICE 'PASS (KNOWN GAP) I5c: derived fact % with zero fact_input rows committed unchecked -- I5 cannot validate a derivation that never declares its inputs', v_derived_fact_id;
-    INSERT INTO test_pass VALUES ('I5c');
+    INSERT INTO known_gaps VALUES ('I5c', 'derived fact with zero fact_input rows commits unchecked -- I5 cannot validate a derivation that never declares its inputs');
 END $$;
 
 -- ============================================================================
@@ -820,6 +860,628 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T1: a fact cannot be deleted (0017)
+-- fact_no_delete(), an unconditional raise mirroring rule_no_delete.
+-- ============================================================================
+
+\echo '### TEST T1: DELETE FROM fact (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_fact_id   uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test.t1_field', '"delete_me"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
+        'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_fact_id;
+
+    BEGIN
+        DELETE FROM fact WHERE id = v_fact_id;
+        RAISE EXCEPTION 'FAIL T1: DELETE FROM fact was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'I4 violated:%cannot be deleted%' THEN
+                RAISE NOTICE 'PASS T1: fact delete rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T1');
+            ELSE
+                RAISE EXCEPTION 'FAIL T1: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T2: a fact cannot cite one source but another source's snapshot (0018a)
+-- fact_snapshot_source_fk: FOREIGN KEY (snapshot_id, source_id) REFERENCES
+-- snapshot (id, source_id).
+-- ============================================================================
+
+\echo '### TEST T2: fact citing source A with source B''s snapshot (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO fact (
+            parcel_id, field_key, value, method, source_id, snapshot_id,
+            retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+            effective_from, pack_version
+        ) VALUES (
+            v_parcel_id, 'test.t2_field', '"value"'::jsonb, 'direct',
+            'ca_san_jose.test_source',      -- source A
+            'sha256:test456',               -- source B's snapshot
+            now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+        );
+        RAISE EXCEPTION 'FAIL T2: fact citing source A with source B''s snapshot was accepted';
+    EXCEPTION
+        WHEN foreign_key_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'fact_snapshot_source_fk' THEN
+                RAISE NOTICE 'PASS T2: source/snapshot mismatch rejected by fact_snapshot_source_fk';
+                INSERT INTO test_pass VALUES ('T2');
+            ELSE
+                RAISE EXCEPTION 'FAIL T2: foreign_key_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T3: a fact's method must match its source's declared method (0018b)
+-- fact_source_method_fk: FOREIGN KEY (source_id, method) REFERENCES
+-- source (id, method).
+-- ============================================================================
+
+\echo '### TEST T3: fact method mismatched with its source''s declared method (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        -- ca_san_jose.test_source declares method='direct'; this fact claims 'bulk'.
+        INSERT INTO fact (
+            parcel_id, field_key, value, method, source_id, snapshot_id,
+            retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+            effective_from, pack_version
+        ) VALUES (
+            v_parcel_id, 'test.t3_field', '"value"'::jsonb, 'bulk',
+            'ca_san_jose.test_source', 'sha256:test123',
+            now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+        );
+        RAISE EXCEPTION 'FAIL T3: fact method mismatched with its source''s declared method was accepted';
+    EXCEPTION
+        WHEN foreign_key_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'fact_source_method_fk' THEN
+                RAISE NOTICE 'PASS T3: method mismatch rejected by fact_source_method_fk';
+                INSERT INTO test_pass VALUES ('T3');
+            ELSE
+                RAISE EXCEPTION 'FAIL T3: foreign_key_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T4: a Property File cannot cite another parcel's fact (0018c)
+-- property_file_fact_fact_parcel_fk: FOREIGN KEY (fact_id, parcel_id)
+-- REFERENCES fact (id, parcel_id).
+-- ============================================================================
+
+\echo '### TEST T4: property_file_fact linking a fact from a different parcel (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id        uuid;
+    v_other_parcel_id  uuid;
+    v_property_file_id uuid;
+    v_other_fact_id    uuid;
+    v_constraint       text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    -- A second, different parcel -- scoped to this test only, never stored
+    -- in test_state, so nothing else can accidentally pick it up.
+    INSERT INTO parcel (jurisdiction_id, apn, situs_address)
+    VALUES ('ca_san_jose', 'TEST-T4-' || gen_random_uuid()::text,
+            '456 Other Parcel St, San Jose, CA 95110')
+    RETURNING id INTO v_other_parcel_id;
+
+    INSERT INTO property_file (
+        parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+        ruleset_version, composer_version, geometry_tier_used, payload,
+        payload_hash, compose_ms
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+        'v1.0', 'v1.0', false, '{}'::jsonb, 'testhash_t4', 100
+    ) RETURNING id INTO v_property_file_id;
+
+    -- This fact belongs to the OTHER parcel, not the Property File's parcel.
+    INSERT INTO fact (
+        parcel_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_other_parcel_id, 'test.t4_field', '"other_parcel_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'sha256:test123',
+        now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_other_fact_id;
+
+    BEGIN
+        -- parcel_id here matches the Property File's own parcel (satisfying
+        -- property_file_fact_property_file_parcel_fk), isolating the failure
+        -- to the fact/parcel mismatch specifically.
+        INSERT INTO property_file_fact (property_file_id, fact_id, parcel_id)
+        VALUES (v_property_file_id, v_other_fact_id, v_parcel_id);
+        RAISE EXCEPTION 'FAIL T4: property_file_fact linking a different parcel''s fact was accepted';
+    EXCEPTION
+        WHEN foreign_key_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_fact_fact_parcel_fk' THEN
+                RAISE NOTICE 'PASS T4: cross-parcel fact link rejected by property_file_fact_fact_parcel_fk';
+                INSERT INTO test_pass VALUES ('T4');
+            ELSE
+                RAISE EXCEPTION 'FAIL T4: foreign_key_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T5: a parcel_exception cannot cite another parcel's fact as evidence (0018c)
+-- exception_evidence_fact_parcel_fk: FOREIGN KEY (fact_id, parcel_id)
+-- REFERENCES fact (id, parcel_id).
+-- ============================================================================
+
+\echo '### TEST T5: exception_evidence linking a fact from a different parcel (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id       uuid;
+    v_other_parcel_id uuid;
+    v_exception_id    uuid;
+    v_other_fact_id   uuid;
+    v_constraint      text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO parcel (jurisdiction_id, apn, situs_address)
+    VALUES ('ca_san_jose', 'TEST-T5-' || gen_random_uuid()::text,
+            '789 Other Parcel Ave, San Jose, CA 95110')
+    RETURNING id INTO v_other_parcel_id;
+
+    INSERT INTO parcel_exception (
+        parcel_id, jurisdiction_id, type, severity, detector_key,
+        detector_version, detail, outcome
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'staleness', 'warning', 'test_detector',
+        'v1', '{}'::jsonb, 'open'
+    ) RETURNING id INTO v_exception_id;
+
+    -- This fact belongs to the OTHER parcel, not the exception's parcel.
+    INSERT INTO fact (
+        parcel_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_other_parcel_id, 'test.t5_field', '"other_parcel_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'sha256:test123',
+        now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_other_fact_id;
+
+    BEGIN
+        INSERT INTO exception_evidence (exception_id, fact_id, role, parcel_id)
+        VALUES (v_exception_id, v_other_fact_id, 'test_role', v_parcel_id);
+        RAISE EXCEPTION 'FAIL T5: exception_evidence linking a different parcel''s fact was accepted';
+    EXCEPTION
+        WHEN foreign_key_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'exception_evidence_fact_parcel_fk' THEN
+                RAISE NOTICE 'PASS T5: cross-parcel fact link rejected by exception_evidence_fact_parcel_fk';
+                INSERT INTO test_pass VALUES ('T5');
+            ELSE
+                RAISE EXCEPTION 'FAIL T5: foreign_key_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T6: current_fact excludes a fact whose effective_from is in the
+-- future (0019)
+-- ============================================================================
+
+\echo '### TEST T6: current_fact filters on effective_from, not just effective_to'
+
+DO $$
+DECLARE
+    v_parcel_id     uuid;
+    v_future_count  int;
+    v_present_count int;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    -- Future: effective tomorrow, must NOT appear yet.
+    INSERT INTO fact (
+        parcel_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test.t6_field', '"future_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
+        'test.cc0', 'high', 'rule_1', now() + interval '1 day', 'v1.0'
+    );
+
+    -- Present/control: effective in the past, must appear -- proving the
+    -- new filter doesn't also wrongly exclude a genuinely current fact.
+    INSERT INTO fact (
+        parcel_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test.t6b_field', '"present_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
+        'test.cc0', 'high', 'rule_1', now() - interval '1 day', 'v1.0'
+    );
+
+    REFRESH MATERIALIZED VIEW current_fact;
+
+    SELECT count(*) INTO v_future_count FROM current_fact
+     WHERE parcel_id = v_parcel_id AND field_key = 'test.t6_field';
+
+    SELECT count(*) INTO v_present_count FROM current_fact
+     WHERE parcel_id = v_parcel_id AND field_key = 'test.t6b_field';
+
+    IF v_future_count <> 0 THEN
+        RAISE EXCEPTION 'FAIL T6: future-effective_from fact appeared in current_fact (% rows)', v_future_count;
+    END IF;
+
+    IF v_present_count <> 1 THEN
+        RAISE EXCEPTION 'FAIL T6: present-effective_from control fact did not appear in current_fact (expected 1, got %)', v_present_count;
+    END IF;
+
+    RAISE NOTICE 'PASS T6: future-effective_from fact excluded, present-effective_from control fact included';
+    INSERT INTO test_pass VALUES ('T6');
+END $$;
+
+-- ============================================================================
+-- TEST T7: job_run cannot be 'running' with finished_at already set (0020)
+-- job_run_status_finished_at_biconditional -- the direction the old
+-- one-way job_terminal check never covered.
+-- ============================================================================
+
+\echo '### TEST T7: job_run status=running with finished_at set (should fail)'
+
+DO $$
+DECLARE
+    v_constraint text;
+BEGIN
+    BEGIN
+        INSERT INTO job_run (job_key, status, started_at, finished_at)
+        VALUES ('test.t7_job', 'running', now(), now());
+        RAISE EXCEPTION 'FAIL T7: job_run status=running with finished_at set was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'job_run_status_finished_at_biconditional' THEN
+                RAISE NOTICE 'PASS T7: running job_run with finished_at set rejected';
+                INSERT INTO test_pass VALUES ('T7');
+            ELSE
+                RAISE EXCEPTION 'FAIL T7: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T8: support_request cannot carry correcting_fact_id without
+-- caused_correction=true (0020)
+-- support_request_correction_consistent_biconditional -- the direction the
+-- old one-way support_correction_consistent check never covered.
+-- ============================================================================
+
+\echo '### TEST T8: support_request caused_correction=false with correcting_fact_id set (should fail)'
+
+DO $$
+DECLARE
+    v_fact_id    uuid;
+    v_constraint text;
+BEGIN
+    -- Reuses the I4 lifecycle fact (immutable, never deleted per T1/0017) --
+    -- any existing valid fact id works here, this test isn't about which
+    -- fact, only about the caused_correction/correcting_fact_id pairing.
+    SELECT value::uuid INTO v_fact_id FROM test_state WHERE key = 'i4_fact_id';
+
+    BEGIN
+        INSERT INTO support_request (
+            jurisdiction_id, category, caused_correction, correcting_fact_id
+        ) VALUES (
+            'ca_san_jose', 'other', false, v_fact_id
+        );
+        RAISE EXCEPTION 'FAIL T8: caused_correction=false with correcting_fact_id set was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'support_request_correction_consistent_biconditional' THEN
+                RAISE NOTICE 'PASS T8: caused_correction=false with a correcting_fact_id rejected';
+                INSERT INTO test_pass VALUES ('T8');
+            ELSE
+                RAISE EXCEPTION 'FAIL T8: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T9: job_run.finished_at cannot precede started_at (0020)
+-- job_run_finished_after_started.
+-- ============================================================================
+
+\echo '### TEST T9: job_run finished_at before started_at (should fail)'
+
+DO $$
+DECLARE
+    v_constraint text;
+BEGIN
+    BEGIN
+        INSERT INTO job_run (job_key, status, started_at, finished_at)
+        VALUES ('test.t9_job', 'succeeded', now(), now() - interval '1 hour');
+        RAISE EXCEPTION 'FAIL T9: job_run with finished_at before started_at was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'job_run_finished_after_started' THEN
+                RAISE NOTICE 'PASS T9: finished_at before started_at rejected';
+                INSERT INTO test_pass VALUES ('T9');
+            ELSE
+                RAISE EXCEPTION 'FAIL T9: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T10: job_run.rows_in cannot be negative (0020)
+-- job_run_rows_in_nonnegative.
+-- ============================================================================
+
+\echo '### TEST T10: job_run rows_in negative (should fail)'
+
+DO $$
+DECLARE
+    v_constraint text;
+BEGIN
+    BEGIN
+        INSERT INTO job_run (job_key, status, started_at, finished_at, rows_in)
+        VALUES ('test.t10_job', 'succeeded', now(), now(), -1);
+        RAISE EXCEPTION 'FAIL T10: job_run with negative rows_in was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'job_run_rows_in_nonnegative' THEN
+                RAISE NOTICE 'PASS T10: negative rows_in rejected';
+                INSERT INTO test_pass VALUES ('T10');
+            ELSE
+                RAISE EXCEPTION 'FAIL T10: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T11: job_run.rows_out cannot be negative (0020)
+-- job_run_rows_out_nonnegative.
+-- ============================================================================
+
+\echo '### TEST T11: job_run rows_out negative (should fail)'
+
+DO $$
+DECLARE
+    v_constraint text;
+BEGIN
+    BEGIN
+        INSERT INTO job_run (job_key, status, started_at, finished_at, rows_out)
+        VALUES ('test.t11_job', 'succeeded', now(), now(), -1);
+        RAISE EXCEPTION 'FAIL T11: job_run with negative rows_out was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'job_run_rows_out_nonnegative' THEN
+                RAISE NOTICE 'PASS T11: negative rows_out rejected';
+                INSERT INTO test_pass VALUES ('T11');
+            ELSE
+                RAISE EXCEPTION 'FAIL T11: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T12: property_file.compose_ms cannot be negative (0020)
+-- property_file_compose_ms_nonnegative.
+-- ============================================================================
+
+\echo '### TEST T12: property_file compose_ms negative (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, payload,
+            payload_hash, compose_ms
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            'v1.0', 'v1.0', false, '{}'::jsonb, 'testhash_t12', -1
+        );
+        RAISE EXCEPTION 'FAIL T12: property_file with negative compose_ms was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_compose_ms_nonnegative' THEN
+                RAISE NOTICE 'PASS T12: negative compose_ms rejected';
+                INSERT INTO test_pass VALUES ('T12');
+            ELSE
+                RAISE EXCEPTION 'FAIL T12: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T13: property_file.source_calls cannot be negative (0020)
+-- property_file_source_calls_nonnegative.
+-- ============================================================================
+
+\echo '### TEST T13: property_file source_calls negative (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, payload,
+            payload_hash, compose_ms, source_calls
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            'v1.0', 'v1.0', false, '{}'::jsonb, 'testhash_t13', 100, -1
+        );
+        RAISE EXCEPTION 'FAIL T13: property_file with negative source_calls was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_source_calls_nonnegative' THEN
+                RAISE NOTICE 'PASS T13: negative source_calls rejected';
+                INSERT INTO test_pass VALUES ('T13');
+            ELSE
+                RAISE EXCEPTION 'FAIL T13: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T14: property_file.compute_cost_micros cannot be negative (0020)
+-- property_file_compute_cost_micros_nonnegative.
+-- ============================================================================
+
+\echo '### TEST T14: property_file compute_cost_micros negative (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, payload,
+            payload_hash, compose_ms, compute_cost_micros
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            'v1.0', 'v1.0', false, '{}'::jsonb, 'testhash_t14', 100, -1
+        );
+        RAISE EXCEPTION 'FAIL T14: property_file with negative compute_cost_micros was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_compute_cost_micros_nonnegative' THEN
+                RAISE NOTICE 'PASS T14: negative compute_cost_micros rejected';
+                INSERT INTO test_pass VALUES ('T14');
+            ELSE
+                RAISE EXCEPTION 'FAIL T14: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T15: property_file.storage_cost_micros cannot be negative (0020)
+-- property_file_storage_cost_micros_nonnegative.
+-- ============================================================================
+
+\echo '### TEST T15: property_file storage_cost_micros negative (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, payload,
+            payload_hash, compose_ms, storage_cost_micros
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            'v1.0', 'v1.0', false, '{}'::jsonb, 'testhash_t15', 100, -1
+        );
+        RAISE EXCEPTION 'FAIL T15: property_file with negative storage_cost_micros was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_storage_cost_micros_nonnegative' THEN
+                RAISE NOTICE 'PASS T15: negative storage_cost_micros rejected';
+                INSERT INTO test_pass VALUES ('T15');
+            ELSE
+                RAISE EXCEPTION 'FAIL T15: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T16: parcel_exception.resolved_at cannot precede detected_at (0020)
+-- parcel_exception_resolved_after_detected.
+-- ============================================================================
+
+\echo '### TEST T16: parcel_exception resolved_at before detected_at (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO parcel_exception (
+            parcel_id, jurisdiction_id, type, severity, detector_key,
+            detector_version, detail, detected_at, outcome, resolved_at, resolved_by
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'staleness', 'warning', 'test_detector',
+            'v1', '{}'::jsonb, now(), 'confirmed', now() - interval '1 hour', 'test_operator'
+        );
+        RAISE EXCEPTION 'FAIL T16: parcel_exception resolved before detected was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'parcel_exception_resolved_after_detected' THEN
+                RAISE NOTICE 'PASS T16: resolved_at before detected_at rejected';
+                INSERT INTO test_pass VALUES ('T16');
+            ELSE
+                RAISE EXCEPTION 'FAIL T16: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -836,17 +1498,32 @@ END $$;
 -- on the very run that made it wrong, in exactly the same self-asserting
 -- style as every test above -- not a display string nothing checks. Bump
 -- this number in the same commit that adds or removes a test.
+--
+-- known_gaps is deliberately NOT part of this floor. I5c documents an
+-- invariant (I5: a derivation formula's declared inputs must actually be
+-- cited) that the schema cannot enforce -- a derived fact with zero
+-- fact_input rows commits unchecked, because nothing requires a derivation
+-- to declare any inputs at all. That test can never go red no matter what
+-- the schema does, so counting it toward "coverage" would misrepresent it
+-- as an enforced invariant. It is reported separately below, by name, so a
+-- reader sees it without it inflating the enforced-invariant number.
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 19 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 19 passing tests, got %', v_pass_count;
+    IF v_pass_count < 34 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 34 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 
 SELECT count(*) AS pass_count FROM test_pass
+\gset
+
+SELECT count(*) AS known_gap_count FROM known_gaps
+\gset
+
+SELECT string_agg(name || ' (' || note || ')', E'\n  ') AS known_gap_detail FROM known_gaps
 \gset
 
 \echo ''
@@ -858,4 +1535,10 @@ SELECT count(*) AS pass_count FROM test_pass
 \echo 'real. Any wrong outcome would have raised an uncaught FAIL exception'
 \echo 'and (under ON_ERROR_STOP) stopped the script before this point with a'
 \echo 'nonzero exit code.'
+\echo ''
+\echo 'KNOWN GAPS --' :known_gap_count 'invariant(s) documented but NOT enforced'
+\echo '  ' :known_gap_detail
+\echo 'These are excluded from the pass floor above: they cannot fail no'
+\echo 'matter what the schema does, so counting them would misrepresent an'
+\echo 'unenforced invariant as covered.'
 \echo ''

@@ -298,6 +298,21 @@ $$;
 
 
 --
+-- Name: fact_no_delete(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fact_no_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'I4 violated: fact % cannot be deleted. Corrections supersede, '
+        'never delete.', OLD.id;
+END;
+$$;
+
+
+--
 -- Name: fact_no_destructive_update(); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -543,7 +558,7 @@ CREATE MATERIALIZED VIEW public.current_fact AS
    FROM ((public.fact f
      JOIN public.parcel p ON ((p.id = f.parcel_id)))
      LEFT JOIN public.source_rank sr ON (((sr.jurisdiction_id = p.jurisdiction_id) AND (sr.field_key = f.field_key) AND (sr.source_id = f.source_id))))
-  WHERE ((f.superseded_at IS NULL) AND ((f.effective_to IS NULL) OR (f.effective_to > now())))
+  WHERE ((f.superseded_at IS NULL) AND ((f.effective_to IS NULL) OR (f.effective_to > now())) AND (f.effective_from <= now()))
   ORDER BY f.parcel_id, f.field_key, COALESCE((sr.rank)::integer, 999), f.confidence, f.retrieved_at DESC NULLS LAST, f.id
   WITH NO DATA;
 
@@ -555,7 +570,8 @@ CREATE MATERIALIZED VIEW public.current_fact AS
 CREATE TABLE public.exception_evidence (
     exception_id uuid NOT NULL,
     fact_id uuid NOT NULL,
-    role text NOT NULL
+    role text NOT NULL,
+    parcel_id uuid NOT NULL
 );
 
 
@@ -614,7 +630,10 @@ CREATE TABLE public.job_run (
     rows_out integer,
     schema_drift jsonb,
     error text,
-    CONSTRAINT job_terminal CHECK (((status = 'running'::public.job_status) OR (finished_at IS NOT NULL)))
+    CONSTRAINT job_run_finished_after_started CHECK (((finished_at IS NULL) OR (finished_at >= started_at))),
+    CONSTRAINT job_run_rows_in_nonnegative CHECK (((rows_in IS NULL) OR (rows_in >= 0))),
+    CONSTRAINT job_run_rows_out_nonnegative CHECK (((rows_out IS NULL) OR (rows_out >= 0))),
+    CONSTRAINT job_run_status_finished_at_biconditional CHECK ((((status = 'running'::public.job_status) AND (finished_at IS NULL)) OR ((status <> 'running'::public.job_status) AND (finished_at IS NOT NULL))))
 );
 
 
@@ -690,7 +709,8 @@ CREATE TABLE public.parcel_exception (
     resolved_at timestamp with time zone,
     resolved_by text,
     resolution_notes text,
-    CONSTRAINT parcel_exception_outcome_resolution_biconditional CHECK ((((outcome = 'open'::public.exception_outcome) AND (resolved_at IS NULL) AND (resolved_by IS NULL)) OR ((outcome <> 'open'::public.exception_outcome) AND (resolved_at IS NOT NULL) AND (resolved_by IS NOT NULL))))
+    CONSTRAINT parcel_exception_outcome_resolution_biconditional CHECK ((((outcome = 'open'::public.exception_outcome) AND (resolved_at IS NULL) AND (resolved_by IS NULL)) OR ((outcome <> 'open'::public.exception_outcome) AND (resolved_at IS NOT NULL) AND (resolved_by IS NOT NULL)))),
+    CONSTRAINT parcel_exception_resolved_after_detected CHECK (((resolved_at IS NULL) OR (resolved_at >= detected_at)))
 );
 
 
@@ -724,7 +744,11 @@ CREATE TABLE public.property_file (
     unmet_fields text[] DEFAULT '{}'::text[] NOT NULL,
     CONSTRAINT file_partial_declares_gap CHECK (((status <> 'partial'::public.file_status) OR (cardinality(unmet_fields) > 0) OR (jsonb_array_length(refusals) > 0))),
     CONSTRAINT file_refusal_reason CHECK (((status <> 'refused'::public.file_status) OR (jsonb_array_length(refusals) > 0))),
-    CONSTRAINT file_refused_not_delivered CHECK (((status <> 'refused'::public.file_status) OR (delivered_at IS NULL)))
+    CONSTRAINT file_refused_not_delivered CHECK (((status <> 'refused'::public.file_status) OR (delivered_at IS NULL))),
+    CONSTRAINT property_file_compose_ms_nonnegative CHECK ((compose_ms >= 0)),
+    CONSTRAINT property_file_compute_cost_micros_nonnegative CHECK ((compute_cost_micros >= 0)),
+    CONSTRAINT property_file_source_calls_nonnegative CHECK ((source_calls >= 0)),
+    CONSTRAINT property_file_storage_cost_micros_nonnegative CHECK ((storage_cost_micros >= 0))
 );
 
 
@@ -736,6 +760,7 @@ CREATE TABLE public.property_file_fact (
     property_file_id uuid NOT NULL,
     fact_id uuid NOT NULL,
     use text DEFAULT 'rendered'::text NOT NULL,
+    parcel_id uuid NOT NULL,
     CONSTRAINT property_file_fact_use_check CHECK ((use = ANY (ARRAY['rendered'::text, 'gate'::text, 'input'::text])))
 );
 
@@ -830,7 +855,7 @@ CREATE TABLE public.support_request (
     caused_correction boolean DEFAULT false NOT NULL,
     correcting_fact_id uuid,
     detail text,
-    CONSTRAINT support_correction_consistent CHECK (((caused_correction = false) OR (correcting_fact_id IS NOT NULL)))
+    CONSTRAINT support_request_correction_consistent_biconditional CHECK ((((caused_correction = false) AND (correcting_fact_id IS NULL)) OR ((caused_correction = true) AND (correcting_fact_id IS NOT NULL))))
 );
 
 
@@ -840,6 +865,14 @@ CREATE TABLE public.support_request (
 
 ALTER TABLE ONLY public.exception_evidence
     ADD CONSTRAINT exception_evidence_pkey PRIMARY KEY (exception_id, fact_id);
+
+
+--
+-- Name: fact fact_id_parcel_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_id_parcel_id_unique UNIQUE (id, parcel_id);
 
 
 --
@@ -899,6 +932,14 @@ ALTER TABLE ONLY public.licence
 
 
 --
+-- Name: parcel_exception parcel_exception_id_parcel_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parcel_exception
+    ADD CONSTRAINT parcel_exception_id_parcel_id_unique UNIQUE (id, parcel_id);
+
+
+--
 -- Name: parcel_exception parcel_exception_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -928,6 +969,14 @@ ALTER TABLE ONLY public.parcel
 
 ALTER TABLE ONLY public.property_file_fact
     ADD CONSTRAINT property_file_fact_pkey PRIMARY KEY (property_file_id, fact_id);
+
+
+--
+-- Name: property_file property_file_id_parcel_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_file
+    ADD CONSTRAINT property_file_id_parcel_id_unique UNIQUE (id, parcel_id);
 
 
 --
@@ -963,11 +1012,27 @@ ALTER TABLE ONLY public.snapshot
 
 
 --
+-- Name: snapshot snapshot_id_source_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.snapshot
+    ADD CONSTRAINT snapshot_id_source_id_unique UNIQUE (id, source_id);
+
+
+--
 -- Name: snapshot snapshot_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.snapshot
     ADD CONSTRAINT snapshot_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: source source_id_method_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source
+    ADD CONSTRAINT source_id_method_unique UNIQUE (id, method);
 
 
 --
@@ -1108,6 +1173,13 @@ CREATE CONSTRAINT TRIGGER fact_licence_inheritance AFTER INSERT OR DELETE OR UPD
 
 
 --
+-- Name: fact fact_no_delete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER fact_no_delete BEFORE DELETE ON public.fact FOR EACH ROW EXECUTE FUNCTION public.fact_no_delete();
+
+
+--
 -- Name: fact fact_no_update; Type: TRIGGER; Schema: public; Owner: -
 --
 
@@ -1137,11 +1209,27 @@ ALTER TABLE ONLY public.exception_evidence
 
 
 --
+-- Name: exception_evidence exception_evidence_exception_parcel_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.exception_evidence
+    ADD CONSTRAINT exception_evidence_exception_parcel_fk FOREIGN KEY (exception_id, parcel_id) REFERENCES public.parcel_exception(id, parcel_id);
+
+
+--
 -- Name: exception_evidence exception_evidence_fact_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.exception_evidence
     ADD CONSTRAINT exception_evidence_fact_id_fkey FOREIGN KEY (fact_id) REFERENCES public.fact(id);
+
+
+--
+-- Name: exception_evidence exception_evidence_fact_parcel_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.exception_evidence
+    ADD CONSTRAINT exception_evidence_fact_parcel_fk FOREIGN KEY (fact_id, parcel_id) REFERENCES public.fact(id, parcel_id);
 
 
 --
@@ -1193,11 +1281,27 @@ ALTER TABLE ONLY public.fact
 
 
 --
+-- Name: fact fact_snapshot_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_snapshot_source_fk FOREIGN KEY (snapshot_id, source_id) REFERENCES public.snapshot(id, source_id);
+
+
+--
 -- Name: fact fact_source_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.fact
     ADD CONSTRAINT fact_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.source(id);
+
+
+--
+-- Name: fact fact_source_method_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_source_method_fk FOREIGN KEY (source_id, method) REFERENCES public.source(id, method);
 
 
 --
@@ -1281,11 +1385,27 @@ ALTER TABLE ONLY public.property_file_fact
 
 
 --
+-- Name: property_file_fact property_file_fact_fact_parcel_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_file_fact
+    ADD CONSTRAINT property_file_fact_fact_parcel_fk FOREIGN KEY (fact_id, parcel_id) REFERENCES public.fact(id, parcel_id);
+
+
+--
 -- Name: property_file_fact property_file_fact_property_file_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.property_file_fact
     ADD CONSTRAINT property_file_fact_property_file_id_fkey FOREIGN KEY (property_file_id) REFERENCES public.property_file(id) ON DELETE CASCADE;
+
+
+--
+-- Name: property_file_fact property_file_fact_property_file_parcel_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_file_fact
+    ADD CONSTRAINT property_file_fact_property_file_parcel_fk FOREIGN KEY (property_file_id, parcel_id) REFERENCES public.property_file(id, parcel_id);
 
 
 --
