@@ -454,6 +454,38 @@ END;
 $$;
 
 
+--
+-- Name: snapshot_no_delete(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.snapshot_no_delete() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'C2 violated: snapshot % cannot be deleted. Every fact that cites '
+        'it depends on it for reconstruction; deleting it would '
+        'invalidate those facts'' provenance without touching them.', OLD.id;
+END;
+$$;
+
+
+--
+-- Name: snapshot_no_update(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.snapshot_no_update() RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'C2 violated: snapshot % is immutable. There is no supersession '
+        'concept for a snapshot -- fetch again and insert a new snapshot '
+        'row instead of editing this one.', OLD.id;
+END;
+$$;
+
+
 SET default_tablespace = '';
 
 SET default_table_access_method = heap;
@@ -488,6 +520,7 @@ CREATE TABLE public.fact (
     method_version text,
     ruleset_version text,
     pack_version text NOT NULL,
+    jurisdiction_id text NOT NULL,
     CONSTRAINT fact_method_automated CHECK ((method = ANY (ARRAY['direct'::public.access_method, 'bulk'::public.access_method, 'derived'::public.access_method]))),
     CONSTRAINT fact_provenance_complete CHECK ((((method = 'derived'::public.access_method) AND (source_id IS NULL) AND (snapshot_id IS NULL) AND (method_version IS NOT NULL)) OR ((method <> 'derived'::public.access_method) AND (source_id IS NOT NULL) AND (snapshot_id IS NOT NULL) AND (retrieved_at IS NOT NULL) AND (source_url IS NOT NULL)))),
     CONSTRAINT fact_txn_time CHECK (((superseded_at IS NULL) OR (superseded_at >= recorded_at))),
@@ -806,7 +839,11 @@ CREATE TABLE public.snapshot (
     http_status integer,
     fetched_at timestamp with time zone NOT NULL,
     licence_observed_id text NOT NULL,
-    CONSTRAINT snapshot_byte_size_check CHECK ((byte_size >= 0))
+    CONSTRAINT snapshot_byte_size_check CHECK ((byte_size >= 0)),
+    CONSTRAINT snapshot_content_hash_format CHECK ((content_hash ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT snapshot_id_format CHECK ((id = ((source_id || ':sha256:'::text) || content_hash))),
+    CONSTRAINT snapshot_media_type_not_blank CHECK ((length(TRIM(BOTH FROM media_type)) > 0)),
+    CONSTRAINT snapshot_object_uri_not_blank CHECK ((length(TRIM(BOTH FROM object_uri)) > 0))
 );
 
 
@@ -948,6 +985,14 @@ ALTER TABLE ONLY public.parcel_exception
 
 
 --
+-- Name: parcel parcel_id_jurisdiction_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parcel
+    ADD CONSTRAINT parcel_id_jurisdiction_id_unique UNIQUE (id, jurisdiction_id);
+
+
+--
 -- Name: parcel parcel_jurisdiction_id_apn_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1012,6 +1057,14 @@ ALTER TABLE ONLY public.snapshot
 
 
 --
+-- Name: snapshot snapshot_id_licence_observed_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.snapshot
+    ADD CONSTRAINT snapshot_id_licence_observed_id_unique UNIQUE (id, licence_observed_id);
+
+
+--
 -- Name: snapshot snapshot_id_source_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1025,6 +1078,14 @@ ALTER TABLE ONLY public.snapshot
 
 ALTER TABLE ONLY public.snapshot
     ADD CONSTRAINT snapshot_pkey PRIMARY KEY (id);
+
+
+--
+-- Name: source source_id_jurisdiction_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source
+    ADD CONSTRAINT source_id_jurisdiction_id_unique UNIQUE (id, jurisdiction_id);
 
 
 --
@@ -1201,6 +1262,20 @@ CREATE TRIGGER rule_no_update BEFORE UPDATE ON public.rule FOR EACH ROW EXECUTE 
 
 
 --
+-- Name: snapshot snapshot_no_delete; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER snapshot_no_delete BEFORE DELETE ON public.snapshot FOR EACH ROW EXECUTE FUNCTION public.snapshot_no_delete();
+
+
+--
+-- Name: snapshot snapshot_no_update; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER snapshot_no_update BEFORE UPDATE ON public.snapshot FOR EACH ROW EXECUTE FUNCTION public.snapshot_no_update();
+
+
+--
 -- Name: exception_evidence exception_evidence_exception_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1273,11 +1348,27 @@ ALTER TABLE ONLY public.fact
 
 
 --
+-- Name: fact fact_parcel_jurisdiction_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_parcel_jurisdiction_fk FOREIGN KEY (parcel_id, jurisdiction_id) REFERENCES public.parcel(id, jurisdiction_id);
+
+
+--
 -- Name: fact fact_snapshot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
 --
 
 ALTER TABLE ONLY public.fact
     ADD CONSTRAINT fact_snapshot_id_fkey FOREIGN KEY (snapshot_id) REFERENCES public.snapshot(id);
+
+
+--
+-- Name: fact fact_snapshot_licence_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_snapshot_licence_fk FOREIGN KEY (snapshot_id, licence_id) REFERENCES public.snapshot(id, licence_observed_id);
 
 
 --
@@ -1294,6 +1385,14 @@ ALTER TABLE ONLY public.fact
 
 ALTER TABLE ONLY public.fact
     ADD CONSTRAINT fact_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.source(id);
+
+
+--
+-- Name: fact fact_source_jurisdiction_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_source_jurisdiction_fk FOREIGN KEY (source_id, jurisdiction_id) REFERENCES public.source(id, jurisdiction_id);
 
 
 --
@@ -1318,6 +1417,14 @@ ALTER TABLE ONLY public.job_run
 
 ALTER TABLE ONLY public.job_run
     ADD CONSTRAINT job_run_snapshot_id_fkey FOREIGN KEY (snapshot_id) REFERENCES public.snapshot(id);
+
+
+--
+-- Name: job_run job_run_snapshot_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.job_run
+    ADD CONSTRAINT job_run_snapshot_source_fk FOREIGN KEY (source_id, snapshot_id) REFERENCES public.snapshot(id, source_id);
 
 
 --
@@ -1366,6 +1473,14 @@ ALTER TABLE ONLY public.parcel_exception
 
 ALTER TABLE ONLY public.parcel_exception
     ADD CONSTRAINT parcel_exception_parcel_id_fkey FOREIGN KEY (parcel_id) REFERENCES public.parcel(id);
+
+
+--
+-- Name: parcel_exception parcel_exception_parcel_jurisdiction_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parcel_exception
+    ADD CONSTRAINT parcel_exception_parcel_jurisdiction_fk FOREIGN KEY (parcel_id, jurisdiction_id) REFERENCES public.parcel(id, jurisdiction_id);
 
 
 --
@@ -1422,6 +1537,14 @@ ALTER TABLE ONLY public.property_file
 
 ALTER TABLE ONLY public.property_file
     ADD CONSTRAINT property_file_parcel_id_fkey FOREIGN KEY (parcel_id) REFERENCES public.parcel(id);
+
+
+--
+-- Name: property_file property_file_parcel_jurisdiction_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.property_file
+    ADD CONSTRAINT property_file_parcel_jurisdiction_fk FOREIGN KEY (parcel_id, jurisdiction_id) REFERENCES public.parcel(id, jurisdiction_id);
 
 
 --

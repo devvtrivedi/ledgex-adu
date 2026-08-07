@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.10
+ Engineering Reference Spec v1.11
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.10                                       Machine-executed build contract.
+   1        This Spec v1.11                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -235,6 +235,12 @@ source_rank.field_key gains an FK to field_definition in migration 0003, which c
      sources from 'direct' to 'bulk' -- a data correction, not a structural change; it adds no column and no constraint.
      See §12's 1.8 entry.
 
+     db/migrations/0023_correct_seeded_endpoint_urls.sql is the same shape of correction, for endpoint_url instead of
+     method: any database seeded before commit f8291b7 still holds data.sanjoseca.gov landing-page URLs for
+     zoning_districts and building_permits_active (parcels' endpoint_url was never wrong). A guarded UPDATE, matched on
+     the specific old URL as well as the row id, so a database already seeded from the corrected seed file sees zero
+     rows match and is a true no-op. See §12's 1.11 entry.
+
 3.3 Canonical field vocabulary
 
 Serves: I7 (stale_after_days), I9 (claim), §8.
@@ -249,7 +255,14 @@ db/schema.sql is the generated record of the applied result.
 
 3.5 Snapshots — the reconstruction backbone (C2)
 
-The DDL for this section is db/migrations/0005_snapshot.sql.
+The DDL for this section is db/migrations/0005_snapshot.sql and
+db/migrations/0021_snapshot_integrity.sql (snapshot_no_update/snapshot_no_delete: unlike fact and rule, which each
+permit exactly one narrow mutation, no column of a snapshot row is ever legally mutable, so both triggers raise
+unconditionally; snapshot_content_hash_format, snapshot_id_format, snapshot_object_uri_not_blank and
+snapshot_media_type_not_blank format-CHECK every column that can be malformed. snapshot.id is now
+source_id || ':sha256:' || content_hash, not purely content-addressed off content_hash alone -- purely
+content-addressed would collide on the primary key whenever two different sources return byte-identical content,
+which UNIQUE (content_hash, source_id), already on this table, has always permitted).
 db/schema.sql is the generated record of the applied result.
 
 Change detection is free. Identical content_hash for a source means the source did not change, regardless of what
@@ -259,7 +272,12 @@ cadence_stated claims. This is the mechanism behind I7.
 
 Serves: C1–C5, C8, I2, I3, I13.
 
-The DDL for this section is db/migrations/0006_fact.sql.
+The DDL for this section is db/migrations/0006_fact.sql, db/migrations/0022_remaining_composite_fks.sql
+(fact_snapshot_licence_fk: a retrieved fact's licence_id must equal exactly its snapshot's licence_observed_id --
+deliberately equality, not I5's stricter-or-equal rule, which composes multiple derivation inputs and doesn't apply
+to a retrieved fact simply restating one observation; fact also gains a jurisdiction_id column plus
+fact_parcel_jurisdiction_fk and fact_source_jurisdiction_fk, tying it to both its own parcel's and its own source's
+jurisdiction -- both MATCH SIMPLE composite FKs, confirmed no-ops for derived facts the same way 0018's were).
 db/schema.sql is the generated record of the applied result.
 
      v1.2 change to fact_one_current_per_source. The v1.1 index keyed derived facts on the literal '~derived', which made two
@@ -341,9 +359,11 @@ db/migrations/0015_exception_outcome_biconditional.sql (the outcome/resolution C
 resolved_at and resolved_by both NULL; every other outcome requires both NOT NULL — a two-way biconditional, not a
 one-way check), db/migrations/0018_provenance_integrity.sql (exception_evidence gains a parcel_id column and two
 composite FKs, one against parcel_exception(id, parcel_id) and one against fact(id, parcel_id), forcing an exception's
-evidence onto the same parcel as the exception itself) and db/migrations/0020_lifecycle_constraints.sql
+evidence onto the same parcel as the exception itself), db/migrations/0020_lifecycle_constraints.sql
 (parcel_exception_resolved_after_detected: resolved_at IS NULL OR resolved_at >= detected_at, closing the one bound
-0015's biconditional never covered).
+0015's biconditional never covered) and db/migrations/0022_remaining_composite_fks.sql
+(parcel_exception_parcel_jurisdiction_fk: an exception's own jurisdiction_id must match its own parcel's actual
+jurisdiction, the same denormalize-and-composite-FK pattern as the parcel checks above, applied one level up).
 db/schema.sql is the generated record of the applied result.
 
 3.11 Support requests — post-delivery, never pre-delivery
@@ -380,7 +400,11 @@ db/migrations/0020_lifecycle_constraints.sql (job_run_status_finished_at_bicondi
 job_terminal CHECK the same way §3.11 describes for support_request; job_run_finished_after_started,
 job_run_rows_in_nonnegative and job_run_rows_out_nonnegative; property_file_compose_ms_nonnegative,
 property_file_source_calls_nonnegative, property_file_compute_cost_micros_nonnegative and
-property_file_storage_cost_micros_nonnegative).
+property_file_storage_cost_micros_nonnegative) and db/migrations/0022_remaining_composite_fks.sql
+(job_run_snapshot_source_fk: a job_run's declared source and the snapshot it cites must belong to each other, the
+same shape of hole 0018 closed for fact, never closed for job_run's own source_id/snapshot_id pair;
+property_file_parcel_jurisdiction_fk: a Property File's own jurisdiction_id must match its own parcel's actual
+jurisdiction, the same pattern as §3.10's parcel_exception check).
 db/schema.sql is the generated record of the applied result.
 
      v1.6: Property File rows carry delivery outcome and cost telemetry only. Commercial access lives in commerce.access_entitlement and
@@ -1410,7 +1434,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.10
+                     Engineering Reference Spec v1.11
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1471,7 +1495,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.10
+                   Engineering Reference Spec v1.11
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1500,7 +1524,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.10
+                Engineering Reference Spec v1.11
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -1829,6 +1853,31 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              explicit nonnegative/ordering bounds on job_run timing and row counts,      an intentionally-unenforced invariant (I5c) can
                                              property_file cost telemetry, and parcel_exception resolution timing).      no longer inflate the enforced-coverage floor.
                                              §3.6, §3.7, §3.8, §3.10 and §3.12 now also cite these four files.
+
+   Aug 2026             1.11                 Pre-ingestion integrity, landing before the first snapshot row exists:      Closes the remaining gaps an external
+                                             db/migrations/0021_snapshot_integrity.sql (snapshot_no_update/                review found upstream of fact: a
+                                             snapshot_no_delete -- unlike fact and rule, no snapshot column is ever         snapshot itself was freely mutable and
+                                             legally mutable, so both raise unconditionally; content_hash/id/object_uri/    deletable, which can invalidate every
+                                             media_type format CHECKs); 0022_remaining_composite_fks.sql                    fact's provenance without touching a
+                                             (fact_snapshot_licence_fk: a retrieved fact's licence must equal exactly       fact; a fact's licence didn't have to
+                                             what its snapshot observed, not merely be at least as strict -- I5's           match what its own snapshot observed;
+                                             stricter-or-equal rule is for composing multiple derivation inputs, not       a job_run could cite a snapshot from a
+                                             for a retrieved fact restating one observation; job_run_snapshot_source_fk;    source other than the one it claims;
+                                             fact gains a jurisdiction_id column plus composite FKs tying it to both        and fact/property_file/parcel_exception
+                                             its own parcel's and its own source's jurisdiction, and                       could each disagree with their own
+                                             property_file/parcel_exception gain the equivalent against their own          parcel's actual jurisdiction. snapshot.id
+                                             parcel); 0023_correct_seeded_endpoint_urls.sql (a guarded, id-and-old-URL-     is now source_id || ':sha256:' ||
+                                             matched UPDATE correcting any database still seeded from before commit        content_hash, not purely content-
+                                             f8291b7's endpoint_url fix -- a no-op on a database seeded from the            addressed, so two sources returning
+                                             current or any already-corrected seed file). db/tests/invariants.sql          byte-identical content (e.g. two empty
+                                             gained thirteen new tests (48 enforced, up from 35); the two new snapshot     result sets) cannot collide on the
+                                             triggers and fact_snapshot_licence_fk were each negative-controlled           primary key. db/README.md's source.method
+                                             individually (dropped, confirmed RED, restored). §3.2, §3.5, §3.6, §3.10      section already documents the
+                                             and §3.12 now also cite these three files.                                    consequence of fact_source_method_fk
+                                                                                                                            (0018) for that column; the same
+                                                                                                                            immutability-once-referenced shape now
+                                                                                                                            also applies to snapshot rows generally,
+                                                                                                                            via the two new triggers.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

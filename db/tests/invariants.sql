@@ -78,10 +78,25 @@ INSERT INTO snapshot (
   id, source_id, object_uri, content_hash, media_type, byte_size,
   request, http_status, fetched_at, licence_observed_id
 ) VALUES
-  ('sha256:test123', 'ca_san_jose.test_source', 's3://bucket/test',
-   'abc123', 'application/json', 100,
+  ('ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', 'ca_san_jose.test_source', 's3://bucket/test',
+   '65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', 'application/json', 100,
    '{"url":"https://example.com","params":{}}'::jsonb,
    200, now(), 'test.cc0')
+ON CONFLICT (id) DO NOTHING;
+
+-- Third snapshot, same source, licence_observed_id='test.cc_by_4_0' (0022's
+-- fact_snapshot_licence_fk now requires a retrieved fact's licence_id to
+-- equal exactly the snapshot it cites -- I5a/I5b need a retrieved input
+-- fact under cc_by_4_0, which the cc0 snapshot above can no longer stand
+-- in for).
+INSERT INTO snapshot (
+  id, source_id, object_uri, content_hash, media_type, byte_size,
+  request, http_status, fetched_at, licence_observed_id
+) VALUES
+  ('ca_san_jose.test_source:sha256:6807ac29ca72075c1cc37bbdb1ed367c967981c0c74c969d045ab5e5664f7774', 'ca_san_jose.test_source', 's3://bucket/test-cc-by',
+   '6807ac29ca72075c1cc37bbdb1ed367c967981c0c74c969d045ab5e5664f7774', 'application/json', 100,
+   '{"url":"https://example.com","params":{}}'::jsonb,
+   200, now(), 'test.cc_by_4_0')
 ON CONFLICT (id) DO NOTHING;
 
 -- Second source + snapshot, method='bulk' (deliberately different from
@@ -103,9 +118,53 @@ INSERT INTO snapshot (
   id, source_id, object_uri, content_hash, media_type, byte_size,
   request, http_status, fetched_at, licence_observed_id
 ) VALUES
-  ('sha256:test456', 'ca_san_jose.test_source_b', 's3://bucket/test-b',
-   'def456', 'application/json', 100,
+  ('ca_san_jose.test_source_b:sha256:2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d', 'ca_san_jose.test_source_b', 's3://bucket/test-b',
+   '2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d', 'application/json', 100,
    '{"url":"https://example.com/b","params":{}}'::jsonb,
+   200, now(), 'test.cc0')
+ON CONFLICT (id) DO NOTHING;
+
+-- Throwaway snapshot, own row, cited by nothing: T18/T19 need to
+-- UPDATE/DELETE a snapshot without also tripping fact_snapshot_source_fk
+-- or fact_snapshot_licence_fk on some other fact that cites it -- mirrors
+-- T1's dedicated fresh fact for the same isolation reason.
+INSERT INTO snapshot (
+  id, source_id, object_uri, content_hash, media_type, byte_size,
+  request, http_status, fetched_at, licence_observed_id
+) VALUES
+  ('ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', 'ca_san_jose.test_source', 's3://bucket/test-throwaway',
+   '5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', 'application/json', 100,
+   '{"url":"https://example.com/throwaway","params":{}}'::jsonb,
+   200, now(), 'test.cc0')
+ON CONFLICT (id) DO NOTHING;
+
+-- A second jurisdiction, plus a source and snapshot registered under it:
+-- 0022's fact_source_jurisdiction_fk, property_file_parcel_jurisdiction_fk
+-- and parcel_exception_parcel_jurisdiction_fk all need a genuinely
+-- different jurisdiction to disagree with, not just a different id string
+-- that happens to share ca_san_jose's own jurisdiction_id.
+INSERT INTO jurisdiction (
+  id, display_name, kind, state_code, pack_version, supported
+) VALUES
+  ('test_other_jurisdiction', 'Test Other Jurisdiction', 'city', 'CA', 'v1.0', false)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO source (
+  id, jurisdiction_id, display_name, steward, method, phase_status,
+  phase_status_reason, endpoint_url, licence_id, active
+) VALUES
+  ('test_other_jurisdiction.test_source', 'test_other_jurisdiction', 'Test Source (Other Jurisdiction)',
+   'Test Steward', 'direct', 'active', 'Test source under a different jurisdiction, for jurisdiction-consistency tests',
+   'https://example.com/api-other', 'test.cc0', false)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO snapshot (
+  id, source_id, object_uri, content_hash, media_type, byte_size,
+  request, http_status, fetched_at, licence_observed_id
+) VALUES
+  ('test_other_jurisdiction.test_source:sha256:ea9ca0e4800afb999739746f473257ee491bc425f267ef6046b4a016d234184a', 'test_other_jurisdiction.test_source', 's3://bucket/test-other',
+   'ea9ca0e4800afb999739746f473257ee491bc425f267ef6046b4a016d234184a', 'application/json', 100,
+   '{"url":"https://example.com/other","params":{}}'::jsonb,
    200, now(), 'test.cc0')
 ON CONFLICT (id) DO NOTHING;
 
@@ -128,7 +187,11 @@ INSERT INTO field_definition (
   ('test.t5_field',  'Test Field T5',  'public_record', 'string', 'test', 'T5 invariant test field'),
   ('test.t6_field',  'Test Field T6',  'public_record', 'string', 'test', 'T6 invariant test field (future effective_from)'),
   ('test.t6b_field', 'Test Field T6b', 'public_record', 'string', 'test', 'T6 invariant test field (present effective_from, control)'),
-  ('test.t17_field', 'Test Field T17', 'public_record', 'string', 'test', 'T17 invariant test field')
+  ('test.t17_field', 'Test Field T17', 'public_record', 'string', 'test', 'T17 invariant test field'),
+  ('test.t24_field', 'Test Field T24', 'public_record', 'string', 'test', 'T24 invariant test field'),
+  ('test.t25_field', 'Test Field T25', 'public_record', 'string', 'test', 'T25 invariant test field'),
+  ('test.t27_field', 'Test Field T27', 'public_record', 'string', 'test', 'T27 invariant test field'),
+  ('test.t28_field', 'Test Field T28', 'public_record', 'string', 'test', 'T28 invariant test field')
 ON CONFLICT (field_key) DO NOTHING;
 
 -- Cross-block scratch state for this run: the fresh parcel id, and (later)
@@ -181,12 +244,12 @@ BEGIN
 
     BEGIN
         INSERT INTO fact (
-            parcel_id, field_key, value, method, source_id, snapshot_id,
+            parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'test.i3_field', '"value"'::jsonb, 'direct',
-            'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
+            v_parcel_id, 'ca_san_jose', 'test.i3_field', '"value"'::jsonb, 'direct',
+            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
             NULL, 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL I3: null licence_id was accepted';
@@ -212,12 +275,12 @@ BEGIN
 
     BEGIN
         INSERT INTO fact (
-            parcel_id, field_key, value, method, source_id, snapshot_id,
+            parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
             method_version, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'test.i2a_field', '"derived_value"'::jsonb, 'derived',
-            'ca_san_jose.test_source', 'sha256:test123',  -- both set: violates I2
+            v_parcel_id, 'ca_san_jose', 'test.i2a_field', '"derived_value"'::jsonb, 'derived',
+            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',  -- both set: violates I2
             'v1.0', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL I2a: derived fact with source_id and snapshot_id set was accepted';
@@ -248,11 +311,11 @@ BEGIN
 
     BEGIN
         INSERT INTO fact (
-            parcel_id, field_key, value, method, source_id, snapshot_id,
+            parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'test.i2b_field', '"value"'::jsonb, 'direct',
+            v_parcel_id, 'ca_san_jose', 'test.i2b_field', '"value"'::jsonb, 'direct',
             'ca_san_jose.test_source', NULL,  -- missing snapshot_id
             now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
@@ -284,12 +347,12 @@ BEGIN
 
     BEGIN
         INSERT INTO fact (
-            parcel_id, field_key, value, method, source_id, snapshot_id,
+            parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'test.i13_field', '"value"'::jsonb, 'portal',  -- invalid
-            'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
+            v_parcel_id, 'ca_san_jose', 'test.i13_field', '"value"'::jsonb, 'portal',  -- invalid
+            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
             'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL I13: method=portal was accepted';
@@ -322,12 +385,12 @@ BEGIN
     SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
 
     INSERT INTO fact (
-        parcel_id, field_key, value, method, source_id, snapshot_id,
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'test.i4a_field', '"original_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
+        v_parcel_id, 'ca_san_jose', 'test.i4a_field', '"original_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
@@ -422,21 +485,21 @@ BEGIN
 
     -- Input: retrieved, cc_by_4_0 (more restrictive).
     INSERT INTO fact (
-        parcel_id, field_key, value, method, source_id, snapshot_id,
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'test.i5a_field', '"input_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
+        v_parcel_id, 'ca_san_jose', 'test.i5a_field', '"input_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:6807ac29ca72075c1cc37bbdb1ed367c967981c0c74c969d045ab5e5664f7774', now(), 'https://example.com',
         'test.cc_by_4_0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input_fact_id;
 
     -- Derived: test.cc0, more permissive than its input -- must be rejected.
     INSERT INTO fact (
-        parcel_id, field_key, value, method, method_version, licence_id,
+        parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'test.i5a_field', '"derived"'::jsonb, 'derived',
+        v_parcel_id, 'ca_san_jose', 'test.i5a_field', '"derived"'::jsonb, 'derived',
         'v1.0', 'test.cc0',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
@@ -478,21 +541,21 @@ BEGIN
 
     -- Input: retrieved, cc0 (permissive).
     INSERT INTO fact (
-        parcel_id, field_key, value, method, source_id, snapshot_id,
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'test.i5b_field', '"input_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
+        v_parcel_id, 'ca_san_jose', 'test.i5b_field', '"input_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input_fact_id;
 
     -- Derived: test.cc_by_4_0, stricter than its input -- must be allowed.
     INSERT INTO fact (
-        parcel_id, field_key, value, method, method_version, licence_id,
+        parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'test.i5b_field', '"derived_stricter"'::jsonb, 'derived',
+        v_parcel_id, 'ca_san_jose', 'test.i5b_field', '"derived_stricter"'::jsonb, 'derived',
         'v1.0', 'test.cc_by_4_0',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
@@ -528,10 +591,10 @@ BEGIN
     -- Per the hard rule for this suite, the trigger is not to be changed to
     -- close this gap -- this test only documents that it exists.
     INSERT INTO fact (
-        parcel_id, field_key, value, method, method_version, licence_id,
+        parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'test.i5c_field', '"ungrounded_derived"'::jsonb, 'derived',
+        v_parcel_id, 'ca_san_jose', 'test.i5c_field', '"ungrounded_derived"'::jsonb, 'derived',
         'v1.0', 'test.cc0',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
@@ -875,12 +938,12 @@ BEGIN
     SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
 
     INSERT INTO fact (
-        parcel_id, field_key, value, method, source_id, snapshot_id,
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'test.t1_field', '"delete_me"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
+        v_parcel_id, 'ca_san_jose', 'test.t1_field', '"delete_me"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
@@ -915,13 +978,13 @@ BEGIN
 
     BEGIN
         INSERT INTO fact (
-            parcel_id, field_key, value, method, source_id, snapshot_id,
+            parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'test.t2_field', '"value"'::jsonb, 'direct',
+            v_parcel_id, 'ca_san_jose', 'test.t2_field', '"value"'::jsonb, 'direct',
             'ca_san_jose.test_source',      -- source A
-            'sha256:test456',               -- source B's snapshot
+            'ca_san_jose.test_source_b:sha256:2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d',               -- source B's snapshot
             now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL T2: fact citing source A with source B''s snapshot was accepted';
@@ -955,12 +1018,12 @@ BEGIN
     BEGIN
         -- ca_san_jose.test_source declares method='direct'; this fact claims 'bulk'.
         INSERT INTO fact (
-            parcel_id, field_key, value, method, source_id, snapshot_id,
+            parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'test.t3_field', '"value"'::jsonb, 'bulk',
-            'ca_san_jose.test_source', 'sha256:test123',
+            v_parcel_id, 'ca_san_jose', 'test.t3_field', '"value"'::jsonb, 'bulk',
+            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
             now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL T3: fact method mismatched with its source''s declared method was accepted';
@@ -1012,12 +1075,12 @@ BEGIN
 
     -- This fact belongs to the OTHER parcel, not the Property File's parcel.
     INSERT INTO fact (
-        parcel_id, field_key, value, method, source_id, snapshot_id,
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_other_parcel_id, 'test.t4_field', '"other_parcel_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'sha256:test123',
+        v_other_parcel_id, 'ca_san_jose', 'test.t4_field', '"other_parcel_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
         now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_other_fact_id;
 
@@ -1073,12 +1136,12 @@ BEGIN
 
     -- This fact belongs to the OTHER parcel, not the exception's parcel.
     INSERT INTO fact (
-        parcel_id, field_key, value, method, source_id, snapshot_id,
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_other_parcel_id, 'test.t5_field', '"other_parcel_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'sha256:test123',
+        v_other_parcel_id, 'ca_san_jose', 'test.t5_field', '"other_parcel_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
         now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_other_fact_id;
 
@@ -1115,24 +1178,24 @@ BEGIN
 
     -- Future: effective tomorrow, must NOT appear yet.
     INSERT INTO fact (
-        parcel_id, field_key, value, method, source_id, snapshot_id,
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'test.t6_field', '"future_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
+        v_parcel_id, 'ca_san_jose', 'test.t6_field', '"future_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now() + interval '1 day', 'v1.0'
     );
 
     -- Present/control: effective in the past, must appear -- proving the
     -- new filter doesn't also wrongly exclude a genuinely current fact.
     INSERT INTO fact (
-        parcel_id, field_key, value, method, source_id, snapshot_id,
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'test.t6b_field', '"present_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
+        v_parcel_id, 'ca_san_jose', 'test.t6b_field', '"present_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now() - interval '1 day', 'v1.0'
     );
 
@@ -1503,12 +1566,12 @@ BEGIN
     SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
 
     INSERT INTO fact (
-        parcel_id, field_key, value, method, source_id, snapshot_id,
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'test.t17_field', '"value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'sha256:test123', now(), 'https://example.com',
+        v_parcel_id, 'ca_san_jose', 'test.t17_field', '"value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
@@ -1528,6 +1591,456 @@ BEGIN
                 INSERT INTO test_pass VALUES ('T17');
             ELSE
                 RAISE EXCEPTION 'FAIL T17: foreign_key_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T18: a snapshot cannot be updated (0021)
+-- snapshot_no_update(), an unconditional raise -- unlike fact/rule, no
+-- column of a snapshot is ever legally mutable.
+-- ============================================================================
+
+\echo '### TEST T18: UPDATE snapshot (should fail)'
+
+DO $$
+BEGIN
+    BEGIN
+        UPDATE snapshot SET media_type = 'text/csv'
+         WHERE id = 'ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37';
+        RAISE EXCEPTION 'FAIL T18: UPDATE snapshot was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'C2 violated:%is immutable%' THEN
+                RAISE NOTICE 'PASS T18: snapshot update rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T18');
+            ELSE
+                RAISE EXCEPTION 'FAIL T18: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T19: a snapshot cannot be deleted (0021)
+-- snapshot_no_delete(), an unconditional raise, mirroring
+-- rule_no_delete/fact_no_delete.
+-- ============================================================================
+
+\echo '### TEST T19: DELETE FROM snapshot (should fail)'
+
+DO $$
+BEGIN
+    BEGIN
+        DELETE FROM snapshot
+         WHERE id = 'ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37';
+        RAISE EXCEPTION 'FAIL T19: DELETE FROM snapshot was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'C2 violated:%cannot be deleted%' THEN
+                RAISE NOTICE 'PASS T19: snapshot delete rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T19');
+            ELSE
+                RAISE EXCEPTION 'FAIL T19: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T20: snapshot.content_hash must be 64 lowercase hex characters (0021)
+-- snapshot_content_hash_format.
+-- ============================================================================
+
+\echo '### TEST T20: snapshot with malformed content_hash (should fail)'
+
+DO $$
+DECLARE
+    v_constraint text;
+BEGIN
+    BEGIN
+        INSERT INTO snapshot (
+            id, source_id, object_uri, content_hash, media_type, byte_size,
+            request, http_status, fetched_at, licence_observed_id
+        ) VALUES (
+            'ca_san_jose.test_source:sha256:NOTVALIDHEX', 'ca_san_jose.test_source',
+            's3://bucket/test-t20', 'NOTVALIDHEX', 'application/json', 100,
+            '{"url":"https://example.com/t20","params":{}}'::jsonb,
+            200, now(), 'test.cc0'
+        );
+        RAISE EXCEPTION 'FAIL T20: snapshot with malformed content_hash was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'snapshot_content_hash_format' THEN
+                RAISE NOTICE 'PASS T20: malformed content_hash rejected';
+                INSERT INTO test_pass VALUES ('T20');
+            ELSE
+                RAISE EXCEPTION 'FAIL T20: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T21: snapshot.id must equal source_id || ':sha256:' || content_hash
+-- (0021) -- snapshot_id_format.
+-- ============================================================================
+
+\echo '### TEST T21: snapshot with id not matching source_id/content_hash (should fail)'
+
+DO $$
+DECLARE
+    v_constraint text;
+BEGIN
+    BEGIN
+        INSERT INTO snapshot (
+            id, source_id, object_uri, content_hash, media_type, byte_size,
+            request, http_status, fetched_at, licence_observed_id
+        ) VALUES (
+            'some-other-id-entirely', 'ca_san_jose.test_source',
+            's3://bucket/test-t21', '781a0daece9ba3e9da7e6f0e94a2d0a9a7afa04c994d2f854188c25e5cc9f3b2',
+            'application/json', 100,
+            '{"url":"https://example.com/t21","params":{}}'::jsonb,
+            200, now(), 'test.cc0'
+        );
+        RAISE EXCEPTION 'FAIL T21: snapshot with mismatched id was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'snapshot_id_format' THEN
+                RAISE NOTICE 'PASS T21: id/source_id/content_hash mismatch rejected';
+                INSERT INTO test_pass VALUES ('T21');
+            ELSE
+                RAISE EXCEPTION 'FAIL T21: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T22: snapshot.object_uri cannot be blank (0021)
+-- snapshot_object_uri_not_blank.
+-- ============================================================================
+
+\echo '### TEST T22: snapshot with blank object_uri (should fail)'
+
+DO $$
+DECLARE
+    v_constraint text;
+BEGIN
+    BEGIN
+        INSERT INTO snapshot (
+            id, source_id, object_uri, content_hash, media_type, byte_size,
+            request, http_status, fetched_at, licence_observed_id
+        ) VALUES (
+            'ca_san_jose.test_source:sha256:781a0daece9ba3e9da7e6f0e94a2d0a9a7afa04c994d2f854188c25e5cc9f3b2',
+            'ca_san_jose.test_source', '   ',
+            '781a0daece9ba3e9da7e6f0e94a2d0a9a7afa04c994d2f854188c25e5cc9f3b2',
+            'application/json', 100,
+            '{"url":"https://example.com/t22","params":{}}'::jsonb,
+            200, now(), 'test.cc0'
+        );
+        RAISE EXCEPTION 'FAIL T22: snapshot with blank object_uri was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'snapshot_object_uri_not_blank' THEN
+                RAISE NOTICE 'PASS T22: blank object_uri rejected';
+                INSERT INTO test_pass VALUES ('T22');
+            ELSE
+                RAISE EXCEPTION 'FAIL T22: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T23: snapshot.media_type cannot be blank (0021)
+-- snapshot_media_type_not_blank.
+-- ============================================================================
+
+\echo '### TEST T23: snapshot with blank media_type (should fail)'
+
+DO $$
+DECLARE
+    v_constraint text;
+BEGIN
+    BEGIN
+        INSERT INTO snapshot (
+            id, source_id, object_uri, content_hash, media_type, byte_size,
+            request, http_status, fetched_at, licence_observed_id
+        ) VALUES (
+            'ca_san_jose.test_source:sha256:781a0daece9ba3e9da7e6f0e94a2d0a9a7afa04c994d2f854188c25e5cc9f3b2',
+            'ca_san_jose.test_source', 's3://bucket/test-t23',
+            '781a0daece9ba3e9da7e6f0e94a2d0a9a7afa04c994d2f854188c25e5cc9f3b2',
+            '  ', 100,
+            '{"url":"https://example.com/t23","params":{}}'::jsonb,
+            200, now(), 'test.cc0'
+        );
+        RAISE EXCEPTION 'FAIL T23: snapshot with blank media_type was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'snapshot_media_type_not_blank' THEN
+                RAISE NOTICE 'PASS T23: blank media_type rejected';
+                INSERT INTO test_pass VALUES ('T23');
+            ELSE
+                RAISE EXCEPTION 'FAIL T23: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T24: fact.jurisdiction_id is NOT NULL (0022)
+-- ============================================================================
+
+\echo '### TEST T24: fact with null jurisdiction_id (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO fact (
+            parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+            retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+            effective_from, pack_version
+        ) VALUES (
+            v_parcel_id, NULL, 'test.t24_field', '"value"'::jsonb, 'direct',
+            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+            now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+        );
+        RAISE EXCEPTION 'FAIL T24: null jurisdiction_id was accepted';
+    EXCEPTION
+        WHEN not_null_violation THEN
+            RAISE NOTICE 'PASS T24: null jurisdiction_id rejected (not_null_violation)';
+            INSERT INTO test_pass VALUES ('T24');
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T25: a fact's licence must equal its snapshot's observed licence
+-- (0022) -- fact_snapshot_licence_fk: FOREIGN KEY (snapshot_id, licence_id)
+-- REFERENCES snapshot (id, licence_observed_id).
+-- ============================================================================
+
+\echo '### TEST T25: fact licence differing from its snapshot''s observed licence (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        -- The cc0 snapshot's observed licence is 'test.cc0'; this fact
+        -- claims 'test.cc_by_4_0' -- a real, valid licence, just not the
+        -- one this snapshot was actually observed under.
+        INSERT INTO fact (
+            parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+            retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+            effective_from, pack_version
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'test.t25_field', '"value"'::jsonb, 'direct',
+            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+            now(), 'https://example.com', 'test.cc_by_4_0', 'high', 'rule_1', now(), 'v1.0'
+        );
+        RAISE EXCEPTION 'FAIL T25: fact licence mismatched with its snapshot''s observed licence was accepted';
+    EXCEPTION
+        WHEN foreign_key_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'fact_snapshot_licence_fk' THEN
+                RAISE NOTICE 'PASS T25: licence mismatch rejected by fact_snapshot_licence_fk';
+                INSERT INTO test_pass VALUES ('T25');
+            ELSE
+                RAISE EXCEPTION 'FAIL T25: foreign_key_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T26: a job_run cannot cite one source but another source's snapshot
+-- (0022) -- job_run_snapshot_source_fk: FOREIGN KEY (source_id, snapshot_id)
+-- REFERENCES snapshot (id, source_id).
+-- ============================================================================
+
+\echo '### TEST T26: job_run citing source A with source B''s snapshot (should fail)'
+
+DO $$
+DECLARE
+    v_constraint text;
+BEGIN
+    BEGIN
+        INSERT INTO job_run (job_key, jurisdiction_id, source_id, status, started_at, finished_at, snapshot_id)
+        VALUES (
+            'test.t26_job', 'ca_san_jose', 'ca_san_jose.test_source', 'succeeded', now(), now(),
+            'ca_san_jose.test_source_b:sha256:2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d'
+        );
+        RAISE EXCEPTION 'FAIL T26: job_run citing source A with source B''s snapshot was accepted';
+    EXCEPTION
+        WHEN foreign_key_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'job_run_snapshot_source_fk' THEN
+                RAISE NOTICE 'PASS T26: source/snapshot mismatch rejected by job_run_snapshot_source_fk';
+                INSERT INTO test_pass VALUES ('T26');
+            ELSE
+                RAISE EXCEPTION 'FAIL T26: foreign_key_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T27: a fact's jurisdiction must match its own parcel's jurisdiction
+-- (0022) -- fact_parcel_jurisdiction_fk: FOREIGN KEY (parcel_id, jurisdiction_id)
+-- REFERENCES parcel (id, jurisdiction_id). Uses a DERIVED fact (source_id
+-- NULL) specifically so fact_source_jurisdiction_fk is exempted by MATCH
+-- SIMPLE and cannot also fire here -- isolates this FK alone.
+-- ============================================================================
+
+\echo '### TEST T27: fact jurisdiction_id disagreeing with its own parcel''s jurisdiction (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO fact (
+            parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
+            confidence, confidence_rule_id, effective_from, pack_version
+        ) VALUES (
+            v_parcel_id, 'test_other_jurisdiction', 'test.t27_field', '"value"'::jsonb, 'derived',
+            'v1.0', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+        );
+        RAISE EXCEPTION 'FAIL T27: fact jurisdiction_id disagreeing with its own parcel''s jurisdiction was accepted';
+    EXCEPTION
+        WHEN foreign_key_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'fact_parcel_jurisdiction_fk' THEN
+                RAISE NOTICE 'PASS T27: parcel/jurisdiction mismatch rejected by fact_parcel_jurisdiction_fk';
+                INSERT INTO test_pass VALUES ('T27');
+            ELSE
+                RAISE EXCEPTION 'FAIL T27: foreign_key_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T28: a fact's declared jurisdiction must match its source's
+-- jurisdiction too, not just its parcel's (0022) -- the specific "parcel
+-- and source disagree on jurisdiction" violation.
+-- fact_source_jurisdiction_fk: FOREIGN KEY (source_id, jurisdiction_id)
+-- REFERENCES source (id, jurisdiction_id).
+-- ============================================================================
+
+\echo '### TEST T28: fact whose parcel and source disagree on jurisdiction (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        -- jurisdiction_id='ca_san_jose' correctly matches v_parcel_id's own
+        -- jurisdiction (satisfying fact_parcel_jurisdiction_fk), but
+        -- source_id belongs to test_other_jurisdiction, not ca_san_jose.
+        INSERT INTO fact (
+            parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+            retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+            effective_from, pack_version
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'test.t28_field', '"value"'::jsonb, 'direct',
+            'test_other_jurisdiction.test_source',
+            'test_other_jurisdiction.test_source:sha256:ea9ca0e4800afb999739746f473257ee491bc425f267ef6046b4a016d234184a',
+            now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+        );
+        RAISE EXCEPTION 'FAIL T28: fact whose parcel and source disagree on jurisdiction was accepted';
+    EXCEPTION
+        WHEN foreign_key_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'fact_source_jurisdiction_fk' THEN
+                RAISE NOTICE 'PASS T28: parcel/source jurisdiction disagreement rejected by fact_source_jurisdiction_fk';
+                INSERT INTO test_pass VALUES ('T28');
+            ELSE
+                RAISE EXCEPTION 'FAIL T28: foreign_key_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T29: a Property File's jurisdiction must match its own parcel's
+-- jurisdiction (0022) -- property_file_parcel_jurisdiction_fk:
+-- FOREIGN KEY (parcel_id, jurisdiction_id) REFERENCES parcel
+-- (id, jurisdiction_id).
+-- ============================================================================
+
+\echo '### TEST T29: property_file jurisdiction_id disagreeing with its own parcel''s jurisdiction (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, payload,
+            payload_hash, compose_ms
+        ) VALUES (
+            v_parcel_id, 'test_other_jurisdiction', 'free_snapshot', 'composed', now(), 'v1.0',
+            'v1.0', 'v1.0', false, '{}'::jsonb, 'testhash_t29', 100
+        );
+        RAISE EXCEPTION 'FAIL T29: property_file jurisdiction_id disagreeing with its own parcel''s jurisdiction was accepted';
+    EXCEPTION
+        WHEN foreign_key_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_parcel_jurisdiction_fk' THEN
+                RAISE NOTICE 'PASS T29: parcel/jurisdiction mismatch rejected by property_file_parcel_jurisdiction_fk';
+                INSERT INTO test_pass VALUES ('T29');
+            ELSE
+                RAISE EXCEPTION 'FAIL T29: foreign_key_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T30: a parcel_exception's jurisdiction must match its own parcel's
+-- jurisdiction (0022) -- parcel_exception_parcel_jurisdiction_fk:
+-- FOREIGN KEY (parcel_id, jurisdiction_id) REFERENCES parcel
+-- (id, jurisdiction_id).
+-- ============================================================================
+
+\echo '### TEST T30: parcel_exception jurisdiction_id disagreeing with its own parcel''s jurisdiction (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO parcel_exception (
+            parcel_id, jurisdiction_id, type, severity, detector_key,
+            detector_version, detail, outcome
+        ) VALUES (
+            v_parcel_id, 'test_other_jurisdiction', 'staleness', 'warning', 'test_detector',
+            'v1', '{}'::jsonb, 'open'
+        );
+        RAISE EXCEPTION 'FAIL T30: parcel_exception jurisdiction_id disagreeing with its own parcel''s jurisdiction was accepted';
+    EXCEPTION
+        WHEN foreign_key_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'parcel_exception_parcel_jurisdiction_fk' THEN
+                RAISE NOTICE 'PASS T30: parcel/jurisdiction mismatch rejected by parcel_exception_parcel_jurisdiction_fk';
+                INSERT INTO test_pass VALUES ('T30');
+            ELSE
+                RAISE EXCEPTION 'FAIL T30: foreign_key_violation on unexpected constraint %', v_constraint;
             END IF;
     END;
 END $$;
@@ -1563,8 +2076,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 35 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 35 passing tests, got %', v_pass_count;
+    IF v_pass_count < 48 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 48 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 
