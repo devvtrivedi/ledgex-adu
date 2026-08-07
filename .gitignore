@@ -7,3 +7,4 @@ __pycache__/
 dist/
 *.tmp
 db/schema.sql.tmp
+.venv-ingest/

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Document QA — the drift gate.
 
-Spec v1.11 sec 0.2: "Document QA fails if any invariant body or enforcement cell
+Spec v1.12 sec 0.2: "Document QA fails if any invariant body or enforcement cell
 differs." This script is that check. Wire it into `make check-boundary`.
 
 It asserts:
@@ -143,7 +143,7 @@ def check_no_mangled_invariant_prose():
 def check_regenerates_clean():
     """Rebuild into memory and compare. Catches hand-edited markdown."""
     import importlib
-    for mod_name, path in (("build_spec_v1_11", SPEC), ("build_rules_v1_4", RULES)):
+    for mod_name, path in (("build_spec_v1_12", SPEC), ("build_rules_v1_4", RULES)):
         try:
             mod = importlib.import_module(mod_name)
             importlib.reload(mod)

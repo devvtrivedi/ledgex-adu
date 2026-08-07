@@ -191,7 +191,11 @@ INSERT INTO field_definition (
   ('test.t24_field', 'Test Field T24', 'public_record', 'string', 'test', 'T24 invariant test field'),
   ('test.t25_field', 'Test Field T25', 'public_record', 'string', 'test', 'T25 invariant test field'),
   ('test.t27_field', 'Test Field T27', 'public_record', 'string', 'test', 'T27 invariant test field'),
-  ('test.t28_field', 'Test Field T28', 'public_record', 'string', 'test', 'T28 invariant test field')
+  ('test.t28_field', 'Test Field T28', 'public_record', 'string', 'test', 'T28 invariant test field'),
+  ('test.t32_field', 'Test Field T32', 'public_record', 'string', 'test', 'T32 invariant test field'),
+  ('test.t33_field', 'Test Field T33', 'public_record', 'string', 'test', 'T33 invariant test field'),
+  ('test.t34_field', 'Test Field T34', 'public_record', 'string', 'test', 'T34 invariant test field'),
+  ('test.t35_field', 'Test Field T35', 'public_record', 'string', 'test', 'T35 invariant test field')
 ON CONFLICT (field_key) DO NOTHING;
 
 -- Cross-block scratch state for this run: the fresh parcel id, and (later)
@@ -2046,6 +2050,173 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- POSITIVE TESTS for the composite FKs above (T2/T3/T25-T30 etc. all prove
+-- a violation is rejected; none of them proves a correctly-formed row is
+-- ACCEPTED). That gap is not hypothetical: job_run_snapshot_source_fk
+-- shipped in 0022 with its two columns transposed -- FOREIGN KEY
+-- (source_id, snapshot_id) REFERENCES snapshot (id, source_id) instead of
+-- (snapshot_id, source_id) -- and rejected every job_run, valid or
+-- invalid, unconditionally. T26 (which only ever inserts an INVALID
+-- combination and asserts rejection) passed against the transposed
+-- version exactly as well as it passes against the fixed one in 0024;
+-- a negative control alone cannot tell "rejects only invalid rows" apart
+-- from "rejects everything." Found for real during the first live
+-- ingestion run (scripts/ingest_parcels.py), not by inspection. These five
+-- tests close that blind spot: each inserts a row every column of which
+-- correctly agrees with its target, and asserts the INSERT succeeds.
+-- ============================================================================
+
+-- ============================================================================
+-- TEST T31: a job_run citing its own source's own snapshot succeeds (0022,
+-- corrected by 0024) -- job_run_snapshot_source_fk.
+-- ============================================================================
+
+\echo '### TEST T31: job_run citing its own source''s own snapshot (should succeed)'
+
+DO $$
+DECLARE
+    v_job_run_id uuid;
+BEGIN
+    INSERT INTO job_run (job_key, jurisdiction_id, source_id, status, started_at, finished_at, snapshot_id)
+    VALUES (
+        'test.t31_job', 'ca_san_jose', 'ca_san_jose.test_source', 'succeeded', now(), now(),
+        'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28'
+    ) RETURNING id INTO v_job_run_id;
+
+    RAISE NOTICE 'PASS T31: job_run citing its own source''s own snapshot accepted (id=%)', v_job_run_id;
+    INSERT INTO test_pass VALUES ('T31');
+END $$;
+
+-- ============================================================================
+-- TEST T32: a fact citing its own source's own snapshot succeeds (0018) --
+-- fact_snapshot_source_fk.
+-- ============================================================================
+
+\echo '### TEST T32: fact citing its own source''s own snapshot (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_fact_id   uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t32_field', '"value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_fact_id;
+
+    RAISE NOTICE 'PASS T32: fact citing its own source''s own snapshot accepted (id=%)', v_fact_id;
+    INSERT INTO test_pass VALUES ('T32');
+END $$;
+
+-- ============================================================================
+-- TEST T33: a fact whose licence matches its snapshot's observed licence
+-- succeeds (0022) -- fact_snapshot_licence_fk. Uses the cc_by_4_0
+-- snapshot/licence pairing (T32 uses cc0) to prove the FK accepts any
+-- correctly-matched pair, not just one specific licence value.
+-- ============================================================================
+
+\echo '### TEST T33: fact licence matching its snapshot''s observed licence (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_fact_id   uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t33_field', '"value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:6807ac29ca72075c1cc37bbdb1ed367c967981c0c74c969d045ab5e5664f7774',
+        now(), 'https://example.com', 'test.cc_by_4_0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_fact_id;
+
+    RAISE NOTICE 'PASS T33: fact licence matching its snapshot''s observed licence accepted (id=%)', v_fact_id;
+    INSERT INTO test_pass VALUES ('T33');
+END $$;
+
+-- ============================================================================
+-- TEST T34: a property_file_fact whose fact shares the file's parcel
+-- succeeds (0018) -- property_file_fact_property_file_parcel_fk and
+-- property_file_fact_fact_parcel_fk together.
+-- ============================================================================
+
+\echo '### TEST T34: property_file_fact whose fact shares the file''s parcel (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id        uuid;
+    v_property_file_id uuid;
+    v_fact_id          uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO property_file (
+        parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+        ruleset_version, composer_version, geometry_tier_used, payload,
+        payload_hash, compose_ms
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+        'v1.0', 'v1.0', false, '{}'::jsonb, 'testhash_t34', 100
+    ) RETURNING id INTO v_property_file_id;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t34_field', '"value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_fact_id;
+
+    INSERT INTO property_file_fact (property_file_id, fact_id, parcel_id)
+    VALUES (v_property_file_id, v_fact_id, v_parcel_id);
+
+    RAISE NOTICE 'PASS T34: property_file_fact whose fact shares the file''s parcel accepted';
+    INSERT INTO test_pass VALUES ('T34');
+END $$;
+
+-- ============================================================================
+-- TEST T35: a fact whose parcel and source share a jurisdiction succeeds
+-- (0022) -- fact_parcel_jurisdiction_fk and fact_source_jurisdiction_fk
+-- together.
+-- ============================================================================
+
+\echo '### TEST T35: fact whose parcel and source share a jurisdiction (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_fact_id   uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t35_field', '"value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_fact_id;
+
+    RAISE NOTICE 'PASS T35: fact whose parcel and source share a jurisdiction accepted (id=%)', v_fact_id;
+    INSERT INTO test_pass VALUES ('T35');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -2076,8 +2247,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 48 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 48 passing tests, got %', v_pass_count;
+    IF v_pass_count < 53 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 53 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

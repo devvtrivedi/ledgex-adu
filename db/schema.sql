@@ -1424,7 +1424,7 @@ ALTER TABLE ONLY public.job_run
 --
 
 ALTER TABLE ONLY public.job_run
-    ADD CONSTRAINT job_run_snapshot_source_fk FOREIGN KEY (source_id, snapshot_id) REFERENCES public.snapshot(id, source_id);
+    ADD CONSTRAINT job_run_snapshot_source_fk FOREIGN KEY (snapshot_id, source_id) REFERENCES public.snapshot(id, source_id);
 
 
 --
