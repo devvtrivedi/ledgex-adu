@@ -5,7 +5,9 @@ One plain script, not the core/connectors + core/store architecture --
 turning this into modules is a later job informed by what this teaches.
 See CLAUDE.md / docs/LEDGEX_SPEC.md for the invariants this respects.
 
-Phases (run with --phase b / c / d, or no flag for all three in order):
+Phases (run with --phase b / c / d / e). B/C/D are the smallest useful
+slice this file's title describes. E is a later, separate addition: the
+full-scale load, every feature in the file, not a 20-parcel sample.
   B: fetch the parcels endpoint, hash streamed to disk, upload to the
      content-addressed object store key, record snapshot + job_run. Does
      NOT parse the GeoJSON. Then re-fetches once more to prove the same
@@ -27,6 +29,18 @@ Phases (run with --phase b / c / d, or no flag for all three in order):
      database.
   D: load 20 parcel rows and their facts, including the deliberate
      ST_Multi() omission probe phase D.1 asks for.
+  E: full-scale load -- every feature in the file becomes exactly one
+     parcel row, no skipping duplicates or blanks (0034 dropped apn's
+     NOT NULL/UNIQUE specifically so this could happen without error).
+     parcel.geometry and parcel.source_parcel_id facts (0035) are written
+     for every parcel; parcel.apn only when the source's own APN value is
+     resolvable (not blank, no '?' placeholder character anywhere in it
+     -- both a trailing 'NNNNN???' and a leading '??NNNNNN' placeholder
+     shape exist in the real data). An unresolvable APN gets no
+     parcel.apn fact and one parcel_exception (type='coverage_gap')
+     instead. One transaction for the entire load -- see phase_e()'s own
+     docstring for why. Requires phase b to have already run against the
+     target database (needs a real snapshot to cite).
 
 DATABASE_URL and OBJECT_STORE_* are read from the process environment
 first, falling back to .env only if unset (python-dotenv's default
@@ -38,8 +52,10 @@ import decimal
 import hashlib
 import json
 import os
+import resource
 import sys
 import time
+import uuid
 from datetime import datetime, timezone
 
 import boto3
@@ -102,7 +118,7 @@ def snapshot_id_for(digest):
 # PHASE B -- fetch, hash, upload, record. No parsing.
 # ---------------------------------------------------------------------------
 
-def start_job_run(conn):
+def start_job_run(conn, job_key=JOB_KEY):
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -110,7 +126,7 @@ def start_job_run(conn):
             VALUES (%s, %s, %s, 'running')
             RETURNING id
             """,
-            (JOB_KEY, JURISDICTION_ID, SOURCE_ID),
+            (job_key, JURISDICTION_ID, SOURCE_ID),
         )
         job_run_id = cur.fetchone()[0]
     conn.commit()
@@ -211,11 +227,18 @@ def insert_snapshot(conn, digest, byte_size, media_type, http_status, fetched_at
 
 
 def finish_job_run(conn, job_run_id, status, snapshot_id):
+    # clock_timestamp(), not now(): now() returns the CURRENT TRANSACTION's
+    # start time, frozen for the whole transaction, not the time this
+    # statement actually executes -- harmless here today, since nothing
+    # slow happens between the last commit and this UPDATE in any current
+    # caller, but see finish_job_run_full's header for where it is not
+    # harmless. Fixed in both places for the same reason, not just the one
+    # where it was observed.
     with conn.cursor() as cur:
         cur.execute(
             """
             UPDATE job_run
-            SET status = %s, finished_at = now(), snapshot_id = %s
+            SET status = %s, finished_at = clock_timestamp(), snapshot_id = %s
             WHERE id = %s
             """,
             (status, snapshot_id, job_run_id),
@@ -675,9 +698,249 @@ def phase_d():
     conn.close()
 
 
+# ---------------------------------------------------------------------------
+# PHASE E -- the full-scale load. Every feature becomes a parcel row; no
+# skipping duplicates or blanks the way Phase D's select_parcels does.
+# 0034 dropped apn's NOT NULL/UNIQUE specifically so this could happen
+# without error; 0035 added parcel.source_parcel_id as a fact-only field.
+# ---------------------------------------------------------------------------
+
+JOB_KEY_FULL = "ingest_parcels_full"
+DETECTOR_KEY_APN_UNRESOLVABLE = "parcel_apn_unresolvable"
+DETECTOR_VERSION_APN_UNRESOLVABLE = "1.0"
+
+# Two placeholder shapes exist in the real data, discovered while writing
+# this phase -- the parcel identity diagnostic's duplicate-only analysis
+# only ever looked at APNs appearing more than once, so it only surfaced
+# the 9 duplicated placeholder values (21 features). A full scan (this
+# phase's own is_unresolvable_apn, run once over the whole file before
+# writing the load below) found 45 features carrying a '?' somewhere in
+# APN, not 21: 29 with the trailing 'NNNNN???' unresolved-suffix shape
+# already documented in 0034, and 16 more split between a shorter
+# trailing 'NNNNNN??' form and a LEADING '??NNNNNN' form (e.g.
+# '??000008') the diagnostic never encountered, because none of those 24
+# singly-occurring values were ever duplicated. Combined with the 9 blank
+# features, 54 features -- not 30, not 18 -- get no parcel.apn fact.
+# Detected on ANY '?' in the string, not a specific run length or
+# position: a real APN is never expected to contain one.
+def is_unresolvable_apn(apn):
+    """True if apn cannot be recorded as a resolvable public_record
+    observation. Returns (bool, reason) where reason is 'blank' or
+    'placeholder'."""
+    if is_blank(apn):
+        return True, "blank"
+    if "?" in apn:
+        return True, "placeholder"
+    return False, None
+
+
+def finish_job_run_full(conn, job_run_id, status, snapshot_id, rows_in, rows_out):
+    # clock_timestamp(), not now() -- found for real, not by inspection:
+    # the first full-scale run reported job_run duration as 10.08s
+    # (matching parse time alone) against a script-measured 10.0s parse +
+    # 67.3s bulk insert, ~77s total. now() in Postgres returns the current
+    # TRANSACTION's start time, constant for the whole transaction, not
+    # the time a given statement actually runs. Nothing touches this
+    # connection during the ~10s parse (pure Python, no DB calls), so the
+    # transaction this UPDATE runs in does not begin until the first
+    # execute_values call below -- meaning now() here returned "when the
+    # bulk insert started," not "when it finished," silently discarding
+    # the entire insert duration from the recorded finished_at. Confirmed
+    # directly: BEGIN; SELECT now(); SELECT pg_sleep(2);
+    # SELECT now(), clock_timestamp(); -- now() was identical both times,
+    # clock_timestamp() had advanced by 2s. clock_timestamp() always
+    # reflects actual current time, transaction or no.
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE job_run
+            SET status = %s, finished_at = clock_timestamp(), snapshot_id = %s,
+                rows_in = %s, rows_out = %s
+            WHERE id = %s
+            """,
+            (status, snapshot_id, rows_in, rows_out, job_run_id),
+        )
+    conn.commit()
+
+
+def phase_e():
+    """Full-scale load. One transaction for the entire load (parcel +
+    fact + parcel_exception inserts): any failure anywhere rolls back
+    everything, leaving no partial state to repair. 0017 blocks fact
+    deletion, so a bug discovered after a partial COMMIT would be
+    permanent -- the discipline here is to never partially commit in the
+    first place, not to clean up afterward. On failure, the job_run row
+    (already committed by start_job_run, a separate transaction) is
+    marked 'failed' -- the attempt itself is provenance, C7's policy for
+    Phase B applied here to a load, not just a fetch.
+
+    Every feature becomes exactly one parcel row (apn = the raw value if
+    resolvable, else NULL -- 0034's documented cache-column policy: no
+    fact means no cache value). parcel.geometry and
+    parcel.source_parcel_id facts are written for every parcel (both
+    fields the source supplies for all 225,039 features). parcel.apn is
+    written only when resolvable; an unresolvable feature gets no
+    parcel.apn fact and one parcel_exception (type='coverage_gap') instead
+    -- verified in the previous pass to need no schema change (0010/0015
+    already accept outcome='open' with resolved_at/resolved_by both
+    NULL; see db/README.md).
+    """
+    conn = get_db()
+    path = os.path.join(SCRATCHPAD, "parcels_fetch_1.geojson")
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id FROM snapshot WHERE source_id = %s ORDER BY fetched_at DESC LIMIT 1",
+            (SOURCE_ID,),
+        )
+        row = cur.fetchone()
+        if row is None:
+            raise SystemExit("no snapshot found for ca_san_jose.parcels -- run --phase b first")
+        snapshot_id = row[0]
+        cur.execute("SELECT fetched_at FROM snapshot WHERE id = %s", (snapshot_id,))
+        retrieved_at = cur.fetchone()[0]
+    print(f"using snapshot: {snapshot_id}")
+
+    job_run_id = start_job_run(conn, job_key=JOB_KEY_FULL)
+
+    t_parse_start = time.monotonic()
+
+    parcel_rows = []
+    fact_rows = []
+    exception_rows = []
+    rows_in = 0
+    resolvable_count = 0
+    unresolvable_count = 0
+    reason_counts = {"blank": 0, "placeholder": 0}
+
+    try:
+        with open(path, "rb") as f:
+            for feat in ijson.items(f, "features.item"):
+                rows_in += 1
+                props = feat.get("properties") or {}
+                apn_raw = props.get("APN")
+                pid_raw = props.get("PARCELID")
+                unresolvable, reason = is_unresolvable_apn(apn_raw)
+
+                parcel_id = str(uuid.uuid4())
+                stored_apn = None if unresolvable else apn_raw
+
+                parcel_rows.append((parcel_id, JURISDICTION_ID, stored_apn, geojson_geom_param(feat)))
+
+                fact_rows.append((
+                    parcel_id, JURISDICTION_ID, "parcel.geometry", geojson_geom_param(feat), "bulk",
+                    SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
+                    LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
+                    retrieved_at, FACT_PACK_VERSION,
+                ))
+                fact_rows.append((
+                    parcel_id, JURISDICTION_ID, "parcel.source_parcel_id", json.dumps(str(pid_raw)), "bulk",
+                    SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
+                    LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
+                    retrieved_at, FACT_PACK_VERSION,
+                ))
+
+                if unresolvable:
+                    unresolvable_count += 1
+                    reason_counts[reason] += 1
+                    exception_rows.append((
+                        parcel_id, JURISDICTION_ID, "coverage_gap", "info",
+                        DETECTOR_KEY_APN_UNRESOLVABLE, DETECTOR_VERSION_APN_UNRESOLVABLE,
+                        json.dumps({"raw_apn": apn_raw, "reason": reason}),
+                    ))
+                else:
+                    resolvable_count += 1
+                    fact_rows.append((
+                        parcel_id, JURISDICTION_ID, "parcel.apn", json.dumps(apn_raw), "bulk",
+                        SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
+                        LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
+                        retrieved_at, FACT_PACK_VERSION,
+                    ))
+
+                if rows_in % 25000 == 0:
+                    print(f"  ...parsed {rows_in:,} features")
+
+        t_parse_end = time.monotonic()
+        peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        peak_rss_mb = peak_rss / (1024 * 1024) if sys.platform == "darwin" else peak_rss / 1024
+        print(f"\nparse complete: {rows_in:,} features in {t_parse_end - t_parse_start:.1f}s, "
+              f"peak RSS {peak_rss_mb:.1f} MB")
+        print(f"  resolvable APN: {resolvable_count:,}  unresolvable: {unresolvable_count:,} "
+              f"(blank={reason_counts['blank']}, placeholder={reason_counts['placeholder']})")
+        print(f"  parcel rows to insert: {len(parcel_rows):,}")
+        print(f"  fact rows to insert: {len(fact_rows):,}")
+        print(f"  parcel_exception rows to insert: {len(exception_rows):,}")
+
+        # cur.rowcount after execute_values reflects only the LAST internal
+        # page (execute_values splits page_size-row chunks into separate
+        # statements), not the cumulative total -- confirmed directly, not
+        # assumed: a 2,020-row smoketest insert reported cur.rowcount == 20
+        # (the trailing partial page) while count(*) in the database showed
+        # the correct 2,020. Report len() of the Python lists we already
+        # built instead; they are what was actually submitted.
+        t_load_start = time.monotonic()
+        with conn.cursor() as cur:
+            psycopg2.extras.execute_values(
+                cur,
+                "INSERT INTO parcel (id, jurisdiction_id, apn, geom) VALUES %s",
+                parcel_rows,
+                template="(%s, %s, %s, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)))",
+                page_size=2000,
+            )
+            print(f"  parcel rows submitted: {len(parcel_rows):,}")
+
+            psycopg2.extras.execute_values(
+                cur,
+                """
+                INSERT INTO fact (
+                    parcel_id, jurisdiction_id, field_key, value, method,
+                    source_id, snapshot_id, retrieved_at, source_url,
+                    licence_id, confidence, confidence_rule_id,
+                    effective_from, pack_version
+                ) VALUES %s
+                """,
+                fact_rows,
+                template="(%s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                page_size=2000,
+            )
+            print(f"  fact rows submitted: {len(fact_rows):,}")
+
+            if exception_rows:
+                psycopg2.extras.execute_values(
+                    cur,
+                    """
+                    INSERT INTO parcel_exception (
+                        parcel_id, jurisdiction_id, type, severity,
+                        detector_key, detector_version, detail
+                    ) VALUES %s
+                    """,
+                    exception_rows,
+                    template="(%s, %s, %s, %s, %s, %s, %s::jsonb)",
+                    page_size=2000,
+                )
+                print(f"  parcel_exception rows submitted: {len(exception_rows):,}")
+        t_load_end = time.monotonic()
+        print(f"  bulk insert wall-clock: {t_load_end - t_load_start:.1f}s")
+
+        # finish_job_run_full's own commit is the ONE commit for this entire
+        # phase -- it closes out the same transaction the parcel/fact/
+        # exception inserts above are still pending in, so job_run only
+        # ever reports 'succeeded' atomically with the data it describes.
+        finish_job_run_full(conn, job_run_id, "succeeded", snapshot_id, rows_in, len(parcel_rows))
+        print(f"\njob_run {job_run_id} -> succeeded")
+
+    except Exception as e:
+        conn.rollback()
+        fail_job_run(conn, job_run_id, e)
+        print(f"\njob_run {job_run_id} -> failed: {e}")
+        raise
+
+    conn.close()
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--phase", choices=["b", "c", "d"])
+    parser.add_argument("--phase", choices=["b", "c", "d", "e"])
     parser.add_argument("--input-file", help="path to a previously-fetched GeoJSON file, for --phase c/d")
     args = parser.parse_args()
 
@@ -688,6 +951,8 @@ if __name__ == "__main__":
         phase_c(path)
     elif args.phase == "d":
         phase_d()
+    elif args.phase == "e":
+        phase_e()
     else:
-        print("pass --phase b, c, or d", file=sys.stderr)
+        print("pass --phase b, c, d, or e", file=sys.stderr)
         sys.exit(1)
