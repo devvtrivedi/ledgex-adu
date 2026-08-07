@@ -8,7 +8,7 @@
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | Engineering Reference Spec v1.14 | Machine-executed build contract. |
+| 1 | Engineering Reference Spec v1.15 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement of the Spec. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -24,7 +24,7 @@ Evidence, rights and immutability gates apply before any product or measurement 
 | **I2** | A Fact cannot exist without source_id + snapshot_id when retrieved, or method_version + complete lineage when derived. | DB CHECK; Pydantic model |
 | **I3** | Every fact carries a non-null licence_id. | DB NOT NULL + FK |
 | **I4** | Facts are immutable. Corrections supersede prior facts; they never overwrite or destructively update them. | fact_no_update trigger |
-| **I5** | A derived fact inherits the most restrictive licence of every input. Application code computes it at write time and the database validates it. | derive(); licence trigger; CI |
+| **I5** | A derived fact's licence is no broader than the intersection of every input's rights, on every dimension: channel, use and obligation. Application code computes it at write time and the database validates it. | derive(); licence trigger; CI |
 | **I6** | The composer omits or refuses every fact whose licence forbids the output channel, including facts used only internally for resolution. Unknown rights block. Rights and confidence are independent gates. | rights gate; touched-fact test |
 | **I7** | Stated source cadence, source publication date and retrieval date are separate stored fields and are never conflated. | schema; cadence test |
 | **I8** | Refusal is a typed return value, not an exception. Every runtime stage can refuse deterministically. | Result[T]; refusal tests |
@@ -65,7 +65,7 @@ A target name without execution scope and a pass condition is not a definition o
 
 > **ONE INVARIANT SOURCE**
 >
-> `build/ledgex_source.py` owns `INVARIANTS` and `MAKE_TARGETS`. `build_spec_v1_14.py` imports the same objects. A change that produces different invariant text in the two artifacts fails document QA (`python build/qa_check.py`).
+> `build/ledgex_source.py` owns `INVARIANTS` and `MAKE_TARGETS`. `build_spec_v1_15.py` imports the same objects. A change that produces different invariant text in the two artifacts fails document QA (`python build/qa_check.py`).
 
 ---
 
@@ -189,7 +189,7 @@ run.
 > **READ VERBATIM**
 
 Business Plan 2.1.4 - commercial boundary
-Engineering Reference Spec v1.14 - executable contract
+Engineering Reference Spec v1.15 - executable contract
 Implementation Rules v1.4 - operational restatement
 
 PRESERVE

@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.14
+ Engineering Reference Spec v1.15
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.14                                       Machine-executed build contract.
+   1        This Spec v1.15                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -297,21 +297,24 @@ Serves: C1–C5, C8, I2, I3, I13.
 
 The DDL for this section is db/migrations/0006_fact.sql, db/migrations/0022_remaining_composite_fks.sql
 (fact_snapshot_licence_fk: a retrieved fact's licence_id must equal exactly its snapshot's licence_observed_id --
-deliberately equality, not I5's stricter-or-equal rule, which composes multiple derivation inputs and doesn't apply
-to a retrieved fact simply restating one observation; fact also gains a jurisdiction_id column plus
+deliberately equality, not I5's no-broader-than-its-inputs rule, which composes multiple derivation inputs and
+doesn't apply to a retrieved fact simply restating one observation; fact also gains a jurisdiction_id column plus
 fact_parcel_jurisdiction_fk and fact_source_jurisdiction_fk, tying it to both its own parcel's and its own source's
-jurisdiction -- both MATCH SIMPLE composite FKs, confirmed no-ops for derived facts the same way 0018's were) and
+jurisdiction -- both MATCH SIMPLE composite FKs, confirmed no-ops for derived facts the same way 0018's were),
 db/migrations/0025_fact_supersession_reason.sql (fact gains supersedes_fact_id, a self-FK, and
 supersession_reason, an enum of world_change/source_correction/refetch_no_change/ingestion_logic_change/unknown,
 both nullable together under fact_supersession_reason_biconditional -- a fact superseding nothing carries neither,
 a fact superseding something must state why. The cause is recorded on the SUPERSEDING fact, never the superseded
 one, since the old row's one legal mutation, per I4, is already spent on superseded_at. fact_supersedes_not_self
-mirrors fact_input_not_self, 0006) and db/migrations/0028_fact_source_asserted_as_of.sql (one nullable
+mirrors fact_input_not_self, 0006), db/migrations/0028_fact_source_asserted_as_of.sql (one nullable
 timestamptz, the source's own stated currency date -- distinct from effective_from/effective_to, valid time since
 0006, and from recorded_at/superseded_at, transaction time also since 0006; the schema has been bitemporal from
 the start, this is a third, narrower thing. Nullable: most sources, including ca_san_jose.parcels, don't state
 one. No CHECK against retrieved_at -- a source can legitimately assert an as-of date after its own publication
-date).
+date) and db/migrations/0029_fact_licence_inheritance_per_dimension.sql (rewrites fact_licence_validate() to
+check licence_channel, commercial_use, redistribution and attribution independently instead of comparing a single
+restriction_severity() scalar, which could not represent two independent restriction dimensions -- see §12's 1.15
+entry for the full defect and fix. restriction_severity() is dropped in the same migration).
 db/schema.sql is the generated record of the applied result.
 
      v1.2 change to fact_one_current_per_source. The v1.1 index keyed derived facts on the literal '~derived', which made two
@@ -1473,7 +1476,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.14
+                     Engineering Reference Spec v1.15
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1534,7 +1537,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.14
+                   Engineering Reference Spec v1.15
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1563,7 +1566,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.14
+                Engineering Reference Spec v1.15
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -2023,6 +2026,54 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              file -- licence is now immutable, so a row created under a literal        themselves on the second run once
                                              id can never be cleaned up by a later run either. §3.2 and §3.6 now       licence could no longer be deleted.
                                              also cite these two files.
+
+   Aug 2026             1.15                 I5 amended: "A derived fact's licence is no broader than the             Both external reviews found this
+                                             intersection of every input's rights, on every dimension: channel,        independently. restriction_severity
+                                             use and obligation. Application code computes it at write time and        (0007) imposed a total order over
+                                             the database validates it." Replaces "inherits the most restrictive       five use_restriction values;
+                                             licence of every input" -- wrong, not merely under-specified: read        noncommercial and no_resale
+                                             literally it parses as SELECTING one input licence, which is              restrict DIFFERENT dimensions, so
+                                             exactly what fact_licence_validate() did, faithfully, and exactly         no total order can represent both.
+                                             what was wrong. db/migrations/0029_fact_licence_inheritance_per           Given inputs {noncommercial,
+                                             _dimension.sql replaces the severity comparison with four                 no_resale}, the old check picked
+                                             independent checks against licence's actual columns: per                  noncommercial (severity 1, "more
+                                             output_channel, the derived licence may permit a channel only if          restrictive" than no_resale's 2)
+                                             every input's licence also permits it (a licence with zero                as required, so a derived fact
+                                             licence_channel rows permits nothing, vacuously satisfying any             tagged noncommercial passed,
+                                             subset check -- confirmed, not assumed, before writing); commercial_use    silently dropping no_resale's
+                                             = allowed only if every input is allowed; redistribution = allowed        redistribution=prohibited. Currently
+                                             only if every input is allowed ('unknown' and 'prohibited' both           unreachable: the only two live
+                                             block, per I6); if any input requires attribution, the derived            licences (cc0, cc_by_4_0) both
+                                             licence must too (sticky, not a permission subset -- attribution is       permit everything, so every
+                                             an obligation, not a prohibition the other three dimensions               intersection is "everything."
+                                             capture). If no existing licence satisfies all four, derivation           Becomes reachable the moment any
+                                             REFUSES -- the migration deliberately does not synthesize a               licence denies a channel (e.g.
+                                             composite licence row to make a refused derivation succeed; an            sj_portal_terms, designed
+                                             auto-generated row would have no terms_url, no evidence_uri, no           deny-all pending confirmation, not
+                                             cleared_by and a fabricated observed_at -- a machine making a             yet live). Confirmed by re-applying
+                                             rights determination nobody reviewed, the same defect class as            the OLD function to a scratch
+                                             backdating url_verified_at=now(). restriction_severity() is dropped       database and running the
+                                             in the same migration: its only callers were the two lines this           reconstructed bug scenario against
+                                             migration replaces, and core/ does not exist anywhere in this             it directly -- it wrongly accepted
+                                             repository yet, so 0007's "single source of truth for... core/rights"     the disjoint-restriction case the
+                                             comment was a stated intent for code that was never built, an intent      new function correctly rejects.
+                                             built on the exact premise this migration proves wrong. No schema
+                                             impact: 0022's fact_snapshot_licence_fk stays exempt for derived
+                                             facts via MATCH SIMPLE regardless, since fact_provenance_complete
+                                             (0006) already forces snapshot_id NULL for every derived fact.
+                                             I5a/I5b (0006 phase) reworked with real licence_channel fixtures --
+                                             before this, the suite had zero anywhere, so both tests only ever
+                                             passed by accident, via the also-real attribution difference between
+                                             the two test licences, never actually exercising a channel check.
+                                             I5c (0006 phase) survives unchanged: the "no fact_input rows yet"
+                                             early return is orthogonal to how the eventual comparison works.
+                                             Six new tests (T46-T51, 69 enforced, up from 63): negative and
+                                             positive for the channel, disjoint-restriction (the reconstructed
+                                             original bug), commercial_use and attribution dimensions. The new
+                                             function negative-controlled two ways: trigger dropped entirely, and
+                                             separately replaced with a permissive no-op, to prove it's the
+                                             validation LOGIC under test, not merely the trigger's existence.
+                                             §3.6 now also cites this file.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
