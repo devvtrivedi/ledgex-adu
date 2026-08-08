@@ -135,11 +135,18 @@ def start_job_run(conn, job_key=JOB_KEY):
 
 
 def fail_job_run(conn, job_run_id, error):
+    # clock_timestamp(), not now() -- see finish_job_run's own comment below.
+    # This copy was missed when that one was fixed: now() returns the
+    # CURRENT TRANSACTION's start time, frozen for its whole duration, so a
+    # long-open failing transaction (a slow fetch or upload that ultimately
+    # raises) would have finished_at silently discarding however long it
+    # actually ran for. Same bug 0036 documented for now() vs.
+    # clock_timestamp() in a different context.
     conn.rollback()  # clear whatever aborted the transaction before writing the failure
     with conn.cursor() as cur:
         cur.execute(
             """
-            UPDATE job_run SET status = 'failed', finished_at = now(), error = %s
+            UPDATE job_run SET status = 'failed', finished_at = clock_timestamp(), error = %s
             WHERE id = %s
             """,
             (str(error), job_run_id),
@@ -232,8 +239,16 @@ def finish_job_run(conn, job_run_id, status, snapshot_id):
     # statement actually executes -- harmless here today, since nothing
     # slow happens between the last commit and this UPDATE in any current
     # caller, but see finish_job_run_full's header for where it is not
-    # harmless. Fixed in both places for the same reason, not just the one
-    # where it was observed.
+    # harmless.
+    #
+    # An earlier version of this comment claimed this was "fixed in both
+    # places for the same reason, not just the one where it was observed."
+    # That was false, and was never actually checked against the third
+    # place before being written down: fail_job_run, above in this same
+    # file, still used now() until it was found and fixed separately. All
+    # three finished_at call sites in this file (here, fail_job_run,
+    # finish_job_run_full) use clock_timestamp() now -- checked directly,
+    # not assumed, this time.
     with conn.cursor() as cur:
         cur.execute(
             """
