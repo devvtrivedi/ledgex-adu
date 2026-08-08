@@ -29,6 +29,15 @@ jobs:
           sudo dpkg -i pandoc.deb
           pandoc --version
 
+      # Pinned to 2.5.2 -- the exact version make check-boundary's
+      # .importlinter contracts were proven against locally (a forbidden
+      # import planted in core/__init__.py, confirmed it broke the right
+      # contract, reverted). A different version could parse or report
+      # differently; pinning removes that as a variable, same reasoning
+      # as the pandoc pin above.
+      - name: Install import-linter 2.5.2
+        run: pip install import-linter==2.5.2
+
       # Covers all six document gates: invariant/target presence in both
       # artifacts, no copied invariant table, no mangled prose duplicate,
       # docs/*.md regenerates clean, website/*.html regenerates clean
@@ -37,3 +46,13 @@ jobs:
       # loudly by design rather than passing silently).
       - name: make qa
         run: make qa
+
+      # Separate step from make qa above, deliberately: a failure here
+      # must show up in the Actions UI as "make check-boundary", not
+      # buried inside a step named for a different gate. Runs
+      # import-linter's I1/I15 contracts (.importlinter) and
+      # build/check_jurisdiction_names.py's blocklist grep against
+      # core/**/*.py, then qa_check.py again as check-boundary's own
+      # third piece -- see Makefile's check-boundary target comment.
+      - name: make check-boundary
+        run: make check-boundary
