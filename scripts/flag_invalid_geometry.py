@@ -14,17 +14,24 @@ A SEPARATE, THIRD script, not added to ingest_parcels.py or
 ingest_zoning_permits.py and not a shared module -- core/connectors
 still doesn't exist, and this isn't "ingest a new source" the way those
 two are; it's a quality-detection pass over data already loaded by
-them. Copies the execute_values batch shape and the CREATE TEMP TABLE +
-repair staging approach from ingest_zoning_permits.py's load_zoning --
-because identifying which parcels were classified by which raw zoning
-polygon requires redoing that spatial join; the fact table itself never
-recorded a back-reference to the specific zoning polygon that
-classified a parcel, only the resulting zoning.district/
-zoning.district_verbatim VALUES. That is itself worth naming as a
-design gap for whenever a real zoning ingest module gets built: if it
-needs to answer "which raw feature produced this fact" after the fact,
-it needs to persist that reference, because the value alone doesn't
-carry it.
+them. Copies the CREATE TEMP TABLE + repair staging approach from
+ingest_zoning_permits.py's load_zoning -- because identifying which
+parcels were classified by which raw zoning polygon requires redoing
+that spatial join; the fact table itself never recorded a back-
+reference to the specific zoning polygon that classified a parcel, only
+the resulting zoning.district/zoning.district_verbatim VALUES. That is
+itself worth naming as a design gap for whenever a real zoning ingest
+module gets built: if it needs to answer "which raw feature produced
+this fact" after the fact, it needs to persist that reference, because
+the value alone doesn't carry it.
+
+The parcel_exception execute_values shape is no longer copied either --
+core/exceptions.insert_exceptions now owns it, same function
+ingest_parcels.py and ingest_zoning_permits.py call. This file's two
+call sites both passed page_size=500, not the 2000 the other two
+scripts used -- no comment at either site said why. Preserved exactly
+via insert_exceptions' page_size parameter rather than silently
+unified to one number; see core/exceptions.py's own docstring.
 
 get_db/env/decimal_default were previously copied from
 ingest_parcels.py's pattern; imported from infra/ now instead -- see
@@ -83,6 +90,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
 from infra.values import decimal_default  # noqa: E402
+from core.exceptions import insert_exceptions  # noqa: E402
 
 JURISDICTION_ID = "ca_san_jose"
 SOURCE_ID_PARCELS = "ca_san_jose.parcels"
@@ -148,18 +156,7 @@ def flag_parcel_geometry(conn):
                 for pid, jid, reason in invalid
             ]
             if exception_rows:
-                psycopg2.extras.execute_values(
-                    cur,
-                    """
-                    INSERT INTO parcel_exception (
-                        parcel_id, jurisdiction_id, type, severity,
-                        detector_key, detector_version, detail
-                    ) VALUES %s
-                    """,
-                    exception_rows,
-                    template="(%s, %s, %s, %s, %s, %s, %s::jsonb)",
-                    page_size=500,
-                )
+                insert_exceptions(cur, exception_rows, page_size=500)
                 print(f"  parcel_exception rows submitted: {len(exception_rows)}")
 
         finish_job_run(conn, job_run_id, "succeeded", rows_in, len(exception_rows))
@@ -234,18 +231,7 @@ def flag_zoning_source_geometry(conn):
                 for zid, parcel_id, jid in affected
             ]
             if exception_rows:
-                psycopg2.extras.execute_values(
-                    cur,
-                    """
-                    INSERT INTO parcel_exception (
-                        parcel_id, jurisdiction_id, type, severity,
-                        detector_key, detector_version, detail
-                    ) VALUES %s
-                    """,
-                    exception_rows,
-                    template="(%s, %s, %s, %s, %s, %s, %s::jsonb)",
-                    page_size=500,
-                )
+                insert_exceptions(cur, exception_rows, page_size=500)
                 print(f"  parcel_exception rows submitted: {len(exception_rows)}")
 
         finish_job_run(conn, job_run_id, "succeeded", rows_in, len(exception_rows))

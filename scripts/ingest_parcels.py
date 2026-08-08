@@ -67,6 +67,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
 from infra.values import is_blank, decimal_default  # noqa: E402
+from core.store import insert_facts  # noqa: E402
+from core.exceptions import insert_exceptions  # noqa: E402
 
 SOURCE_ID = "ca_san_jose.parcels"
 JURISDICTION_ID = "ca_san_jose"
@@ -880,35 +882,11 @@ def phase_e():
             )
             print(f"  parcel rows submitted: {len(parcel_rows):,}")
 
-            psycopg2.extras.execute_values(
-                cur,
-                """
-                INSERT INTO fact (
-                    parcel_id, jurisdiction_id, field_key, value, method,
-                    source_id, snapshot_id, retrieved_at, source_url,
-                    licence_id, confidence, confidence_rule_id,
-                    effective_from, pack_version
-                ) VALUES %s
-                """,
-                fact_rows,
-                template="(%s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                page_size=2000,
-            )
+            insert_facts(cur, fact_rows)
             print(f"  fact rows submitted: {len(fact_rows):,}")
 
             if exception_rows:
-                psycopg2.extras.execute_values(
-                    cur,
-                    """
-                    INSERT INTO parcel_exception (
-                        parcel_id, jurisdiction_id, type, severity,
-                        detector_key, detector_version, detail
-                    ) VALUES %s
-                    """,
-                    exception_rows,
-                    template="(%s, %s, %s, %s, %s, %s, %s::jsonb)",
-                    page_size=2000,
-                )
+                insert_exceptions(cur, exception_rows)
                 print(f"  parcel_exception rows submitted: {len(exception_rows):,}")
         t_load_end = time.monotonic()
         print(f"  bulk insert wall-clock: {t_load_end - t_load_start:.1f}s")

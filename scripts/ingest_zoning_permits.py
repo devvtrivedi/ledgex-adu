@@ -7,11 +7,11 @@ extracted from three working ingests, not designed after one (this is
 the second and third). The plumbing below is COPIED from
 ingest_parcels.py, not imported, deliberately: fetch_and_hash,
 start_job_run/fail_job_run/finish_job_run, the snapshot exists/insert/
-dedupe-proof pattern inside run_one_fetch, the execute_values +
-client-generated-UUID batch-insert shape, and the geojson_geom_param
-half of the GeoJSON-coordinates pair. That list is the real input for
-what core/connectors eventually factors out; recording it here rather
-than reconstructing it later.
+dedupe-proof pattern inside run_one_fetch, the client-generated-UUID
+batch-insert shape, and the geojson_geom_param half of the GeoJSON-
+coordinates pair. That list is the real input for what core/connectors
+eventually factors out; recording it here rather than reconstructing it
+later.
 
 env, get_db, is_blank and the decimal_default half of the GeoJSON pair
 are no longer part of that copied list -- extracted to infra/ (see
@@ -19,6 +19,17 @@ infra/__init__.py for why that's not core/) once the same-four-scripts
 copy audit confirmed they were genuinely byte-identical everywhere and
 needed no design decision to move. Imported from there now, not
 copied.
+
+Nor is the execute_values fact/parcel_exception insert shape itself --
+core/store.insert_facts and core/exceptions.insert_exceptions now own
+that (§2 places both at their real layer, L4 and L6, and real code
+agrees). What still lives here, deliberately: the mapping into the
+tuple these functions take (ZONING/ZONINGABBREV -> zoning.district/
+zoning.district_verbatim, ASSESSORS_PARCEL_NUMBER -> the permits join
+key). That mapping is San-José-source-specific and belongs outside
+core/ (I1) -- it stays in this script for this slice rather than moving
+to a not-yet-created jurisdictions/ca_san_jose/, a bigger step this
+slice doesn't take.
 
 Two sources, deliberately different join shapes -- see the parcel
 identity diagnostic and this ingest's own design report for the
@@ -101,6 +112,8 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
 from infra.values import is_blank, decimal_default  # noqa: E402
+from core.store import insert_facts  # noqa: E402
+from core.exceptions import insert_exceptions  # noqa: E402
 
 JURISDICTION_ID = "ca_san_jose"
 
@@ -453,35 +466,11 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
             ))
 
         with conn.cursor() as cur:
-            psycopg2.extras.execute_values(
-                cur,
-                """
-                INSERT INTO fact (
-                    parcel_id, jurisdiction_id, field_key, value, method,
-                    source_id, snapshot_id, retrieved_at, source_url,
-                    licence_id, confidence, confidence_rule_id,
-                    effective_from, pack_version
-                ) VALUES %s
-                """,
-                fact_rows,
-                template="(%s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                page_size=2000,
-            )
+            insert_facts(cur, fact_rows)
             print(f"  fact rows submitted: {len(fact_rows):,}")
 
             if exception_rows:
-                psycopg2.extras.execute_values(
-                    cur,
-                    """
-                    INSERT INTO parcel_exception (
-                        parcel_id, jurisdiction_id, type, severity,
-                        detector_key, detector_version, detail
-                    ) VALUES %s
-                    """,
-                    exception_rows,
-                    template="(%s, %s, %s, %s, %s, %s, %s::jsonb)",
-                    page_size=2000,
-                )
+                insert_exceptions(cur, exception_rows)
                 print(f"  parcel_exception rows submitted: {len(exception_rows):,}")
 
         rows_in = len(all_parcel_ids)
@@ -639,20 +628,7 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
         }
 
         with conn.cursor() as cur:
-            psycopg2.extras.execute_values(
-                cur,
-                """
-                INSERT INTO fact (
-                    parcel_id, jurisdiction_id, field_key, value, method,
-                    source_id, snapshot_id, retrieved_at, source_url,
-                    licence_id, confidence, confidence_rule_id,
-                    effective_from, pack_version
-                ) VALUES %s
-                """,
-                fact_rows,
-                template="(%s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                page_size=2000,
-            )
+            insert_facts(cur, fact_rows)
             print(f"  fact rows submitted: {len(fact_rows):,}")
 
         finish_job_run(conn, job_run_id, "succeeded", snapshot_id, rows_in, matched_rows, schema_drift)
