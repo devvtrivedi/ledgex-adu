@@ -8,8 +8,8 @@ page_size=2000) across all three before this move, diffed pairwise, not
 assumed.
 
 Callers still build the 14-tuple list themselves, according to their
-own source-specific mapping (parcel.apn <- APN, zoning.district <-
-ZONING, ...). That mapping is jurisdiction-specific and deliberately
+own source-specific mapping from a raw source property to a canonical
+field_key. That mapping is jurisdiction-specific and deliberately
 does not move here (I1) -- this function knows the tuple's shape and
 nothing about what any position means for any real place. The seam
 between this file and scripts/*.py's mapping code is the actual boundary

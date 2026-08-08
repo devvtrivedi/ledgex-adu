@@ -296,7 +296,13 @@ INSERT INTO field_definition (
   ('test.t46_field_b', 'Test Field T46b', 'public_record', 'string', 'test', 'T46 invariant test field, input 2'),
   ('test.t47_field_a', 'Test Field T47a', 'public_record', 'string', 'test', 'T47 invariant test field, input 1'),
   ('test.t47_field_b', 'Test Field T47b', 'public_record', 'string', 'test', 'T47 invariant test field, input 2'),
-  ('test.t58_field', 'Test Field T58', 'public_record', 'string', 'test', 'T58 invariant test field')
+  ('test.t58_field', 'Test Field T58', 'public_record', 'string', 'test', 'T58 invariant test field'),
+  ('test.t62_field', 'Test Field T62', 'public_record', 'string', 'test', 'T62 invariant test field (pg_temp.fact_input shadow)'),
+  ('test.t63_field', 'Test Field T63', 'public_record', 'string', 'test', 'T63 invariant test field (pg_temp.fact shadow)'),
+  ('test.t64_field', 'Test Field T64', 'public_record', 'string', 'test', 'T64 invariant test field (whole-row immutability, every column)'),
+  ('test.t68_field', 'Test Field T68', 'public_record', 'string', 'test', 'T68 invariant test field (supersession parcel/field mismatch)'),
+  ('test.t69_field', 'Test Field T69', 'public_record', 'string', 'test', 'T69 invariant test field (supersession target not superseded)'),
+  ('test.t70_field', 'Test Field T70', 'public_record', 'string', 'test', 'T70 invariant test field (legitimate supersession, positive control)')
 ON CONFLICT (field_key) DO NOTHING;
 
 -- Cross-block scratch state for this run: the fresh parcel id, and (later)
@@ -3339,6 +3345,608 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T62: fact_licence_validate() resists a pg_temp.fact_input shadow
+-- (0039). Reproduces the exact bypass 0039's header documents: a session
+-- creates a temp table also named fact_input, then inserts the real
+-- linking row into public.fact_input explicitly -- pre-0039, the
+-- trigger's own internal "SELECT ... FROM fact_input" resolved to the
+-- empty pg_temp relation, saw has_inputs=false, and returned NULL before
+-- ever validating I5, so the over-permissive derived fact (same shape as
+-- T48: claims commercial_use=allowed against an unknown-commercial
+-- input) committed unchecked. Same DEFERRABLE INITIALLY DEFERRED
+-- constraint as T46-T51: SET CONSTRAINTS ... IMMEDIATE forces the
+-- trigger to fire inside this block instead of waiting for an outer
+-- COMMIT this DO block can't issue. The CREATE TEMP TABLE is undone by
+-- PL/pgSQL's implicit savepoint rollback the moment the EXCEPTION block
+-- catches the expected raise -- confirmed directly before relying on it
+-- (a throwaway BEGIN/EXCEPTION block with no relation to this test) --
+-- so this test cannot leak a shadow into any test that runs after it.
+--
+-- DISCARD PLANS is load-bearing here, found by bisection, not guessed:
+-- this test read as PASSING even against the pre-0039 (still vulnerable)
+-- function when run after the earlier tests in this file, but reliably
+-- reproduced the real bypass in isolation (this file's seed section plus
+-- only this test). Cause, confirmed directly: PL/pgSQL caches a resolved
+-- execution plan for each internal statement the first time it runs in a
+-- session, and does not revisit that resolution just because a new
+-- same-named temp table later appears -- there is no dependency from an
+-- already-cached plan to an object that didn't exist when the plan was
+-- built. Once ANY earlier statement in this session's history caused
+-- fact_licence_validate()'s internal fact_input query to resolve and
+-- cache against public.fact_input, every later call keeps using that
+-- resolution regardless of a temp table created afterward -- masking the
+-- exact vulnerability this test exists to catch, for a reason that has
+-- nothing to do with whether 0039's fix is applied. DISCARD PLANS
+-- forces a fresh resolution, matching what an actually fresh connection
+-- (a new pooled worker, an attacker's own session) would see -- the
+-- realistic vulnerable case, not an artifact of this file's own test
+-- ordering. current_fact_at() (T63, below) needs no such treatment:
+-- it's LANGUAGE sql, not plpgsql, and does not exhibit this masking --
+-- confirmed directly, not assumed, by the same bisection.
+-- ============================================================================
+
+\echo '### TEST T62: fact_licence_validate() rejects an over-permissive derived fact even with pg_temp.fact_input shadowing (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id       uuid;
+    v_input_fact_id   uuid;
+    v_derived_fact_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t62_field', '"input_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', now(), 'https://example.com',
+        'test.unknown_commercial', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_input_fact_id;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
+        confidence, confidence_rule_id, effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t62_field', '"derived"'::jsonb, 'derived',
+        'v1.0', 'test.claims_commercial_allowed',
+        'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_derived_fact_id;
+
+    BEGIN
+        -- Force a fresh plan resolution for this session -- see the test
+        -- header for why this is load-bearing, not defensive noise.
+        DISCARD PLANS;
+
+        -- The attack: shadow fact_input with an empty temp relation of the
+        -- same shape, then insert the REAL linking row explicitly
+        -- qualified -- an attacker wants the row to actually exist in
+        -- public.fact_input, only the trigger's own internal read fooled.
+        CREATE TEMP TABLE fact_input (
+            fact_id uuid, input_fact_id uuid, ordinal smallint, role text
+        );
+
+        INSERT INTO public.fact_input (fact_id, input_fact_id, ordinal, role)
+        VALUES (v_derived_fact_id, v_input_fact_id, 1, 'test_input');
+
+        SET CONSTRAINTS fact_licence_inheritance IMMEDIATE;
+
+        RAISE EXCEPTION 'FAIL T62: over-permissive derived fact was accepted despite pg_temp.fact_input shadowing -- I5 gate bypassed';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'I5 violated:%commercial_use=allowed, but at least one input does not%' THEN
+                RAISE NOTICE 'PASS T62: I5 violation still rejected under pg_temp.fact_input shadowing (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T62');
+            ELSE
+                RAISE EXCEPTION 'FAIL T62: wrong error (shadow bypass may still be live): %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T63: current_fact_at() resists a pg_temp.fact shadow (0039).
+-- Reproduces the exact bypass 0039's header documents: pre-0039, a
+-- session-local CREATE TEMP TABLE fact (LIKE public.fact INCLUDING ALL)
+-- made current_fact_at() return zero rows for a parcel that genuinely has
+-- current facts, because its internal "FROM fact f" resolved to the
+-- empty temp relation instead of public.fact. Explicit DROP TABLE at the
+-- end, not a caught exception -- this test expects success, not a raise,
+-- so there is no EXCEPTION block to rely on for savepoint cleanup the
+-- way T62 has; leaving the temp table in place would shadow "fact" for
+-- every test that runs after this one in the same session.
+-- ============================================================================
+
+\echo '### TEST T63: current_fact_at() reads public.fact, not a pg_temp.fact shadow (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id    uuid;
+    v_fact_id      uuid;
+    v_shadowed_ct  int;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t63_field', '"real_value"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', now(), 'https://example.com',
+        'test.unknown_commercial', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_fact_id;
+
+    CREATE TEMP TABLE fact (LIKE public.fact INCLUDING ALL);  -- empty shadow
+
+    SELECT count(*) INTO v_shadowed_ct
+      FROM current_fact_at(now())
+     WHERE parcel_id = v_parcel_id AND field_key = 'test.t63_field';
+
+    DROP TABLE fact;  -- un-shadow before anything else in this session runs
+
+    IF v_shadowed_ct <> 1 THEN
+        RAISE EXCEPTION 'FAIL T63: current_fact_at() found % rows for test.t63_field under pg_temp.fact shadowing, expected 1 -- reading the shadow instead of public.fact', v_shadowed_ct;
+    END IF;
+
+    RAISE NOTICE 'PASS T63: current_fact_at() correctly read public.fact (id=%) despite pg_temp.fact shadowing', v_fact_id;
+    INSERT INTO test_pass VALUES ('T63');
+END $$;
+
+-- ============================================================================
+-- TEST T64: fact_no_destructive_update() rejects a change to EVERY fact
+-- column, not just the ones a hand-maintained list happened to name (0040).
+-- Reproduces the exact bypass 0040's header documents: pre-0040,
+-- UPDATE fact SET superseded_at = now(), source_asserted_as_of = '2099-...'
+-- committed cleanly, because source_asserted_as_of (0028) was never added
+-- to fact_no_destructive_update's hand-enumerated OR chain -- along with
+-- jurisdiction_id (0022), supersedes_fact_id and supersession_reason
+-- (0025), none of which the original trigger's author could have named,
+-- since none of those columns existed yet in 0007. This test attempts
+-- every column information_schema.columns actually reports for fact
+-- today (excluding superseded_at, the one permitted mutation) -- driven
+-- by the live catalog, not a copy of the column list that could itself
+-- go stale the same way the trigger's old OR chain did. Confirmed
+-- directly before writing this migration's fix: fact_no_destructive_update
+-- fires as a BEFORE trigger, ahead of FK/CHECK constraint enforcement, so
+-- an arbitrary (even referentially-invalid) replacement value is caught
+-- by I4 first regardless of whether it would also fail some other
+-- constraint -- no column needs a semantically "real" replacement value
+-- for this test to be meaningful.
+-- ============================================================================
+
+\echo '### TEST T64: fact_no_destructive_update() rejects a change to every fact column while superseding (should fail, every column)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_fact_id    uuid;
+    v_col        record;
+    v_new_value  text;
+    v_tested     int := 0;
+    v_rejected   int := 0;
+    v_failures   text := '';
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, unit, local_verbatim,
+        source_id, source_url, layer_item_id, snapshot_id, method,
+        retrieved_at, source_published_at, source_cadence_stated,
+        effective_from, effective_to, licence_id, confidence,
+        confidence_rule_id, conflict, method_version, ruleset_version,
+        pack_version, source_asserted_as_of
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t64_field', '"initial"'::jsonb, 'unit_a', 'verbatim_a',
+        'ca_san_jose.test_source', 'https://example.com', 'layer_a', 'ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', 'direct',
+        now(), now(), 'daily',
+        now(), NULL, 'test.unknown_commercial', 'high',
+        'rule_1', 'agree', 'v1', 'v1',
+        'v1.0', now()
+    ) RETURNING id INTO v_fact_id;
+
+    FOR v_col IN
+        SELECT column_name, udt_name
+          FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'fact'
+           AND column_name <> 'superseded_at'
+         ORDER BY ordinal_position
+    LOOP
+        v_tested := v_tested + 1;
+        v_new_value := CASE v_col.udt_name
+            WHEN 'uuid'                 THEN quote_literal(gen_random_uuid()::text) || '::uuid'
+            WHEN 'jsonb'                THEN quote_literal('"t64_mutated"') || '::jsonb'
+            WHEN 'timestamptz'          THEN quote_literal((now() + interval '1 day')::text) || '::timestamptz'
+            WHEN 'access_method'        THEN quote_literal('derived') || '::access_method'
+            WHEN 'confidence_level'     THEN quote_literal('low') || '::confidence_level'
+            WHEN 'conflict_state'       THEN quote_literal('conflicts') || '::conflict_state'
+            WHEN 'supersession_reason'  THEN quote_literal('world_change') || '::supersession_reason'
+            ELSE quote_literal('t64_mutated_' || v_col.column_name)
+        END;
+
+        BEGIN
+            EXECUTE format(
+                'UPDATE fact SET superseded_at = now(), %I = %s WHERE id = %L',
+                v_col.column_name, v_new_value, v_fact_id
+            );
+            v_failures := v_failures || v_col.column_name || ' ';
+        EXCEPTION
+            WHEN raise_exception THEN
+                IF SQLERRM LIKE 'I4 violated:%' THEN
+                    v_rejected := v_rejected + 1;
+                ELSE
+                    RAISE EXCEPTION 'FAIL T64: column % raised an unexpected error: %', v_col.column_name, SQLERRM;
+                END IF;
+            WHEN invalid_text_representation OR undefined_column OR datatype_mismatch THEN
+                RAISE EXCEPTION 'FAIL T64: test fixture itself is wrong for column % (%): %', v_col.column_name, v_col.udt_name, SQLERRM;
+            WHEN OTHERS THEN
+                -- Any other error class (FK violation, CHECK violation, ...)
+                -- means some OTHER constraint coincidentally blocked this
+                -- value, not that I4 caught it -- not the same guarantee.
+                -- A different mutated value for the same column that
+                -- happened not to also trip that unrelated constraint
+                -- would sail through undetected. Fails loudly rather than
+                -- letting an accidental block read as I4 doing its job.
+                RAISE EXCEPTION 'FAIL T64: column % was not rejected by I4 -- caught only by an unrelated constraint instead (%): %', v_col.column_name, SQLSTATE, SQLERRM;
+        END;
+    END LOOP;
+
+    IF v_rejected <> v_tested THEN
+        RAISE EXCEPTION 'FAIL T64: % of % fact columns were NOT rejected when mutated alongside a supersede: %', (v_tested - v_rejected), v_tested, v_failures;
+    END IF;
+
+    RAISE NOTICE 'PASS T64: all % fact columns (every column except superseded_at) rejected when mutated alongside a legitimate supersede', v_tested;
+    INSERT INTO test_pass VALUES ('T64');
+END $$;
+
+-- ============================================================================
+-- TEST T65: rule_no_destructive_update() rejects a change to EVERY rule
+-- column while retiring effective_to, the same treatment 0040 gives
+-- fact_no_destructive_update -- and the identical exposure: rule's OR
+-- chain would silently miss any column added to rule after 0013, exactly
+-- as fact's missed jurisdiction_id/supersedes_fact_id/supersession_reason/
+-- source_asserted_as_of. Driven by the live catalog for the same reason
+-- as T64.
+-- ============================================================================
+
+\echo '### TEST T65: rule_no_destructive_update() rejects a change to every rule column while retiring effective_to (should fail, every column)'
+
+DO $$
+DECLARE
+    v_rule_id   text := 'test-t65-' || gen_random_uuid()::text;
+    v_col       record;
+    v_new_value text;
+    v_tested    int := 0;
+    v_rejected  int := 0;
+    v_failures  text := '';
+BEGIN
+    INSERT INTO rule (
+        id, jurisdiction_id, rule_key, version, effective_from, citation,
+        source_text_uri, params, pack_version, authored_by, reviewed_by,
+        review_mode, reviewed_at
+    ) VALUES (
+        v_rule_id, 'ca_san_jose', 'test.t65.rule.' || v_rule_id, 1, CURRENT_DATE,
+        'Test citation', 'https://example.com/rule-source', '{}'::jsonb, 'v1.0',
+        'author_a', 'reviewer_b', 'independent', now()
+    );
+
+    FOR v_col IN
+        SELECT column_name, udt_name
+          FROM information_schema.columns
+         WHERE table_schema = 'public' AND table_name = 'rule'
+           AND column_name <> 'effective_to'
+         ORDER BY ordinal_position
+    LOOP
+        v_tested := v_tested + 1;
+        v_new_value := CASE v_col.udt_name
+            WHEN 'jsonb'        THEN quote_literal('{"mutated": true}') || '::jsonb'
+            WHEN 'date'         THEN quote_literal((CURRENT_DATE + 1)::text) || '::date'
+            WHEN 'timestamptz'  THEN quote_literal((now() + interval '1 day')::text) || '::timestamptz'
+            WHEN 'int4'         THEN '999'
+            WHEN 'review_mode'  THEN quote_literal('solo_founder_attestation') || '::review_mode'
+            ELSE quote_literal('t65_mutated_' || v_col.column_name)
+        END;
+
+        BEGIN
+            EXECUTE format(
+                'UPDATE rule SET effective_to = CURRENT_DATE, %I = %s WHERE id = %L',
+                v_col.column_name, v_new_value, v_rule_id
+            );
+            v_failures := v_failures || v_col.column_name || ' ';
+        EXCEPTION
+            WHEN raise_exception THEN
+                IF SQLERRM LIKE 'I18 violated:%' THEN
+                    v_rejected := v_rejected + 1;
+                ELSE
+                    RAISE EXCEPTION 'FAIL T65: column % raised an unexpected error: %', v_col.column_name, SQLERRM;
+                END IF;
+            WHEN invalid_text_representation OR undefined_column OR datatype_mismatch THEN
+                RAISE EXCEPTION 'FAIL T65: test fixture itself is wrong for column % (%): %', v_col.column_name, v_col.udt_name, SQLERRM;
+            WHEN OTHERS THEN
+                -- See T64's identical handler for why this is not treated
+                -- as an accidental pass.
+                RAISE EXCEPTION 'FAIL T65: column % was not rejected by I18 -- caught only by an unrelated constraint instead (%): %', v_col.column_name, SQLSTATE, SQLERRM;
+        END;
+    END LOOP;
+
+    IF v_rejected <> v_tested THEN
+        RAISE EXCEPTION 'FAIL T65: % of % rule columns were NOT rejected when mutated alongside an effective_to retirement: %', (v_tested - v_rejected), v_tested, v_failures;
+    END IF;
+
+    RAISE NOTICE 'PASS T65: all % rule columns (every column except effective_to) rejected when mutated alongside a legitimate retirement', v_tested;
+    INSERT INTO test_pass VALUES ('T65');
+END $$;
+
+-- ============================================================================
+-- TEST T66: meta-test -- fact_no_destructive_update() and
+-- rule_no_destructive_update()'s deployed source still uses the
+-- whole-row comparison, not a hand-enumerated column list. T64/T65 prove
+-- every CURRENT column is covered; neither can prove the trigger would
+-- stay correct if a future migration reverted to enumeration (adding a
+-- new column without adding a new T64/T65-style test would still pass
+-- both, silently, the exact failure mode 0040 fixes). Reads the deployed
+-- function body from pg_proc directly -- the actual thing that runs, not
+-- this migration file's text, which could drift from what's live the
+-- same way a comment can. Asserts by count against a known ceiling, not
+-- flat zero: fact_no_destructive_update's kept superseded_at special
+-- case is written as NEW.superseded_at IS NULL, never as an IS DISTINCT
+-- FROM comparison, so zero is the right bound there -- confirmed
+-- directly by running this exact assertion, not assumed, which is also
+-- how the first version of this test caught its own wrong assumption
+-- about rule's bound. rule_no_destructive_update's kept effective_to
+-- special case DOES use NEW.effective_to IS DISTINCT FROM
+-- OLD.effective_to legitimately (it has to, to detect the one-way
+-- NULL -> a date transition) -- exactly one such comparison is correct
+-- and expected there, not a regression; two or more would mean a second
+-- column got hand-enumerated back in. Also asserts presence of the
+-- to_jsonb(...) whole-row pattern in both.
+-- ============================================================================
+
+\echo '### TEST T66: fact/rule immutability triggers still use whole-row comparison, not column enumeration (should succeed)'
+
+DO $$
+DECLARE
+    v_fact_src  text;
+    v_rule_src  text;
+    v_fact_enum_count int;
+    v_rule_enum_count int;
+BEGIN
+    SELECT prosrc INTO v_fact_src FROM pg_proc WHERE proname = 'fact_no_destructive_update';
+    SELECT prosrc INTO v_rule_src FROM pg_proc WHERE proname = 'rule_no_destructive_update';
+
+    IF v_fact_src IS NULL OR v_rule_src IS NULL THEN
+        RAISE EXCEPTION 'FAIL T66: could not find fact_no_destructive_update or rule_no_destructive_update in pg_proc';
+    END IF;
+
+    SELECT count(*) INTO v_fact_enum_count
+      FROM regexp_matches(v_fact_src, 'NEW\.[a-z_]+\s+IS DISTINCT FROM\s+OLD\.[a-z_]+', 'g');
+    SELECT count(*) INTO v_rule_enum_count
+      FROM regexp_matches(v_rule_src, 'NEW\.[a-z_]+\s+IS DISTINCT FROM\s+OLD\.[a-z_]+', 'g');
+
+    IF v_fact_enum_count <> 0 THEN
+        RAISE EXCEPTION 'FAIL T66: fact_no_destructive_update() contains % NEW/OLD IS DISTINCT FROM comparisons, expected 0 (its kept superseded_at special case uses IS NULL, not IS DISTINCT FROM) -- T64 only proves TODAY''s columns are covered, this regressed the whole-row guarantee', v_fact_enum_count;
+    END IF;
+    IF v_rule_enum_count <> 1 THEN
+        RAISE EXCEPTION 'FAIL T66: rule_no_destructive_update() contains % NEW/OLD IS DISTINCT FROM comparisons, expected exactly 1 (its kept effective_to special case legitimately uses one) -- T65 only proves TODAY''s columns are covered, this regressed the whole-row guarantee', v_rule_enum_count;
+    END IF;
+
+    IF v_fact_src NOT LIKE '%to_jsonb(NEW)%' OR v_fact_src NOT LIKE '%to_jsonb(OLD)%' THEN
+        RAISE EXCEPTION 'FAIL T66: fact_no_destructive_update() no longer contains the whole-row to_jsonb(NEW)/to_jsonb(OLD) comparison';
+    END IF;
+    IF v_rule_src NOT LIKE '%to_jsonb(NEW)%' OR v_rule_src NOT LIKE '%to_jsonb(OLD)%' THEN
+        RAISE EXCEPTION 'FAIL T66: rule_no_destructive_update() no longer contains the whole-row to_jsonb(NEW)/to_jsonb(OLD) comparison';
+    END IF;
+
+    RAISE NOTICE 'PASS T66: both triggers'' deployed source uses whole-row to_jsonb comparison, zero column-by-column enumeration';
+    INSERT INTO test_pass VALUES ('T66');
+END $$;
+
+-- ============================================================================
+-- TEST T67: licence_channel.created_at rejects an explicit NULL (0041).
+-- Reproduces the exact bypass 0041's header documents: pre-0041,
+-- explicitly supplying created_at = NULL bypassed the column's own
+-- DEFAULT now() (a DEFAULT only fires when a column is OMITTED, never
+-- when NULL is supplied for it), letting a brand-new row falsely claim
+-- to predate tracking. NOT NULL closes exactly that path. Positive
+-- control immediately after: a normal INSERT that omits created_at
+-- entirely still gets a real DEFAULT now() timestamp, proving this
+-- migration didn't also break the legitimate case T59 already covers --
+-- re-asserted here, briefly, because it's the other half of the same
+-- fix, not because T59 needs duplicating.
+-- ============================================================================
+
+\echo '### TEST T67: licence_channel.created_at rejects explicit NULL (should fail)'
+
+DO $$
+DECLARE
+    v_licence_id text := 'test.t67_licence-' || gen_random_uuid()::text;
+    v_created_at timestamptz;
+BEGIN
+    INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution, observed_at)
+    VALUES (v_licence_id, 'Test Licence T67', 'open', 'allowed', 'allowed', now());
+
+    BEGIN
+        INSERT INTO licence_channel (licence_id, channel, allowed, rationale, created_at)
+        VALUES (v_licence_id, 'free_snapshot', false, 'Test fixture T67: explicit NULL should be rejected', NULL);
+        RAISE EXCEPTION 'FAIL T67: licence_channel row with explicit created_at=NULL was accepted -- a new row can claim to predate tracking';
+    EXCEPTION
+        WHEN not_null_violation THEN
+            RAISE NOTICE 'PASS T67: explicit created_at=NULL rejected (%)', SQLERRM;
+            INSERT INTO test_pass VALUES ('T67');
+    END;
+
+    -- Positive control: omitting created_at entirely still gets a real
+    -- DEFAULT now() timestamp -- the fix didn't also break the ordinary path.
+    INSERT INTO licence_channel (licence_id, channel, allowed, rationale)
+    VALUES (v_licence_id, 'api', false, 'Test fixture T67: omitted created_at should still default')
+    RETURNING created_at INTO v_created_at;
+
+    IF v_created_at IS NULL THEN
+        RAISE EXCEPTION 'FAIL T67: omitting created_at no longer defaults to now() -- got NULL';
+    END IF;
+END $$;
+
+-- ============================================================================
+-- TEST T68: fact_supersession_target_validate() rejects a supersession
+-- across different (parcel_id, field_key) (0042). Reproduces the exact
+-- bypass 0042's header documents: a fact for one parcel/field claiming
+-- supersedes_fact_id against a fact for a completely different
+-- parcel/field committed with no error at all, pre-0042.
+-- ============================================================================
+
+\echo '### TEST T68: fact supersession across different parcel/field is rejected (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_a  uuid;
+    v_parcel_b  uuid := gen_random_uuid();
+    v_fact_a_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_a FROM test_state WHERE key = 'parcel_id';
+    INSERT INTO parcel (id, jurisdiction_id, apn) VALUES (v_parcel_b, 'ca_san_jose', 'test-t68-' || v_parcel_b::text);
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_a, 'ca_san_jose', 'test.t68_field', '"original"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', now(), 'https://example.com',
+        'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_fact_a_id;
+
+    BEGIN
+        -- Different parcel (v_parcel_b, not v_parcel_a) AND a different
+        -- field_key -- claims to supersede fact_a anyway.
+        INSERT INTO fact (
+            parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
+            confidence, confidence_rule_id, effective_from, pack_version,
+            supersedes_fact_id, supersession_reason
+        ) VALUES (
+            v_parcel_b, 'ca_san_jose', 'test.t68_field', '"unrelated"'::jsonb, 'derived',
+            'v1', 'test.cc0', 'high', 'rule_1', now(), 'v1.0',
+            v_fact_a_id, 'world_change'
+        );
+
+        SET CONSTRAINTS fact_supersession_target_valid IMMEDIATE;
+
+        RAISE EXCEPTION 'FAIL T68: fact superseding a different parcel''s fact was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'I4 violated:%SAME parcel and field%' THEN
+                RAISE NOTICE 'PASS T68: cross-parcel supersession rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T68');
+            ELSE
+                RAISE EXCEPTION 'FAIL T68: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T69: fact_supersession_target_validate() rejects a supersession
+-- whose target's own superseded_at was never set (0042). Same-parcel,
+-- same-field, but the correct two-statement shape (UPDATE the old fact's
+-- superseded_at, THEN/AND insert the new one citing it) never happened
+-- -- only the INSERT did. Uses a different method/source than the
+-- target so fact_one_current_per_source (0008) doesn't independently
+-- block two simultaneously-live facts for the same field before this
+-- test can even reach the check it's isolating.
+-- ============================================================================
+
+\echo '### TEST T69: fact supersession whose target was never actually superseded is rejected (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_target_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t69_field', '"still_live"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', now(), 'https://example.com',
+        'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_target_id;
+
+    BEGIN
+        -- Same parcel, same field, DIFFERENT method (derived, no source_id)
+        -- -- avoids fact_one_current_per_source entirely, isolating the
+        -- superseded_at check. Deliberately does NOT set v_target_id's
+        -- superseded_at first.
+        INSERT INTO fact (
+            parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
+            confidence, confidence_rule_id, effective_from, pack_version,
+            supersedes_fact_id, supersession_reason
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'test.t69_field', '"claimed_successor"'::jsonb, 'derived',
+            'v1', 'test.cc0', 'high', 'rule_1', now(), 'v1.0',
+            v_target_id, 'world_change'
+        );
+
+        SET CONSTRAINTS fact_supersession_target_valid IMMEDIATE;
+
+        RAISE EXCEPTION 'FAIL T69: fact superseding a still-live (never-retired) target was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'I4 violated:%superseded_at was never set%' THEN
+                RAISE NOTICE 'PASS T69: supersession of a not-yet-retired target rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T69');
+            ELSE
+                RAISE EXCEPTION 'FAIL T69: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T70: the correct two-statement supersession (same parcel/field,
+-- target's superseded_at set in the same transaction) still succeeds
+-- (0042) -- positive control proving T68/T69 reject the right thing,
+-- not everything.
+-- ============================================================================
+
+\echo '### TEST T70: correct same-parcel/field supersession with target properly retired succeeds (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id    uuid;
+    v_target_id    uuid;
+    v_successor_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t70_field', '"original"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', now(), 'https://example.com',
+        'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_target_id;
+
+    UPDATE fact SET superseded_at = now() WHERE id = v_target_id;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
+        confidence, confidence_rule_id, effective_from, pack_version,
+        supersedes_fact_id, supersession_reason
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t70_field', '"corrected"'::jsonb, 'derived',
+        'v1', 'test.cc0', 'high', 'rule_1', now(), 'v1.0',
+        v_target_id, 'source_correction'
+    ) RETURNING id INTO v_successor_id;
+
+    SET CONSTRAINTS fact_supersession_target_valid IMMEDIATE;
+
+    RAISE NOTICE 'PASS T70: fact % correctly supersedes properly-retired fact %', v_successor_id, v_target_id;
+    INSERT INTO test_pass VALUES ('T70');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -3369,8 +3977,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 79 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 79 passing tests, got %', v_pass_count;
+    IF v_pass_count < 88 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 88 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

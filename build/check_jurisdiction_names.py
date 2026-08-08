@@ -20,9 +20,24 @@ evidence-based, drawn from the actual copy-list audit of scripts/*.py
     literal string lookup key during that audit (APN, ZONING,
     ZONINGABBREV, ASSESSORS_PARCEL_NUMBER, and the SITUS_ADDRESS-family
     address-key candidates)
+  - the human-readable city name (San Jose, San José), since I1's own
+    text ("no jurisdiction name") is not limited to identifier-shaped
+    tokens -- a docstring or comment naming the city in prose leaks the
+    same information a literal "ca_san_jose" does, and grep for the
+    identifier alone would miss it
 A future jurisdiction pack will need its own names added here when it
 lands -- this list documents what's actually been seen leak into code
 so far, not a permanent or complete enumeration.
+
+CORRECTED, not written correctly the first time: this module's own
+docstring already claimed "APN, ZONING" were in BLOCKLIST below when
+they were not -- only the compound forms (ASSESSORS_PARCEL_NUMBER,
+ZONINGABBREV) were ever actually in the list, and San Jose/San José in
+either script were never in it at all. Confirmed directly, not assumed,
+before writing the fix: all four -- bare APN, bare ZONING, "San Jose",
+"San José" -- ran against the list as it stood and matched nothing.
+Proven capable of catching each individually (planted, confirmed RED,
+reverted) before trusting this comment to describe the list again.
 
 Scoped to core/**/*.py only, matching import-linter's own scope --
 scripts/, infra/, jurisdictions/ are expected to name jurisdictions and
@@ -41,8 +56,14 @@ BLOCKLIST = [
     "ca_san_jose",
     "ca_santa_clara_county",
     "ca_state",
+    # The human-readable city name, in prose -- I1 forbids the
+    # jurisdiction name, not just its identifier form.
+    "San Jose",
+    "San José",
     # San-José-source-specific property/column names, found as literal
     # string lookup keys during the scripts/*.py copy-list audit.
+    "APN",
+    "ZONING",
     "ASSESSORS_PARCEL_NUMBER",
     "ZONINGABBREV",
     "SITUSADDR",

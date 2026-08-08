@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.21
+ Engineering Reference Spec v1.25
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.21                                       Machine-executed build contract.
+   1        This Spec v1.25                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -341,6 +341,20 @@ source_rank.field_key gains an FK to field_definition in migration 0003, which c
      (I2/I3) -- only licence_channel has the absence-is-itself-a-decision property that makes a creation timestamp
      meaningful for replay. See §12's 1.19 entry.
 
+     db/migrations/0041_licence_channel_created_at_not_null.sql closes a hole 0037's own nullability opened:
+     explicitly supplying created_at = NULL on INSERT bypasses the column's DEFAULT now() (a DEFAULT only fires
+     when a column is omitted, never when NULL is supplied for it), letting a NEW row falsely claim to predate
+     tracking -- the exact thing created_at exists to make unforgeable. Fixed by backfilling existing NULLs to
+     '-infinity'::timestamptz (the same "existed before tracking began" meaning NULL stood in for, but a real
+     value a later INSERT cannot reassert by omission) and setting NOT NULL. Confirmed directly: PostgreSQL's
+     built-in timestamptz comparisons handle '-infinity' correctly with no special-casing needed anywhere that
+     reads this column. The backfill UPDATE conflicts with licence_channel_no_update (0033)'s unconditional raise
+     -- resolved by disabling that one trigger by name for the duration of the backfill statement only, then
+     re-enabling it in the same migration; licence_channel_no_delete stays live throughout. Not fully closed,
+     reported rather than fixed: NOT NULL stops the NULL bypass specifically, not an explicit
+     created_at = '-infinity' on a new row asserting the same false history a different way -- flagged as an open
+     question, the same shape of gap 0027 leaves open for source_rank.
+
 3.3 Canonical field vocabulary
 
 Serves: I7 (stale_after_days), I9 (claim), §8.
@@ -464,6 +478,43 @@ fact_licence_inheritance is DEFERRABLE INITIALLY DEFERRED: this lets a transacti
 fact_input rows in any order; validation runs once at commit, when the full input set is visible. Inserting inputs one at
 a time under a non-deferred trigger would fire on a partial set and raise spuriously.
 
+     db/migrations/0039_schema_qualify_trigger_functions.sql fixes fact_licence_validate(): every table reference
+     inside its body ("fact_input", "fact", "licence", "licence_channel") was unqualified. Reproduced directly: a
+     session running CREATE TEMP TABLE fact_input (matching columns) before inserting a real fact_input row citing
+     an over-permissive derived fact made the trigger's own internal "SELECT ... FROM fact_input" resolve to the
+     empty temp relation, see has_inputs=false, and return NULL before ever validating I5 -- the row committed with
+     no rights check at all. Any session able to run CREATE TEMP TABLE can do this; no privilege beyond ordinary
+     connection access is needed. Fixed by explicit public. qualification on every reference, plus SET search_path
+     = public, pg_temp as defence-in-depth -- confirmed directly, not assumed, that search_path = public ALONE does
+     not stop this: PostgreSQL implicitly prepends the session's temp schema ahead of search_path unless pg_temp is
+     explicitly listed in it, so pg_temp must be named, not merely omitted. Audited every function in
+     db/migrations for the same exposure before writing this migration: eleven others (restriction_severity,
+     dropped by 0029; fact_no_destructive_update; rule_no_destructive_update; rule_no_delete; fact_no_delete;
+     snapshot_no_update; snapshot_no_delete; licence_no_update; licence_no_delete; licence_channel_no_update;
+     licence_channel_no_delete; refusals_codes_valid) reference no table at all -- RAISE-only, or pure NEW/OLD
+     column comparison, which binds to the trigger's row type directly and never touches search_path -- so none of
+     them share this exposure. current_fact_at() (§3.8, 0036) did; see that section.
+
+     db/migrations/0040_whole_row_immutability.sql fixes fact_no_destructive_update(): its column-by-column OR
+     chain, hand-enumerated in 0007, was never updated for four columns added afterward -- jurisdiction_id (0022),
+     supersedes_fact_id and supersession_reason (0025), source_asserted_as_of (0028). Reproduced directly:
+     UPDATE fact SET superseded_at = now(), source_asserted_as_of = '2099-01-01' committed cleanly, the legitimate
+     supersession masking an unauthorized rewrite in the same statement. Fixed by replacing the enumeration with a
+     whole-row comparison, to_jsonb(NEW) - 'superseded_at' IS DISTINCT FROM to_jsonb(OLD) - 'superseded_at', which
+     covers every column automatically, including ones that don't exist yet -- there is no list left to forget to
+     update. rule_no_destructive_update() (§3.9) gets the identical treatment for the identical structural reason.
+
+     db/migrations/0042_fact_supersession_target_validate.sql closes a gap 0025 (below) left open:
+     supersedes_fact_id's FK, self-reference and pairing checks say nothing about whether the fact being superseded
+     actually corresponds to the superseding fact. Reproduced directly: a fact for one parcel and field, citing
+     supersedes_fact_id against a fact for a wholly different parcel and field, committed with no error, the
+     original fact's own superseded_at untouched. Fixed by a deferred constraint trigger requiring the superseded
+     fact to share the same (parcel_id, field_key) as its successor, and to have its own superseded_at actually
+     set by commit -- DEFERRABLE INITIALLY DEFERRED for the same reason fact_licence_inheritance is: the correct
+     two-statement shape (UPDATE the old fact's superseded_at, INSERT the new fact citing it) can land in either
+     order within one transaction. Whether one fact may be superseded by two different successors -- a unique
+     index on supersedes_fact_id would forbid it -- is a modelling question this migration does not decide.
+
 3.8 Current-fact resolution
 
 The DDL for this section is db/migrations/0008_current_fact.sql (the materialized view),
@@ -501,15 +552,25 @@ read current_fact. The composer, the audit path and any reconstruction read fact
      is load-bearing by temporarily reverting current_fact_at to the naive valid-time-only shape and observing the
      look-ahead case leak through. See §12's 1.18 entry.
 
+     db/migrations/0039_schema_qualify_trigger_functions.sql fixes current_fact_at() the same way it fixes
+     fact_licence_validate() (§3.7): every reference to fact, parcel and source_rank inside its body was
+     unqualified. Reproduced directly: CREATE TEMP TABLE fact (LIKE public.fact INCLUDING ALL) in a session made
+     current_fact_at(now()) return zero rows for a parcel with real, live facts -- a caller (the composer, a
+     replay, an audit) would silently read "no facts" instead of the real table. Fixed the same way: explicit
+     public. qualification plus SET search_path = public, pg_temp.
+
  3.9 Rules — review-mode contract
 
  Independent review remains preferred. Phase 1 may use a controlled solo-founder attestation only when the same identity authors and
  reviews and an immutable evidence URI is stored.
 
-The DDL for this section is db/migrations/0009_rules.sql (table and the review-mode CHECK) and
+The DDL for this section is db/migrations/0009_rules.sql (table and the review-mode CHECK),
 db/migrations/0013_rule_triggers.sql (I18: rule_no_update / rule_no_delete triggers enforcing that authored/reviewed
 identities, mode, time and URI are immutable, and that a correction is always a new rule version, never an update or a
-delete).
+delete) and db/migrations/0040_whole_row_immutability.sql (rule_no_destructive_update()'s column-by-column OR chain
+replaced with a whole-row to_jsonb(NEW) - 'effective_to' IS DISTINCT FROM to_jsonb(OLD) - 'effective_to' comparison,
+the identical treatment §3.7 describes for fact_no_destructive_update() and for the identical reason: a
+hand-enumerated list silently misses every column added after it was written).
 db/schema.sql is the generated record of the applied result.
 
      Deployment policy may allow solo-founder mode only during the documented bootstrap period. Existing attested rows remain historical when independent
@@ -1630,7 +1691,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.21
+                     Engineering Reference Spec v1.25
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1691,7 +1752,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.21
+                   Engineering Reference Spec v1.25
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1720,7 +1781,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.21
+                Engineering Reference Spec v1.25
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -2401,6 +2462,55 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              of check-boundary as "a literal grep -ri san_jose core/"
                                              corrected to match: that phrase predated any real
                                              implementation and was never literally what got built.
+
+   Aug 2026             1.22                 db/migrations/0039_schema_qualify_trigger_functions.sql fixes            Reproduced directly, not assumed: CREATE TEMP TABLE fact_input then a
+                                             fact_licence_validate() and current_fact_at() -- every table              real fact_input row citing an over-permissive derived fact, in the
+                                             reference in both bodies was unqualified. Fixed by explicit               same session, made the trigger's own internal lookup read the empty
+                                             public. qualification everywhere, plus SET search_path = public,          temp relation and skip I5 validation entirely; the row committed
+                                             pg_temp as defence-in-depth -- confirmed directly that                    with no rights check. Audited every function in db/migrations before
+                                             search_path = public ALONE does not stop pg_temp shadowing               fixing anything: 11 others reference no table at all (RAISE-only or
+                                             (PostgreSQL implicitly prepends the session's temp schema unless          pure NEW/OLD comparison) and share none of this exposure. Any
+                                             pg_temp is explicitly listed), only search_path = public, pg_temp        session able to run CREATE TEMP TABLE -- no elevated privilege --
+                                             does.                                                                     could otherwise defeat the licence gate.
+   Aug 2026             1.23                 db/migrations/0040_whole_row_immutability.sql fixes                       Reproduced directly: UPDATE fact SET superseded_at = now(),
+                                             fact_no_destructive_update() and rule_no_destructive_update():             source_asserted_as_of = '2099-01-01' committed cleanly, the
+                                             both hand-enumerated every locked column in an OR chain, and both         legitimate supersession masking an unauthorized rewrite in the same
+                                             OR chains were never updated for columns added after they were            statement. A hand-enumerated list structurally cannot protect a
+                                             written -- fact's missed jurisdiction_id (0022), supersedes_fact_id       column that didn't exist when it was written; every future column
+                                             and supersession_reason (0025), source_asserted_as_of (0028).             has the identical exposure the moment it lands, invisible without
+                                             Fixed by replacing both with a whole-row comparison --                    reading the trigger's source. A meta-test (T66) reads the deployed
+                                             to_jsonb(NEW) - '<permitted column>' IS DISTINCT FROM                     function source from pg_proc directly and fails if either trigger
+                                             to_jsonb(OLD) - '<permitted column>' -- covering every column             ever reverts to column-by-column enumeration, since T64/T65 alone
+                                             automatically, including ones that don't exist yet.                       can only prove today's columns are covered.
+   Aug 2026             1.24                 db/migrations/0041_licence_channel_created_at_not_null.sql closes         0037's own nullability, intended to let existing rows honestly read
+                                             a hole 0037 (§12's 1.19 entry) opened: explicitly supplying               "existed before tracking began," turned out to also let a NEW row
+                                             created_at = NULL on INSERT bypasses the column's own DEFAULT             assert the identical false claim by omission-shaped intent (NULL)
+                                             now(), since a DEFAULT only fires when a column is omitted, never         instead of an honest absence. -infinity is a real, present value no
+                                             when NULL is supplied for it -- letting a new row falsely claim to        later INSERT can reassert by omission; NOT NULL then makes the
+                                             predate tracking. Fixed by backfilling existing NULLs to                  bypass structurally impossible rather than merely undocumented.
+                                             '-infinity'::timestamptz (the same meaning NULL stood in for) and         Confirmed directly: PostgreSQL's built-in timestamptz comparisons
+                                             setting NOT NULL. The backfill UPDATE conflicts with                      handle -infinity correctly with no special-casing needed anywhere
+                                             licence_channel_no_update (0033)'s unconditional raise --                 that reads this column -- nothing does yet; the composer's rights
+                                             resolved by disabling that one trigger by name for exactly the            query reads only (licence_id, allowed), and no replay script exists.
+                                             duration of the backfill statement, re-enabled immediately after in       Not fully closed: an explicit created_at = '-infinity' on a NEW row
+                                             the same migration.                                                       could still assert the same false history a different way -- reported,
+                                                                                                                       not fixed, the same shape of gap 0027 leaves open for source_rank.
+   Aug 2026             1.25                 db/migrations/0042_fact_supersession_target_validate.sql closes a         Reproduced directly: a fact for one parcel and field, citing
+                                             gap 0025 (§3.6/§3.7) left open: supersedes_fact_id's FK,                  supersedes_fact_id against a fact for an entirely different parcel
+                                             self-reference and pairing checks say nothing about whether the           and field, committed with no error, the original fact's own
+                                             superseded fact actually corresponds to its successor. Fixed by a         superseded_at left untouched. Whether one fact may ever be
+                                             deferred constraint trigger requiring the same (parcel_id,                superseded by two different successors -- a unique index on
+                                             field_key) on both sides, and that the superseded fact's own              supersedes_fact_id would forbid it -- is reported as an open
+                                             superseded_at is actually set by commit -- DEFERRABLE INITIALLY           modelling question, not decided by this migration either way.
+                                             DEFERRED for the same reason fact_licence_inheritance (0007) is:
+                                             the correct two-statement shape can land in either order within one
+                                             transaction. Also, separately: build/check_jurisdiction_names.py's
+                                             blocklist (§12's 1.21 entry) omitted bare APN, ZONING, and the
+                                             human-readable "San Jose"/"San José" -- that entry's own prose
+                                             claimed APN/ZONING were already covered; they were not, confirmed
+                                             directly against the list as it stood. All four added, each proven
+                                             individually capable of failing (planted, confirmed RED, reverted)
+                                             before trusting the list again.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

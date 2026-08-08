@@ -322,12 +322,13 @@ CREATE TABLE public.fact (
 
 CREATE FUNCTION public.current_fact_at(ts timestamp with time zone) RETURNS SETOF public.fact
     LANGUAGE sql STABLE
+    SET search_path TO 'public', 'pg_temp'
     AS $$
     SELECT DISTINCT ON (f.parcel_id, f.field_key)
            f.*
-      FROM fact f
-      JOIN parcel p ON p.id = f.parcel_id
-      LEFT JOIN source_rank sr
+      FROM public.fact f
+      JOIN public.parcel p ON p.id = f.parcel_id
+      LEFT JOIN public.source_rank sr
              ON sr.jurisdiction_id = p.jurisdiction_id
             AND sr.field_key       = f.field_key
             AND sr.source_id       = f.source_id
@@ -349,6 +350,7 @@ $$;
 
 CREATE FUNCTION public.fact_licence_validate() RETURNS trigger
     LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
     AS $$
 DECLARE
     target_fact_id            uuid;
@@ -361,27 +363,27 @@ DECLARE
 BEGIN
     target_fact_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.fact_id ELSE NEW.fact_id END;
 
-    SELECT EXISTS (SELECT 1 FROM fact_input WHERE fact_id = target_fact_id) INTO has_inputs;
+    SELECT EXISTS (SELECT 1 FROM public.fact_input WHERE fact_id = target_fact_id) INTO has_inputs;
     IF NOT has_inputs THEN
         RETURN NULL;  -- I5c: no inputs recorded yet; nothing to validate against.
     END IF;
 
-    SELECT licence_id INTO actual_licence FROM fact WHERE id = target_fact_id;
+    SELECT licence_id INTO actual_licence FROM public.fact WHERE id = target_fact_id;
 
     -- Channel dimension: a channel the derived licence permits, that at
     -- least one input's licence does not permit (no matching allowed=true
     -- row for that input), is a violation.
     SELECT lc.channel INTO over_permitted_channel
-      FROM licence_channel lc
+      FROM public.licence_channel lc
      WHERE lc.licence_id = actual_licence
        AND lc.allowed = true
        AND EXISTS (
            SELECT 1
-             FROM fact_input fi
-             JOIN fact f ON f.id = fi.input_fact_id
+             FROM public.fact_input fi
+             JOIN public.fact f ON f.id = fi.input_fact_id
             WHERE fi.fact_id = target_fact_id
               AND NOT EXISTS (
-                  SELECT 1 FROM licence_channel lc2
+                  SELECT 1 FROM public.licence_channel lc2
                    WHERE lc2.licence_id = f.licence_id
                      AND lc2.channel = lc.channel
                      AND lc2.allowed = true
@@ -398,12 +400,12 @@ BEGIN
     END IF;
 
     -- commercial_use: derived may claim 'allowed' only if every input does.
-    IF (SELECT commercial_use FROM licence WHERE id = actual_licence) = 'allowed' THEN
+    IF (SELECT commercial_use FROM public.licence WHERE id = actual_licence) = 'allowed' THEN
         SELECT EXISTS (
             SELECT 1
-              FROM fact_input fi
-              JOIN fact    f ON f.id = fi.input_fact_id
-              JOIN licence l ON l.id = f.licence_id
+              FROM public.fact_input fi
+              JOIN public.fact    f ON f.id = fi.input_fact_id
+              JOIN public.licence l ON l.id = f.licence_id
              WHERE fi.fact_id = target_fact_id
                AND l.commercial_use <> 'allowed'
         ) INTO commercial_violation;
@@ -417,12 +419,12 @@ BEGIN
     END IF;
 
     -- redistribution: same shape as commercial_use.
-    IF (SELECT redistribution FROM licence WHERE id = actual_licence) = 'allowed' THEN
+    IF (SELECT redistribution FROM public.licence WHERE id = actual_licence) = 'allowed' THEN
         SELECT EXISTS (
             SELECT 1
-              FROM fact_input fi
-              JOIN fact    f ON f.id = fi.input_fact_id
-              JOIN licence l ON l.id = f.licence_id
+              FROM public.fact_input fi
+              JOIN public.fact    f ON f.id = fi.input_fact_id
+              JOIN public.licence l ON l.id = f.licence_id
              WHERE fi.fact_id = target_fact_id
                AND l.redistribution <> 'allowed'
         ) INTO redistribution_violation;
@@ -439,15 +441,15 @@ BEGIN
     -- it, the derived fact must require it too.
     SELECT EXISTS (
         SELECT 1
-          FROM fact_input fi
-          JOIN fact    f ON f.id = fi.input_fact_id
-          JOIN licence l ON l.id = f.licence_id
+          FROM public.fact_input fi
+          JOIN public.fact    f ON f.id = fi.input_fact_id
+          JOIN public.licence l ON l.id = f.licence_id
          WHERE fi.fact_id = target_fact_id
            AND l.restriction = 'attribution'
     ) INTO any_input_requires_attrib;
 
     IF any_input_requires_attrib
-       AND (SELECT restriction FROM licence WHERE id = actual_licence) <> 'attribution'
+       AND (SELECT restriction FROM public.licence WHERE id = actual_licence) <> 'attribution'
     THEN
         RAISE EXCEPTION
             'I5 violated: derived fact % licence % does not require '
@@ -496,31 +498,7 @@ BEGIN
             'instead.', OLD.id;
     END IF;
 
-    IF NEW.id                       IS DISTINCT FROM OLD.id
-       OR NEW.parcel_id             IS DISTINCT FROM OLD.parcel_id
-       OR NEW.field_key             IS DISTINCT FROM OLD.field_key
-       OR NEW.value                 IS DISTINCT FROM OLD.value
-       OR NEW.unit                  IS DISTINCT FROM OLD.unit
-       OR NEW.local_verbatim        IS DISTINCT FROM OLD.local_verbatim
-       OR NEW.source_id             IS DISTINCT FROM OLD.source_id
-       OR NEW.source_url            IS DISTINCT FROM OLD.source_url
-       OR NEW.layer_item_id         IS DISTINCT FROM OLD.layer_item_id
-       OR NEW.snapshot_id           IS DISTINCT FROM OLD.snapshot_id
-       OR NEW.method                IS DISTINCT FROM OLD.method
-       OR NEW.retrieved_at          IS DISTINCT FROM OLD.retrieved_at
-       OR NEW.source_published_at   IS DISTINCT FROM OLD.source_published_at
-       OR NEW.source_cadence_stated IS DISTINCT FROM OLD.source_cadence_stated
-       OR NEW.effective_from        IS DISTINCT FROM OLD.effective_from
-       OR NEW.effective_to          IS DISTINCT FROM OLD.effective_to
-       OR NEW.recorded_at           IS DISTINCT FROM OLD.recorded_at
-       OR NEW.licence_id            IS DISTINCT FROM OLD.licence_id
-       OR NEW.confidence            IS DISTINCT FROM OLD.confidence
-       OR NEW.confidence_rule_id    IS DISTINCT FROM OLD.confidence_rule_id
-       OR NEW.conflict              IS DISTINCT FROM OLD.conflict
-       OR NEW.method_version        IS DISTINCT FROM OLD.method_version
-       OR NEW.ruleset_version       IS DISTINCT FROM OLD.ruleset_version
-       OR NEW.pack_version          IS DISTINCT FROM OLD.pack_version
-    THEN
+    IF (to_jsonb(NEW) - 'superseded_at') IS DISTINCT FROM (to_jsonb(OLD) - 'superseded_at') THEN
         RAISE EXCEPTION
             'I4 violated: fact % is immutable. Only superseded_at may be '
             'set (NULL -> now, once). Insert a new fact row for a '
@@ -528,6 +506,52 @@ BEGIN
     END IF;
 
     RETURN NEW;
+END;
+$$;
+
+
+--
+-- Name: fact_supersession_target_validate(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.fact_supersession_target_validate() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+DECLARE
+    target_parcel_id     uuid;
+    target_field_key     text;
+    target_superseded_at timestamptz;
+BEGIN
+    IF NEW.supersedes_fact_id IS NULL THEN
+        RETURN NULL;
+    END IF;
+
+    SELECT parcel_id, field_key, superseded_at
+      INTO target_parcel_id, target_field_key, target_superseded_at
+      FROM public.fact
+     WHERE id = NEW.supersedes_fact_id;
+
+    IF target_parcel_id IS DISTINCT FROM NEW.parcel_id
+       OR target_field_key IS DISTINCT FROM NEW.field_key
+    THEN
+        RAISE EXCEPTION
+            'I4 violated: fact % (parcel %, field %) claims to supersede '
+            'fact % (parcel %, field %) -- a fact can only supersede a '
+            'prior fact for the SAME parcel and field.',
+            NEW.id, NEW.parcel_id, NEW.field_key,
+            NEW.supersedes_fact_id, target_parcel_id, target_field_key;
+    END IF;
+
+    IF target_superseded_at IS NULL THEN
+        RAISE EXCEPTION
+            'I4 violated: fact % claims to supersede fact %, but that '
+            'fact''s own superseded_at was never set. Superseding a fact '
+            'requires setting its superseded_at in the same transaction.',
+            NEW.id, NEW.supersedes_fact_id;
+    END IF;
+
+    RETURN NULL;
 END;
 $$;
 
@@ -676,21 +700,7 @@ BEGIN
             OLD.id, OLD.effective_to, NEW.effective_to;
     END IF;
 
-    IF NEW.id                IS DISTINCT FROM OLD.id
-       OR NEW.jurisdiction_id IS DISTINCT FROM OLD.jurisdiction_id
-       OR NEW.rule_key        IS DISTINCT FROM OLD.rule_key
-       OR NEW.version         IS DISTINCT FROM OLD.version
-       OR NEW.effective_from  IS DISTINCT FROM OLD.effective_from
-       OR NEW.citation        IS DISTINCT FROM OLD.citation
-       OR NEW.source_text_uri IS DISTINCT FROM OLD.source_text_uri
-       OR NEW.params          IS DISTINCT FROM OLD.params
-       OR NEW.pack_version    IS DISTINCT FROM OLD.pack_version
-       OR NEW.authored_by     IS DISTINCT FROM OLD.authored_by
-       OR NEW.reviewed_by     IS DISTINCT FROM OLD.reviewed_by
-       OR NEW.review_mode     IS DISTINCT FROM OLD.review_mode
-       OR NEW.reviewed_at     IS DISTINCT FROM OLD.reviewed_at
-       OR NEW.attestation_uri IS DISTINCT FROM OLD.attestation_uri
-    THEN
+    IF (to_jsonb(NEW) - 'effective_to') IS DISTINCT FROM (to_jsonb(OLD) - 'effective_to') THEN
         RAISE EXCEPTION
             'I18 violated: rule % is immutable. Only effective_to may be '
             'set (NULL -> a date, once). A correction is a new rule row at '
@@ -896,7 +906,7 @@ CREATE TABLE public.licence_channel (
     channel public.output_channel NOT NULL,
     allowed boolean NOT NULL,
     rationale text NOT NULL,
-    created_at timestamp with time zone DEFAULT now()
+    created_at timestamp with time zone DEFAULT now() NOT NULL
 );
 
 
@@ -1459,6 +1469,13 @@ CREATE TRIGGER fact_no_delete BEFORE DELETE ON public.fact FOR EACH ROW EXECUTE 
 --
 
 CREATE TRIGGER fact_no_update BEFORE UPDATE ON public.fact FOR EACH ROW EXECUTE FUNCTION public.fact_no_destructive_update();
+
+
+--
+-- Name: fact fact_supersession_target_valid; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE CONSTRAINT TRIGGER fact_supersession_target_valid AFTER INSERT OR UPDATE ON public.fact DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.fact_supersession_target_validate();
 
 
 --
