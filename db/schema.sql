@@ -1096,6 +1096,28 @@ CREATE TABLE public.source (
 
 
 --
+-- Name: source_feature_identity; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.source_feature_identity (
+    source_id text NOT NULL,
+    source_feature_id text NOT NULL,
+    parcel_id uuid NOT NULL,
+    first_seen_snapshot_id text NOT NULL,
+    first_seen_at timestamp with time zone NOT NULL,
+    last_seen_snapshot_id text NOT NULL,
+    last_seen_at timestamp with time zone NOT NULL,
+    retired_snapshot_id text,
+    retired_at timestamp with time zone,
+    retirement_reason text,
+    created_at timestamp with time zone DEFAULT now() NOT NULL,
+    CONSTRAINT source_feature_identity_retired_after_seen CHECK (((retired_at IS NULL) OR (retired_at >= last_seen_at))),
+    CONSTRAINT source_feature_identity_retirement_pairing CHECK ((((retired_snapshot_id IS NULL) AND (retired_at IS NULL) AND (retirement_reason IS NULL)) OR ((retired_snapshot_id IS NOT NULL) AND (retired_at IS NOT NULL) AND (retirement_reason IS NOT NULL)))),
+    CONSTRAINT source_feature_identity_seen_order CHECK ((last_seen_at >= first_seen_at))
+);
+
+
+--
 -- Name: source_rank; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1305,6 +1327,14 @@ ALTER TABLE ONLY public.snapshot
 
 
 --
+-- Name: source_feature_identity source_feature_identity_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_feature_identity
+    ADD CONSTRAINT source_feature_identity_pkey PRIMARY KEY (source_id, source_feature_id);
+
+
+--
 -- Name: source source_id_jurisdiction_id_unique; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1434,6 +1464,13 @@ CREATE INDEX parcel_geom_gix ON public.parcel USING gist (geom);
 --
 
 CREATE INDEX snapshot_source_time ON public.snapshot USING btree (source_id, fetched_at DESC);
+
+
+--
+-- Name: source_feature_identity_parcel; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX source_feature_identity_parcel ON public.source_feature_identity USING btree (parcel_id);
 
 
 --
@@ -1836,6 +1873,70 @@ ALTER TABLE ONLY public.snapshot
 
 ALTER TABLE ONLY public.snapshot
     ADD CONSTRAINT snapshot_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.source(id);
+
+
+--
+-- Name: source_feature_identity source_feature_identity_first_seen_snapshot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_feature_identity
+    ADD CONSTRAINT source_feature_identity_first_seen_snapshot_id_fkey FOREIGN KEY (first_seen_snapshot_id) REFERENCES public.snapshot(id);
+
+
+--
+-- Name: source_feature_identity source_feature_identity_first_snapshot_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_feature_identity
+    ADD CONSTRAINT source_feature_identity_first_snapshot_source_fk FOREIGN KEY (first_seen_snapshot_id, source_id) REFERENCES public.snapshot(id, source_id);
+
+
+--
+-- Name: source_feature_identity source_feature_identity_last_seen_snapshot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_feature_identity
+    ADD CONSTRAINT source_feature_identity_last_seen_snapshot_id_fkey FOREIGN KEY (last_seen_snapshot_id) REFERENCES public.snapshot(id);
+
+
+--
+-- Name: source_feature_identity source_feature_identity_last_snapshot_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_feature_identity
+    ADD CONSTRAINT source_feature_identity_last_snapshot_source_fk FOREIGN KEY (last_seen_snapshot_id, source_id) REFERENCES public.snapshot(id, source_id);
+
+
+--
+-- Name: source_feature_identity source_feature_identity_parcel_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_feature_identity
+    ADD CONSTRAINT source_feature_identity_parcel_id_fkey FOREIGN KEY (parcel_id) REFERENCES public.parcel(id);
+
+
+--
+-- Name: source_feature_identity source_feature_identity_retired_snapshot_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_feature_identity
+    ADD CONSTRAINT source_feature_identity_retired_snapshot_id_fkey FOREIGN KEY (retired_snapshot_id) REFERENCES public.snapshot(id);
+
+
+--
+-- Name: source_feature_identity source_feature_identity_retired_snapshot_source_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_feature_identity
+    ADD CONSTRAINT source_feature_identity_retired_snapshot_source_fk FOREIGN KEY (retired_snapshot_id, source_id) REFERENCES public.snapshot(id, source_id);
+
+
+--
+-- Name: source_feature_identity source_feature_identity_source_id_fkey; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.source_feature_identity
+    ADD CONSTRAINT source_feature_identity_source_id_fkey FOREIGN KEY (source_id) REFERENCES public.source(id);
 
 
 --

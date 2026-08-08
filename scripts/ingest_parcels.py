@@ -53,9 +53,11 @@ import json
 import os
 import resource
 import sys
+import tempfile
 import time
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import urlparse
 
 import boto3
 import ijson
@@ -103,6 +105,87 @@ def object_uri(bucket, digest):
 
 def snapshot_id_for(digest):
     return f"{SOURCE_ID}:sha256:{digest}"
+
+
+def parse_s3_uri(uri):
+    parsed = urlparse(uri)
+    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path:
+        raise RuntimeError(f"snapshot.object_uri is not an s3:// URI: {uri}")
+    return parsed.netloc, parsed.path.lstrip("/")
+
+
+def verified_snapshot_file(conn, snapshot_id):
+    """Return (path, snapshot row dict) for bytes read from snapshot.object_uri.
+    The hash is computed over exactly the bytes the loader will parse."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT id, source_id, object_uri, content_hash, media_type,
+                   byte_size, fetched_at
+            FROM snapshot
+            WHERE id = %s AND source_id = %s
+            """,
+            (snapshot_id, SOURCE_ID),
+        )
+        snapshot = cur.fetchone()
+    if snapshot is None:
+        raise SystemExit(f"no snapshot {snapshot_id} found for {SOURCE_ID}")
+
+    bucket, key = parse_s3_uri(snapshot["object_uri"])
+    s3 = get_s3()
+    hasher = hashlib.sha256()
+    byte_size = 0
+    suffix = ".geojson" if snapshot["media_type"] == "application/geo+json" else ".snapshot"
+    tmp = tempfile.NamedTemporaryFile(prefix="ledgex-parcels-", suffix=suffix, delete=False)
+    tmp_path = tmp.name
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        with tmp:
+            for chunk in obj["Body"].iter_chunks(chunk_size=CHUNK_SIZE):
+                if not chunk:
+                    continue
+                tmp.write(chunk)
+                hasher.update(chunk)
+                byte_size += len(chunk)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    digest = hasher.hexdigest()
+    if digest != snapshot["content_hash"]:
+        os.unlink(tmp_path)
+        raise RuntimeError(
+            f"snapshot byte hash mismatch for {snapshot_id}: "
+            f"object_uri bytes sha256={digest}, snapshot.content_hash={snapshot['content_hash']}"
+        )
+    if byte_size != snapshot["byte_size"]:
+        os.unlink(tmp_path)
+        raise RuntimeError(
+            f"snapshot byte_size mismatch for {snapshot_id}: "
+            f"object_uri bytes={byte_size}, snapshot.byte_size={snapshot['byte_size']}"
+        )
+    return tmp_path, snapshot
+
+
+def previous_successful_snapshot(conn, source_id):
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT snapshot_id
+            FROM job_run
+            WHERE source_id = %s
+              AND status = 'succeeded'
+              AND snapshot_id IS NOT NULL
+            ORDER BY finished_at DESC, started_at DESC
+            LIMIT 1
+            """,
+            (source_id,),
+        )
+        row = cur.fetchone()
+    return row[0] if row else None
 
 
 # ---------------------------------------------------------------------------
@@ -608,24 +691,23 @@ def load_facts(conn, features, parcel_ids, source_id_row, snapshot_id, retrieved
 
 def refresh_current_fact(conn):
     print("\n=== PHASE D.4: refreshing current_fact ===")
-    with conn.cursor() as cur:
-        cur.execute("SELECT ispopulated FROM pg_matviews WHERE matviewname = 'current_fact'")
-        populated = cur.fetchone()[0]
-    if not populated:
-        print("  current_fact is not yet populated -- plain REFRESH first (per db/README.md)")
-        with conn.cursor() as cur:
-            cur.execute("REFRESH MATERIALIZED VIEW current_fact")
-        conn.commit()
-    else:
-        print("  current_fact already populated -- plain REFRESH anyway, per instruction, before CONCURRENTLY")
-        with conn.cursor() as cur:
-            cur.execute("REFRESH MATERIALIZED VIEW current_fact")
-        conn.commit()
-    print("  plain REFRESH done")
-    with conn.cursor() as cur:
-        cur.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY current_fact")
     conn.commit()
-    print("  REFRESH CONCURRENTLY done")
+    old_autocommit = conn.autocommit
+    conn.autocommit = True
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT ispopulated FROM pg_matviews WHERE matviewname = 'current_fact'")
+            populated = cur.fetchone()[0]
+            if not populated:
+                print("  current_fact is not yet populated -- plain REFRESH first (per db/README.md)")
+                cur.execute("REFRESH MATERIALIZED VIEW current_fact")
+                print("  plain REFRESH done")
+            else:
+                print("  current_fact already populated -- REFRESH CONCURRENTLY")
+                cur.execute("REFRESH MATERIALIZED VIEW CONCURRENTLY current_fact")
+                print("  REFRESH CONCURRENTLY done")
+    finally:
+        conn.autocommit = old_autocommit
 
 
 def query_one_parcel(conn, apn):
@@ -756,9 +838,13 @@ def finish_job_run_full(conn, job_run_id, status, snapshot_id, rows_in, rows_out
     conn.commit()
 
 
-def phase_e():
-    """Full-scale load. One transaction for the entire load (parcel +
-    fact + parcel_exception inserts): any failure anywhere rolls back
+def phase_e(snapshot_id):
+    """Full-scale Phase A reconcile. The loader is bound to the supplied
+    snapshot_id: it reads snapshot.object_uri, hashes the exact bytes it
+    will parse, and refuses if those bytes do not match content_hash.
+
+    One transaction for the entire ledger write (parcel + identity + fact
+    + parcel_exception inserts): any failure anywhere rolls back
     everything, leaving no partial state to repair. 0017 blocks fact
     deletion, so a bug discovered after a partial COMMIT would be
     permanent -- the discipline here is to never partially commit in the
@@ -779,20 +865,13 @@ def phase_e():
     NULL; see db/README.md).
     """
     conn = get_db()
-    path = os.path.join(SCRATCHPAD, "parcels_fetch_1.geojson")
-
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id FROM snapshot WHERE source_id = %s ORDER BY fetched_at DESC LIMIT 1",
-            (SOURCE_ID,),
-        )
-        row = cur.fetchone()
-        if row is None:
-            raise SystemExit("no snapshot found for ca_san_jose.parcels -- run --phase b first")
-        snapshot_id = row[0]
-        cur.execute("SELECT fetched_at FROM snapshot WHERE id = %s", (snapshot_id,))
-        retrieved_at = cur.fetchone()[0]
-    print(f"using snapshot: {snapshot_id}")
+    previous_snapshot_id = previous_successful_snapshot(conn, SOURCE_ID)
+    path, snapshot = verified_snapshot_file(conn, snapshot_id)
+    retrieved_at = snapshot["fetched_at"]
+    same_as_previous = previous_snapshot_id == snapshot_id
+    print(f"using verified snapshot: {snapshot_id}")
+    print(f"previous successful snapshot: {previous_snapshot_id or '(none)'}")
+    print(f"same as immediately previous successful observation: {same_as_previous}")
 
     job_run_id = start_job_run(conn, job_key=JOB_KEY_FULL)
 
@@ -805,20 +884,59 @@ def phase_e():
     resolvable_count = 0
     unresolvable_count = 0
     reason_counts = {"blank": 0, "placeholder": 0}
+    identity_by_feature_id = {}
+    existing_feature_ids = set()
+    unsupported_changed = 0
+    unsupported_new_after_initial = 0
+    identity_rows_to_insert = []
 
     try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT source_feature_id, parcel_id
+                FROM source_feature_identity
+                WHERE source_id = %s
+                  AND retired_at IS NULL
+                """,
+                (SOURCE_ID,),
+            )
+            identity_by_feature_id = {source_feature_id: str(parcel_id) for source_feature_id, parcel_id in cur.fetchall()}
+        have_prior_identities = bool(identity_by_feature_id)
+
         with open(path, "rb") as f:
             for feat in ijson.items(f, "features.item"):
                 rows_in += 1
                 props = feat.get("properties") or {}
                 apn_raw = props.get("APN")
                 pid_raw = props.get("PARCELID")
+                if is_blank(pid_raw):
+                    raise RuntimeError(f"feature {rows_in} has blank PARCELID; cannot reconcile identity")
+                source_feature_id = str(pid_raw)
+                existing_parcel_id = identity_by_feature_id.get(source_feature_id)
+                if existing_parcel_id is not None:
+                    existing_feature_ids.add(source_feature_id)
+                    if same_as_previous:
+                        if rows_in % 25000 == 0:
+                            print(f"  ...verified unchanged identity for {rows_in:,} features")
+                        continue
+                    unsupported_changed += 1
+                    continue
+
+                if have_prior_identities:
+                    unsupported_new_after_initial += 1
+                    continue
+
                 unresolvable, reason = is_unresolvable_apn(apn_raw)
 
                 parcel_id = str(uuid.uuid4())
                 stored_apn = None if unresolvable else apn_raw
 
                 parcel_rows.append((parcel_id, JURISDICTION_ID, stored_apn, geojson_geom_param(feat)))
+                identity_rows = (
+                    SOURCE_ID, source_feature_id, parcel_id,
+                    snapshot_id, retrieved_at, snapshot_id, retrieved_at,
+                )
 
                 fact_rows.append((
                     parcel_id, JURISDICTION_ID, "parcel.geometry", geojson_geom_param(feat), "bulk",
@@ -853,6 +971,8 @@ def phase_e():
                 if rows_in % 25000 == 0:
                     print(f"  ...parsed {rows_in:,} features")
 
+                identity_rows_to_insert.append(identity_rows)
+
         t_parse_end = time.monotonic()
         peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         peak_rss_mb = peak_rss / (1024 * 1024) if sys.platform == "darwin" else peak_rss / 1024
@@ -864,6 +984,14 @@ def phase_e():
         print(f"  fact rows to insert: {len(fact_rows):,}")
         print(f"  parcel_exception rows to insert: {len(exception_rows):,}")
 
+        if unsupported_changed or unsupported_new_after_initial:
+            raise RuntimeError(
+                "snapshot differs from the immediately previous successful parcel observation "
+                "and requires Phase B reconciliation "
+                f"(existing features needing changed-value comparison={unsupported_changed:,}, "
+                f"new source features={unsupported_new_after_initial:,})"
+            )
+
         # cur.rowcount after execute_values reflects only the LAST internal
         # page (execute_values splits page_size-row chunks into separate
         # statements), not the cumulative total -- confirmed directly, not
@@ -873,16 +1001,33 @@ def phase_e():
         # built instead; they are what was actually submitted.
         t_load_start = time.monotonic()
         with conn.cursor() as cur:
-            psycopg2.extras.execute_values(
-                cur,
-                "INSERT INTO parcel (id, jurisdiction_id, apn, geom) VALUES %s",
-                parcel_rows,
-                template="(%s, %s, %s, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)))",
-                page_size=2000,
-            )
+            if parcel_rows:
+                psycopg2.extras.execute_values(
+                    cur,
+                    "INSERT INTO parcel (id, jurisdiction_id, apn, geom) VALUES %s",
+                    parcel_rows,
+                    template="(%s, %s, %s, ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)))",
+                    page_size=2000,
+                )
             print(f"  parcel rows submitted: {len(parcel_rows):,}")
 
-            insert_facts(cur, fact_rows)
+            if identity_rows_to_insert:
+                psycopg2.extras.execute_values(
+                    cur,
+                    """
+                    INSERT INTO source_feature_identity (
+                        source_id, source_feature_id, parcel_id,
+                        first_seen_snapshot_id, first_seen_at,
+                        last_seen_snapshot_id, last_seen_at
+                    ) VALUES %s
+                    """,
+                    identity_rows_to_insert,
+                    page_size=2000,
+                )
+            print(f"  source_feature_identity rows submitted: {len(identity_rows_to_insert):,}")
+
+            if fact_rows:
+                insert_facts(cur, fact_rows)
             print(f"  fact rows submitted: {len(fact_rows):,}")
 
             if exception_rows:
@@ -891,10 +1036,12 @@ def phase_e():
         t_load_end = time.monotonic()
         print(f"  bulk insert wall-clock: {t_load_end - t_load_start:.1f}s")
 
-        # finish_job_run_full's own commit is the ONE commit for this entire
-        # phase -- it closes out the same transaction the parcel/fact/
-        # exception inserts above are still pending in, so job_run only
-        # ever reports 'succeeded' atomically with the data it describes.
+        # One ledger transaction: parcel/identity/fact/exception writes
+        # commit together. current_fact refresh cannot run in a transaction
+        # when CONCURRENTLY is used, so job_run stays running until the
+        # committed ledger has been reflected into the read model.
+        conn.commit()
+        refresh_current_fact(conn)
         finish_job_run_full(conn, job_run_id, "succeeded", snapshot_id, rows_in, len(parcel_rows))
         print(f"\njob_run {job_run_id} -> succeeded")
 
@@ -903,6 +1050,11 @@ def phase_e():
         fail_job_run(conn, job_run_id, e)
         print(f"\njob_run {job_run_id} -> failed: {e}")
         raise
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
     conn.close()
 
@@ -911,6 +1063,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--phase", choices=["b", "c", "d", "e"])
     parser.add_argument("--input-file", help="path to a previously-fetched GeoJSON file, for --phase c/d")
+    parser.add_argument("--snapshot-id", help="snapshot id to load for --phase e")
     args = parser.parse_args()
 
     if args.phase == "b":
@@ -921,7 +1074,9 @@ if __name__ == "__main__":
     elif args.phase == "d":
         phase_d()
     elif args.phase == "e":
-        phase_e()
+        if not args.snapshot_id:
+            raise SystemExit("--phase e requires --snapshot-id; loads must bind to an immutable snapshot row")
+        phase_e(args.snapshot_id)
     else:
         print("pass --phase b, c, d, or e", file=sys.stderr)
         sys.exit(1)

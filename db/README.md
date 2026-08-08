@@ -209,6 +209,27 @@ results (a "no active permits" badge, a coverage metric, anything) must
 gate on `method='bulk'` first, or it will silently misread a `method='direct'`
 source's incomplete query as a confirmed negative.
 
+## `fact.retrieved_at` belongs to the snapshot, not a later deduped re-fetch
+
+`snapshot.id` is deterministic for `(source_id, content_hash)`, and 0021 makes
+the row immutable. If a later fetch returns bytes that hash to an existing
+snapshot, that later observation may produce a new `job_run`, but it does not
+produce a new snapshot row and must not rewrite the existing snapshot's
+`fetched_at`.
+
+Rule for facts: a fact inserted from a snapshot uses that snapshot row's
+`fetched_at` as `fact.retrieved_at`. That timestamp is the first retained
+observation of the bytes whose immutable `snapshot.id` the fact cites. A
+deduped re-fetch time belongs on `job_run.started_at`/`finished_at` for the
+new attempt, not on facts tied to the older snapshot.
+
+In Phase A reconciliation, a deduped re-run of identical bytes writes no new
+facts at all. If a future phase intentionally records observation-level
+metadata for repeated identical content, that metadata needs its own
+observation/job shape; overloading `fact.retrieved_at` would make one fact
+claim it was retrieved from a snapshot at a time different from the snapshot's
+own immutable fetch time.
+
 ## `job_run` has no metrics slot, and stretching `schema_drift` for one is a stopgap
 
 Every non-trivial ingest so far has wanted a second number beyond
