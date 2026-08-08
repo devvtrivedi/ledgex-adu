@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.20
+# LedgeX / ADU.X — Engineering Reference Spec v1.21
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -43,7 +43,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.20 | Machine-executed build contract. |
+| 1 | This Spec v1.21 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -116,7 +116,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.20 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.21 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -127,14 +127,32 @@ ledgex/
 │     ├── LEDGEX_SPEC.md                           ← this file
 │     ├── ARCHITECTURE_BLUEPRINT.pdf
 │     └── SAN_JOSE_CHECKLIST.pdf
-├── core/                                          ← NO city names. Enforced by CI.
+├── core/                                          ← NO city names. Enforced by CI. Currently an empty
+│                                                     scaffold (__init__.py only) -- exists so
+│                                                     import-linter has a real package to use as a
+│                                                     source_modules entry for I1/I15's contracts; no
+│                                                     submodule below has landed yet.
 │     ├── resolver/           L0       core/connectors/ L1               core/snapshots/ L2
 │     ├── normalize/          L3       core/store/              L4       core/rules/             L5
 │     ├── reconcile/          L6       core/exceptions/ L6               core/calc/              L7
 │     ├── compose/            L8       core/deliver/            L8       core/rights/            X
 │     └── model/                       ← Fact, Parcel, Source, Licence, Exception, Refusal
 │                                         (no queue, no task, no assignee types exist)
-├── commerce/                                      ← orders, disclosure, payment. §13.
+├── infra/                                         ← env var access, DB connection construction,
+│                                                     value-normalization helpers. Zero business logic,
+│                                                     zero layer (not L0-L8) -- NOT core/: core/* may
+│                                                     import only core/model and stdlib/third-party (a
+│                                                     rule about jurisdiction-free domain logic), and
+│                                                     infra/ has no domain content to be free of in the
+│                                                     first place. Not ops/ either -- "ops" conventionally
+│                                                     means deployment tooling that depends on the app,
+│                                                     not a runtime dependency the app imports. May be
+│                                                     imported by any of core/, commerce/, jurisdictions/,
+│                                                     pipelines/, api/; imports stdlib/third-party only,
+│                                                     not even core/model, so nothing downstream can ever
+│                                                     come to depend on it for a domain type.
+├── commerce/                                      ← orders, disclosure, payment. §13. Currently an
+│                                                     empty scaffold, same reason as core/ above.
 │                                                     May import core/model. Never imported by core.
 ├── jurisdictions/
 │     ├── _schema/                                 JSON Schema for every pack file
@@ -161,6 +179,15 @@ Import rules (enforced).
 public table. (I15)
 - jurisdictions/*/adapter.py (at most one per pack) may import core/model and core/connectors only, and may
 never import another jurisdiction.
+- infra/* may import stdlib/third-party only -- not even core/model. Any of core/, commerce/,
+jurisdictions/, pipelines/, api/ may import infra/.
+
+Enforced today (0038's follow-on, see §12's 1.21 entry): .importlinter carries the core/jurisdictions/api/
+pipelines/geo/commerce and commerce/core.store contracts above as real, running import-linter "forbidden"
+contracts against empty core/ and commerce/ scaffolds -- near-vacuous (nothing under either yet to violate them)
+but genuinely running, not aspirational text. build/check_jurisdiction_names.py covers the half import-linter
+structurally cannot: a bare jurisdiction-id or source-field-name string literal with no import attached at all.
+Both wired into make check-boundary alongside qa_check.py.
 
 ## 3. Database schema
 
@@ -957,7 +984,8 @@ make liveness                    # every active source responds with expected fi
 make liveness is also production monitoring. A city breaking is a failing test, not a support ticket.
 
 No CI gate reads a knowledge graph. (I17) Every gate above resolves against the filesystem. This matters most for make
-check-boundary, which is a literal grep -ri "san_jose" core/ — a stale or partial graph would answer “no matches” for a violation
+check-boundary, which reads build/check_jurisdiction_names.py's blocklist directly against core/**/*.py on disk (plus
+.importlinter's real import-graph contracts) — a stale or partial graph would answer “no matches” for a violation
 that is sitting in the working tree, and I1 would silently stop being enforced. make graph (§11.1) is a developer convenience
 target and is not part of make check or the definition of done.
 
@@ -1581,7 +1609,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.20
+Engineering Reference Spec v1.21
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1642,7 +1670,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.20
+Engineering Reference Spec v1.21
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1673,7 +1701,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.20
+Engineering Reference Spec v1.21
 
 ## 9. Refusal and error codes
 
@@ -1950,7 +1978,8 @@ carries the same risk with less visibility. The invariants are the only thing st
 pipeline and a rights breach; they are never compressed.
 
 2. No CI gate reads the graph. Every gate in §6.4 resolves against the filesystem. make check-boundary in particular
-is a literal grep -ri "san_jose" core/. A stale graph answering “no matches” would silently retire I1 — and Blueprint
+reads build/check_jurisdiction_names.py's blocklist directly against core/**/*.py, plus .importlinter's real
+import-graph contracts. A stale graph answering “no matches” would silently retire I1 — and Blueprint
 §16 names a core commit containing a city name as “the single most valuable early signal in the build.” Losing that
 signal to a caching artifact would be an expensive way to save tokens.
 
@@ -2336,6 +2365,37 @@ and fails CI if they diverge, closing the duplication this hardcoded         voc
 list would otherwise open.                                                   genuinely immutable -- its only legal change is a future CREATE OR
 REPLACE FUNCTION -- at the cost of needing this drift guard instead of
 getting one for free from the type system.
+
+Aug 2026             1.21                 Added infra/ (§2): env(), get_db(), is_blank(),                              First extraction slice out of scripts/*.py, chosen because all four
+decimal_default() -- byte-identical across all four scripts/*.py             functions needed no design decision (byte-identical already, no
+before this move, now imported from infra/env.py and                        canonical-copy judgment call) and no domain content, unlike every
+infra/values.py instead of copied. Not core/: core/* may import              other shared function found in the same copy-list audit. core/ and
+only core/model and stdlib/third-party, a rule about jurisdiction-           commerce/ added as empty scaffolds (__init__.py only, no
+free domain logic; infra/ has no domain content to be free of in            submodules) purely so import-linter has a real package to serve as
+the first place. Not ops/ either -- "ops" conventionally means               a source_modules entry for the two contracts below; confirmed
+deployment tooling depending on the app, not a runtime dependency            directly that import-linter hard-errors ("Module 'core' does not
+the app imports. .importlinter added: real, running "forbidden"              exist") rather than passing vacuously when the source side of a
+contracts for I1 (core must not import jurisdictions/api/                    contract doesn't exist on disk -- a not-yet-existing package can
+pipelines/geo/commerce) and I15 (commerce may import core.model              only appear as a forbidden-modules target (external reference),
+and core.compose only, never core.store; core must never import              never as a source. Both contracts are near-vacuous today (nothing
+commerce) -- near-vacuous against the empty scaffolds today, but             under core/ or commerce/ yet to violate them) but genuinely run and
+genuinely running, proven capable of failing (a forbidden import             genuinely fail the moment a real violation lands -- proven, not
+planted and caught, reverted) rather than aspirational text.                 assumed: a forbidden import was planted in core/__init__.py and
+build/check_jurisdiction_names.py added: the half of I1 import-              caught, then reverted.
+linter structurally cannot see -- a bare jurisdiction-id or
+source-field-name string literal with no import attached at all,
+the way every jurisdiction id is written today. Evidence-based
+blocklist (ca_san_jose, ca_santa_clara_county, ca_state, plus
+San-José-source-specific property names found during the copy-
+list audit: APN, ZONING, ZONINGABBREV,
+ASSESSORS_PARCEL_NUMBER, the SITUS_ADDRESS family), not a
+general field-name list. make check-boundary changed from
+running qa_check.py alone to running lint-imports, then the
+grep, then qa_check.py -- the moment this target stops being a
+stub, per its own long-standing comment. §6.4/§6.5's description
+of check-boundary as "a literal grep -ri san_jose core/"
+corrected to match: that phrase predated any real
+implementation and was never literally what got built.
 
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

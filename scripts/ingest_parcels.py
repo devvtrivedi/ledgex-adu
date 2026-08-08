@@ -48,7 +48,6 @@ override=False) -- this run is meant to hit a scratch database, never
 whatever DATABASE_URL happens to be sitting in .env.
 """
 import argparse
-import decimal
 import hashlib
 import json
 import os
@@ -63,7 +62,11 @@ import ijson
 import psycopg2
 import psycopg2.extras
 import requests
-from dotenv import load_dotenv
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
+from infra.env import env, get_db  # noqa: E402
+from infra.values import is_blank, decimal_default  # noqa: E402
 
 SOURCE_ID = "ca_san_jose.parcels"
 JURISDICTION_ID = "ca_san_jose"
@@ -77,20 +80,6 @@ JOB_KEY = "ingest_parcels"
 SCRATCHPAD = "/private/tmp/claude-501/-Users-dev-Desktop-ledgex-adu/59865388-e258-4aba-b756-014d02490b5a/scratchpad"
 
 CHUNK_SIZE = 8 * 1024 * 1024  # 8 MiB -- streamed, never buffered whole in memory
-
-
-def env(name):
-    load_dotenv(override=False)
-    val = os.environ.get(name)
-    if not val:
-        raise SystemExit(f"missing required environment variable: {name}")
-    return val
-
-
-def get_db():
-    conn = psycopg2.connect(env("DATABASE_URL"))
-    conn.autocommit = False
-    return conn
 
 
 def get_s3():
@@ -333,10 +322,6 @@ def phase_b():
 EXPECTED_FIELDS = ["parcel.apn", "parcel.geometry", "parcel.lot_area_gis", "parcel.situs_address"]
 
 
-def is_blank(v):
-    return v is None or (isinstance(v, str) and v.strip() == "")
-
-
 def phase_c(path):
     address_key_candidates = {"SITUS_ADDRESS", "ADDRESS", "SITE_ADDR", "SITUSADDR", "SITEADDRESS"}
 
@@ -502,17 +487,8 @@ def select_parcels(path, n=20):
     return selected, skipped_blank, skipped_duplicate
 
 
-def _decimal_default(o):
-    # ijson parses GeoJSON coordinate numbers as decimal.Decimal; json.dumps
-    # has no default encoding for it. float() loses no precision that
-    # matters for a geometry coordinate here (this is not a currency value).
-    if isinstance(o, decimal.Decimal):
-        return float(o)
-    raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
-
-
 def geojson_geom_param(feat):
-    return json.dumps(feat["geometry"], default=_decimal_default)
+    return json.dumps(feat["geometry"], default=decimal_default)
 
 
 def phase_d1_probe(conn, feat):

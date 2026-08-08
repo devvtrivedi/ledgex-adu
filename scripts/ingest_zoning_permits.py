@@ -8,10 +8,17 @@ the second and third). The plumbing below is COPIED from
 ingest_parcels.py, not imported, deliberately: fetch_and_hash,
 start_job_run/fail_job_run/finish_job_run, the snapshot exists/insert/
 dedupe-proof pattern inside run_one_fetch, the execute_values +
-client-generated-UUID batch-insert shape, is_blank, and the
-_decimal_default/geojson_geom_param pair for GeoJSON coordinates. That
-list is the real input for what core/connectors eventually factors out;
-recording it here rather than reconstructing it later.
+client-generated-UUID batch-insert shape, and the geojson_geom_param
+half of the GeoJSON-coordinates pair. That list is the real input for
+what core/connectors eventually factors out; recording it here rather
+than reconstructing it later.
+
+env, get_db, is_blank and the decimal_default half of the GeoJSON pair
+are no longer part of that copied list -- extracted to infra/ (see
+infra/__init__.py for why that's not core/) once the same-four-scripts
+copy audit confirmed they were genuinely byte-identical everywhere and
+needed no design decision to move. Imported from there now, not
+copied.
 
 Two sources, deliberately different join shapes -- see the parcel
 identity diagnostic and this ingest's own design report for the
@@ -76,7 +83,6 @@ convention: process environment first, .env only as fallback.
 import argparse
 import csv
 import datetime
-import decimal
 import hashlib
 import json
 import os
@@ -90,7 +96,11 @@ import ijson
 import psycopg2
 import psycopg2.extras
 import requests
-from dotenv import load_dotenv
+
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
+from infra.env import env, get_db  # noqa: E402
+from infra.values import is_blank, decimal_default  # noqa: E402
 
 JURISDICTION_ID = "ca_san_jose"
 
@@ -122,22 +132,9 @@ DETECTOR_VERSION_ZONING_UNRESOLVABLE = "1.0"
 
 # ---------------------------------------------------------------------------
 # COPIED from ingest_parcels.py (see module docstring for the full list and
-# why it is copied, not imported).
+# why it is copied, not imported). env, get_db, is_blank and
+# decimal_default are imported from infra/ instead -- see module docstring.
 # ---------------------------------------------------------------------------
-
-def env(name):
-    load_dotenv(override=False)
-    val = os.environ.get(name)
-    if not val:
-        raise SystemExit(f"missing required environment variable: {name}")
-    return val
-
-
-def get_db():
-    conn = psycopg2.connect(env("DATABASE_URL"))
-    conn.autocommit = False
-    return conn
-
 
 def get_s3():
     return boto3.client(
@@ -160,18 +157,8 @@ def snapshot_id_for(source_id, digest):
     return f"{source_id}:sha256:{digest}"
 
 
-def is_blank(v):
-    return v is None or (isinstance(v, str) and v.strip() == "")
-
-
-def _decimal_default(o):
-    if isinstance(o, decimal.Decimal):
-        return float(o)
-    raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
-
-
 def geojson_geom_param(geom):
-    return json.dumps(geom, default=_decimal_default)
+    return json.dumps(geom, default=decimal_default)
 
 
 def start_job_run(conn, job_key, source_id):

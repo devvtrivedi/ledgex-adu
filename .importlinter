@@ -1,0 +1,79 @@
+; Import-linter contracts for the repository layout in docs/LEDGEX_SPEC.md
+; §2. Part of `make check-boundary` (I1, I15).
+;
+; core/ and commerce/ are empty scaffolds (see their __init__.py) --
+; created only so lint-imports has a real package to use as a
+; source_modules entry; a not-yet-existing package can be named as a
+; forbidden_modules target (external reference) but not as a source,
+; confirmed directly while writing this file. These two contracts are
+; genuinely near-vacuous right now -- there's no code under core/ or
+; commerce/ yet for either to catch -- but they are REAL contracts that
+; DO run and DO fail the moment a violating import lands, not aspirational
+; text waiting for infrastructure to exist.
+;
+; import-linter is the import-graph half only. Neither contract below
+; can see a bare jurisdiction-id string literal with no import attached
+; (I1's other half -- see build/check_boundary_grep.py) or a database
+; grant/schema-separation fact (I15's other half -- the "catalogue query"
+; named in the invariant table, not yet built).
+;
+; jurisdictions/, api/, pipelines/, geo/ don't exist either -- referenced
+; below only as forbidden_modules (external), never as a source, so they
+; need no scaffold of their own.
+
+[importlinter]
+root_packages =
+    core
+    commerce
+    infra
+include_external_packages = True
+
+[importlinter:contract:i1-core-no-jurisdiction-imports]
+name = I1: core must not import jurisdictions, api, pipelines, geo, or commerce
+type = forbidden
+source_modules =
+    core
+forbidden_modules =
+    jurisdictions
+    api
+    pipelines
+    geo
+    commerce
+
+; §2's rule is an allowlist ("commerce may import core.model and
+; core.compose ONLY"); "forbidden" is a blacklist, the only shape
+; import-linter offers for this. Forbidding core.store alone is a
+; faithful proxy for that allowlist ONLY because core/ has nothing else
+; under it yet (also empty). The day core/ grows a submodule besides
+; model/compose/store, this needs revisiting -- either list every new
+; submodule here too, or move to import-linter's "independence" contract
+; type for a real allowlist shape. Not done now: that submodule doesn't
+; exist to get wrong yet.
+[importlinter:contract:i15-commerce-no-core-store]
+name = I15: commerce may import core.model and core.compose only, never core.store
+type = forbidden
+source_modules =
+    commerce
+forbidden_modules =
+    core.store
+
+[importlinter:contract:i15-core-no-commerce]
+name = I15: core must never import commerce (reverse direction)
+type = forbidden
+source_modules =
+    core
+forbidden_modules =
+    commerce
+
+[importlinter:contract:infra-is-a-leaf]
+name = infra must import only stdlib/third-party -- not even core.model
+type = forbidden
+source_modules =
+    infra
+forbidden_modules =
+    core
+    commerce
+    jurisdictions
+    api
+    pipelines
+    geo

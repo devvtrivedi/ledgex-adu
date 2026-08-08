@@ -24,6 +24,7 @@
 .NOTPARALLEL:
 
 PYTHON         ?= python3
+LINT_IMPORTS   ?= lint-imports
 PG_DUMP        ?= pg_dump
 PSQL           ?= psql
 MIGRATIONS_DIR := db/migrations
@@ -82,11 +83,19 @@ all: qa pdf
 
 # Spec §1.2 make check-boundary: "Jurisdiction-name grep, import-linter,
 # public-to-commerce catalogue query, filesystem authority, no-graph and
-# Track B no-render checks." None of that infrastructure (core/, commerce/,
-# .graphify/) exists in this repo yet, so this currently only runs the
-# document QA gate — the one piece of check-boundary's scope (I17,
-# filesystem authority) that's implemented so far.
+# Track B no-render checks." Three of those six pieces now run for real:
+# import-linter (.importlinter -- I1's import-graph half, I15's import
+# half), the jurisdiction-name grep (build/check_jurisdiction_names.py --
+# I1's other half, the one import-linter structurally cannot see: a bare
+# string literal with no import attached), and qa_check.py (document QA,
+# I17's filesystem-authority piece). Still missing: the public-to-commerce
+# catalogue query (I15's database half) and the no-graph / Track B
+# no-render checks (I17/I19) -- .graphify/ and commerce/'s real schema
+# don't exist yet either.
 check-boundary:
+	@command -v $(LINT_IMPORTS) >/dev/null 2>&1 || { echo "$(LINT_IMPORTS) not found — pip install -r scripts/requirements.txt"; exit 1; }
+	$(LINT_IMPORTS)
+	$(PYTHON) build/check_jurisdiction_names.py
 	$(PYTHON) build/qa_check.py
 
 # Apply every forward-only migration to an empty database, in order.

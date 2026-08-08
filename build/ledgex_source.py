@@ -13,7 +13,7 @@ Invariant I17: these strings are authoritative only when read verbatim from the
 filesystem. Change the text HERE, once, then regenerate both artifacts.
 """
 
-SPEC_VERSION = "1.20"
+SPEC_VERSION = "1.21"
 RULES_VERSION = "1.4"
 PHASE = "Phase 1, Step 1 - City of San Jose"
 REVISION_DATE = "August 2026"

@@ -3,8 +3,11 @@
 
 A FOURTH script, still not core/ -- module boundaries come after a
 non-ingest consumer exists to compare against the three ingests, and
-this is that consumer, not the trigger to extract one yet. Copies
-(adds to the running list) env/get_db from ingest_parcels.py's pattern.
+this is that consumer, not the trigger to extract one yet.
+
+env/get_db were previously copied from ingest_parcels.py's pattern;
+imported from infra/ now instead, the first extraction slice out of
+all four scripts -- see infra/__init__.py for why that's not core/.
 
 Scope, deliberately small, per instruction:
   - read one parcel's current facts via current_fact_at(now()) (C5, 0036)
@@ -51,9 +54,10 @@ import uuid
 
 import psycopg2
 import psycopg2.extras
-from dotenv import load_dotenv
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
+from infra.env import env, get_db  # noqa: E402
 
 
 def get_composer_version():
@@ -103,20 +107,6 @@ def get_composer_version():
         return f"compose@{sha}-dirty-unknown:{err}"
 
     return f"compose@{sha}-dirty" if status else f"compose@{sha}"
-
-
-def env(name):
-    load_dotenv(override=False)
-    val = os.environ.get(name)
-    if not val:
-        raise SystemExit(f"missing required environment variable: {name}")
-    return val
-
-
-def get_db():
-    conn = psycopg2.connect(env("DATABASE_URL"))
-    conn.autocommit = False
-    return conn
 
 
 def compose(conn, apn, channel):

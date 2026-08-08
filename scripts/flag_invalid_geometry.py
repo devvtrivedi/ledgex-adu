@@ -14,18 +14,21 @@ A SEPARATE, THIRD script, not added to ingest_parcels.py or
 ingest_zoning_permits.py and not a shared module -- core/connectors
 still doesn't exist, and this isn't "ingest a new source" the way those
 two are; it's a quality-detection pass over data already loaded by
-them. Copies (adds to the running list, now three ingests plus this)
-get_db/env from ingest_parcels.py's pattern, the execute_values batch
-shape, and the CREATE TEMP TABLE + repair staging approach from
-ingest_zoning_permits.py's load_zoning -- because identifying which
-parcels were classified by which raw zoning polygon requires redoing
-that spatial join; the fact table itself never recorded a back-
-reference to the specific zoning polygon that classified a parcel, only
-the resulting zoning.district/zoning.district_verbatim VALUES. That is
-itself worth naming as a design gap for whenever a real zoning ingest
-module gets built: if it needs to answer "which raw feature produced
-this fact" after the fact, it needs to persist that reference, because
-the value alone doesn't carry it.
+them. Copies the execute_values batch shape and the CREATE TEMP TABLE +
+repair staging approach from ingest_zoning_permits.py's load_zoning --
+because identifying which parcels were classified by which raw zoning
+polygon requires redoing that spatial join; the fact table itself never
+recorded a back-reference to the specific zoning polygon that
+classified a parcel, only the resulting zoning.district/
+zoning.district_verbatim VALUES. That is itself worth naming as a
+design gap for whenever a real zoning ingest module gets built: if it
+needs to answer "which raw feature produced this fact" after the fact,
+it needs to persist that reference, because the value alone doesn't
+carry it.
+
+get_db/env/decimal_default were previously copied from
+ingest_parcels.py's pattern; imported from infra/ now instead -- see
+infra/__init__.py for why that's not core/.
 
 NOT repaired. ST_MakeValid was used at STAGING-load time for the zoning
 side in ingest_zoning_permits.py -- a working copy, thrown away at the
@@ -67,7 +70,6 @@ into one row would blur which population rows_in/rows_out describes).
 No schema changes. One transaction for each of the two exception-
 raising passes.
 """
-import decimal
 import json
 import os
 import sys
@@ -77,12 +79,10 @@ import ijson
 import psycopg2
 import psycopg2.extras
 
-
-def _decimal_default(o):
-    if isinstance(o, decimal.Decimal):
-        return float(o)
-    raise TypeError(f"Object of type {o.__class__.__name__} is not JSON serializable")
-from dotenv import load_dotenv
+REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, REPO_ROOT)
+from infra.env import env, get_db  # noqa: E402
+from infra.values import decimal_default  # noqa: E402
 
 JURISDICTION_ID = "ca_san_jose"
 SOURCE_ID_PARCELS = "ca_san_jose.parcels"
@@ -93,20 +93,6 @@ SCRATCHPAD = "/private/tmp/claude-501/-Users-dev-Desktop-ledgex-adu/59865388-e25
 DETECTOR_KEY_PARCEL_GEOM = "parcel_geometry_invalid"
 DETECTOR_KEY_ZONING_SOURCE_GEOM = "zoning_source_geometry_invalid"
 DETECTOR_VERSION = "1.0"
-
-
-def env(name):
-    load_dotenv(override=False)
-    val = os.environ.get(name)
-    if not val:
-        raise SystemExit(f"missing required environment variable: {name}")
-    return val
-
-
-def get_db():
-    conn = psycopg2.connect(env("DATABASE_URL"))
-    conn.autocommit = False
-    return conn
 
 
 def start_job_run(conn, job_key, source_id):
@@ -201,7 +187,7 @@ def flag_zoning_source_geometry(conn):
         with open(path, "rb") as f:
             for feat in ijson.items(f, "features.item"):
                 props = feat.get("properties") or {}
-                rows.append((props.get("ZONING"), json.dumps(feat["geometry"], default=_decimal_default)))
+                rows.append((props.get("ZONING"), json.dumps(feat["geometry"], default=decimal_default)))
         print(f"  parsed {len(rows):,} zoning features in {time.monotonic()-t0:.1f}s")
 
         with conn.cursor() as cur:

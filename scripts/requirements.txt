@@ -3,3 +3,9 @@ psycopg2-binary
 requests
 python-dotenv
 ijson
+
+# Not an ingest-script dependency -- used by `make check-boundary`
+# (.importlinter, build/check_jurisdiction_names.py). Tracked here anyway:
+# this is the only Python requirements file in the repo, and pip-installing
+# it is already the documented way to get a working environment.
+import-linter
