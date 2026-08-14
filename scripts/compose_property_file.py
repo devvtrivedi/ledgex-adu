@@ -109,7 +109,34 @@ def get_composer_version():
     return f"compose@{sha}-dirty" if status else f"compose@{sha}"
 
 
-def compose(conn, apn, channel):
+def resolve_parcel_id_by_apn(conn, apn):
+    """Resolve apn to exactly one parcel id -- the --parcel-apn convenience
+    path. 0034 dropped parcel's (jurisdiction_id, apn) uniqueness (49
+    collisions measured at the time; 44 in the current live snapshot,
+    dataset drift since -- see Fix 3's report) specifically because APN is
+    not a reliable identity. A plain WHERE apn = %s / fetchone() silently
+    picks whichever row Postgres happens to return first for a colliding
+    apn -- an arbitrary, unstable choice with no error, no log, nothing
+    telling the caller a choice was even made. Never do that: on a
+    collision, name every candidate id and stop. --parcel-id exists
+    precisely so a caller who already knows which parcel they mean never
+    has to go through this resolution at all."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM parcel WHERE apn = %s ORDER BY id", (apn,))
+        rows = cur.fetchall()
+    if not rows:
+        raise SystemExit(f"no parcel with apn={apn!r}")
+    if len(rows) > 1:
+        ids = [str(r[0]) for r in rows]
+        raise SystemExit(
+            f"apn={apn!r} matches {len(ids)} parcels -- ambiguous (0034 dropped APN "
+            f"uniqueness). Candidates: {ids}. Pass one of these to --parcel-id instead "
+            f"of --parcel-apn; this script will never guess which one you meant."
+        )
+    return rows[0][0]
+
+
+def compose(conn, parcel_id, channel):
     t0 = time.monotonic()
     composer_version = get_composer_version()
 
@@ -128,11 +155,17 @@ def compose(conn, apn, channel):
         cur.execute("SELECT clock_timestamp()")
         as_of = cur.fetchone()[0]
 
-        cur.execute("SELECT id, jurisdiction_id FROM parcel WHERE apn = %s", (apn,))
+        # By id, never by apn: 0034 dropped (jurisdiction_id, apn)
+        # uniqueness (Fix 3) -- a WHERE apn = %s / fetchone() here would
+        # silently pick an arbitrary one of up to several parcels sharing
+        # a colliding apn. parcel_id is the only identifier this function
+        # trusts; --parcel-apn (see resolve_parcel_id_by_apn / __main__)
+        # resolves to one BEFORE calling in, erroring loudly if it can't.
+        cur.execute("SELECT id, jurisdiction_id, apn FROM parcel WHERE id = %s", (parcel_id,))
         row = cur.fetchone()
         if row is None:
-            raise SystemExit(f"no parcel with apn={apn!r}")
-        parcel_id, jurisdiction_id = row
+            raise SystemExit(f"no parcel with id={parcel_id!r}")
+        parcel_id, jurisdiction_id, apn = row
 
         cur.execute("SELECT pack_version FROM jurisdiction WHERE id = %s", (jurisdiction_id,))
         pack_version = cur.fetchone()[0]
@@ -146,9 +179,9 @@ def compose(conn, apn, channel):
         )
         touched = cur.fetchall()
         if not touched:
-            raise SystemExit(f"parcel {apn} has no current facts -- nothing to compose or gate")
+            raise SystemExit(f"parcel {parcel_id} (apn={apn!r}) has no current facts -- nothing to compose or gate")
 
-        print(f"parcel {apn} ({parcel_id}): {len(touched)} touched facts")
+        print(f"parcel {parcel_id} (apn={apn!r}): {len(touched)} touched facts")
         for fact_id, field_key, licence_id, value in touched:
             print(f"  {field_key:28s} licence={licence_id:12s} value={json.dumps(value)}")
 
@@ -232,12 +265,17 @@ def compose(conn, apn, channel):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--parcel-apn", required=True)
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--parcel-id", help="parcel.id (uuid) -- unambiguous, the primary way to select a parcel")
+    group.add_argument("--parcel-apn", help="convenience lookup by apn -- ERRORS naming every candidate "
+                                             "id if apn matches more than one parcel (0034 dropped APN "
+                                             "uniqueness); never picks one")
     parser.add_argument("--channel", default="paid_property_file")
     args = parser.parse_args()
 
     conn = get_db()
     try:
-        compose(conn, args.parcel_apn, args.channel)
+        parcel_id = args.parcel_id or resolve_parcel_id_by_apn(conn, args.parcel_apn)
+        compose(conn, parcel_id, args.channel)
     finally:
         conn.close()
