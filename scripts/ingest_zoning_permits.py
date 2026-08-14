@@ -50,10 +50,15 @@ evidence each decision below rests on:
   (self-intersecting) geometry, a real source data-quality property,
   not a parsing bug. Point-in-polygon containment against a POINT
   doesn't invoke that code path and completed cleanly. Zero-match and
-  multi-match parcels (measured for real: 10,138 zero, 12 multi, out of
-  225,042) get a coverage_gap parcel_exception instead of a fact --
-  they DO have an existing parcel row to attach to, unlike permits'
-  unmatched case below, so the 0034 pattern applies directly.
+  multi-match parcels (measured for real, v2 ambiguity rule -- distinct
+  non-blank ZONING values, not candidate row count, see
+  DETECTOR_VERSION_ZONING_UNRESOLVABLE below: 10,138 zero, 1 genuinely
+  ambiguous, out of 225,042; 11 more resolve to one real classification
+  despite multiple candidate rows and get both a fact and a non-blocking
+  anomaly exception) get a coverage_gap parcel_exception instead of (or,
+  for the 11, alongside) a fact -- they DO have an existing parcel row to
+  attach to, unlike permits' unmatched case below, so the 0034 pattern
+  applies directly.
 
   PERMITS (CSV -- tests whether the ingest SHAPE survives a genuinely
   different parse path). Matched by exact string equality on
@@ -140,7 +145,88 @@ FACT_CONFIDENCE_RULE_ID = "bulk_direct_from_assessor_gis"
 FACT_PACK_VERSION = "v1.0"
 
 DETECTOR_KEY_ZONING_UNRESOLVABLE = "zoning_spatial_join_unresolvable"
-DETECTOR_VERSION_ZONING_UNRESOLVABLE = "1.0"
+# v2.0: ambiguity is determined by DISTINCT NON-BLANK ZONING values among a
+# parcel's containing polygons, not by the raw candidate ROW count. v1.0
+# counted rows: a parcel intersecting both a real district polygon and the
+# one zoning polygon with no recorded classification at all (FACILITYID
+# 30392, ZONING and ZONINGABBREV both null) got row-count=2 and was
+# recorded ambiguous, even though there was exactly one real answer.
+# Measured for real against the live dataset: 10 parcels hit exactly that
+# shape, plus 1 more (parcel 5072c848) that intersects two DIFFERENT real
+# polygons (FACILITYID 6206 and 6207) which independently carry the
+# identical ZONING value 'A' -- a second, distinct source-data artifact
+# (overlapping/adjacent polygons agreeing on classification), also
+# miscounted as ambiguous by row counting. v1.0's exception rows meant "row
+# count > 1"; v2.0's mean "distinct real classification count != 1" -- a
+# genuinely different rule, so the version bumps: a detector_version that
+# didn't change under a changed rule would make historical exception rows
+# unfalsifiable later (no way to tell which rule actually produced a given
+# row).
+DETECTOR_VERSION_ZONING_UNRESOLVABLE = "2.0"
+
+REASON_NO_CONTAINING_DISTRICT = "no_containing_district"
+REASON_MULTIPLE_CONTAINING_DISTRICTS = "multiple_containing_districts"
+# Non-blocking: the parcel DID resolve to exactly one real ZONING value,
+# but more than one candidate polygon row contributed to that answer.
+# Written ALONGSIDE the resolved fact, never instead of it -- resolving
+# the value and recording the underlying polygon-overlap anomaly are
+# separate obligations. Measured for real: 11 occurrences, all row_count=2
+# (10 the null-polygon shape, 1 the two-real-polygons-agree shape above).
+REASON_MULTIPLE_POLYGONS_AGREE = "multiple_containing_polygons_agree"
+
+
+def classify_zoning_candidates(candidates):
+    """candidates: list of (facilityid, zoning, zoning_verbatim) for ONE
+    parcel's containing polygons (possibly empty -- zero-match).
+
+    Returns (kind, data):
+      ("zero_match", None)
+      ("ambiguous", None)
+      ("matched", {"zoning": str, "zoning_verbatim": str or None,
+                    "anomaly": None or {"facility_ids": [...], "verbatim_conflict": [...] or None}})
+
+    Ambiguity is decided from distinct non-blank ZONING values ONLY.
+    zoning_verbatim (from ZONINGABBREV) is a second, independent source
+    column despite the name -- it never drives the zero/matched/ambiguous
+    decision. Multiple candidate ROWS that agree on ZONING are not
+    ambiguous; that was v1.0's bug.
+    """
+    non_blank_zoning = {z for (fid, z, zv) in candidates if not is_blank(z)}
+    if len(non_blank_zoning) == 0:
+        return "zero_match", None
+    if len(non_blank_zoning) >= 2:
+        return "ambiguous", None
+
+    resolved_zoning = next(iter(non_blank_zoning))
+    # Only rows that actually contributed the resolved ZONING value get a
+    # vote on zoning_verbatim -- a candidate row with a different (or
+    # null) ZONING never had a say in the answer, so its ZONINGABBREV
+    # isn't relevant to it either.
+    verbatim_candidates = {zv for (fid, z, zv) in candidates if z == resolved_zoning}
+    verbatim_conflict = None
+    if len(verbatim_candidates) == 1:
+        resolved_verbatim = next(iter(verbatim_candidates))
+    else:
+        # ZONINGABBREV disagrees among rows that agree on ZONING. Never
+        # fetchone()/dict-overwrite an arbitrary pick here -- that is
+        # exactly compose_property_file.py's collision bug wearing a
+        # different hat (see Fix 3). Write the fact we ARE certain of
+        # (zoning.district) and skip the one we're not
+        # (zoning.district_verbatim); the disagreement is recorded in the
+        # anomaly detail below, never silently resolved. Zero real
+        # occurrences of this branch in the dataset this was verified
+        # against -- this path is defensive, not exercised by real data.
+        resolved_verbatim = None
+        verbatim_conflict = sorted(v for v in verbatim_candidates if v is not None)
+
+    anomaly = None
+    if len(candidates) > 1:
+        anomaly = {
+            "facility_ids": sorted(fid for fid, z, zv in candidates),
+            "verbatim_conflict": verbatim_conflict,
+        }
+
+    return "matched", {"zoning": resolved_zoning, "zoning_verbatim": resolved_verbatim, "anomaly": anomaly}
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +445,7 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
             cur.execute("""
                 CREATE TEMP TABLE zoning_staging (
                     id serial PRIMARY KEY,
+                    facilityid text,
                     zoning text,
                     zoning_verbatim text,
                     geom geometry(MultiPolygon, 4326)
@@ -370,7 +457,7 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
             for feat in ijson.items(f, "features.item"):
                 props = feat.get("properties") or {}
                 rows.append((
-                    props.get("ZONING"), props.get("ZONINGABBREV"),
+                    props.get("FACILITYID"), props.get("ZONING"), props.get("ZONINGABBREV"),
                     geojson_geom_param(feat["geometry"]),
                 ))
         print(f"  parsed {len(rows):,} zoning features in {time.monotonic()-t0:.1f}s")
@@ -392,9 +479,9 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
             # whether that leaves one polygon or several.
             psycopg2.extras.execute_values(
                 cur,
-                "INSERT INTO zoning_staging (zoning, zoning_verbatim, geom) VALUES %s",
+                "INSERT INTO zoning_staging (facilityid, zoning, zoning_verbatim, geom) VALUES %s",
                 rows,
-                template="(%s, %s, ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 3)))",
+                template="(%s, %s, %s, ST_Multi(ST_CollectionExtract(ST_MakeValid(ST_SetSRID(ST_GeomFromGeoJSON(%s), 4326)), 3)))",
                 page_size=2000,
             )
             cur.execute("CREATE INDEX ON zoning_staging USING gist (geom)")
@@ -405,65 +492,97 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
             cur.execute("UPDATE parcel SET centroid = ST_Centroid(geom) WHERE geom IS NOT NULL AND centroid IS NULL")
             print(f"  parcel.centroid populated for {cur.rowcount:,} rows newly")
 
+            # No count(*) OVER () here -- that counted candidate ROWS, which
+            # is what made this ambiguity-detection wrong (see
+            # DETECTOR_VERSION_ZONING_UNRESOLVABLE's comment above). Fetch
+            # every (parcel, candidate) pair and classify per parcel in
+            # Python via classify_zoning_candidates, which counts DISTINCT
+            # non-blank ZONING values instead.
             t_join_start = time.monotonic()
             cur.execute("""
-                SELECT p.id, z.zoning, z.zoning_verbatim, n
+                SELECT p.id, z2.facilityid, z2.zoning, z2.zoning_verbatim
                 FROM parcel p
-                JOIN LATERAL (
-                    SELECT z2.zoning, z2.zoning_verbatim, count(*) OVER () AS n
-                    FROM zoning_staging z2
-                    WHERE ST_Contains(z2.geom, p.centroid)
-                ) z ON true
+                JOIN zoning_staging z2 ON ST_Contains(z2.geom, p.centroid)
                 WHERE p.centroid IS NOT NULL
             """)
             join_rows = cur.fetchall()
             print(f"  spatial join: {len(join_rows):,} (parcel, candidate zoning) pairs in {time.monotonic()-t_join_start:.1f}s")
 
-        matched = {}   # parcel_id -> (zoning, zoning_verbatim)
-        ambiguous = set()
-        for parcel_id, zoning, zoning_verbatim, n in join_rows:
-            if n > 1:
-                ambiguous.add(parcel_id)
-            else:
-                matched[parcel_id] = (zoning, zoning_verbatim)
+        by_parcel = {}
+        for parcel_id, facilityid, zoning, zoning_verbatim in join_rows:
+            by_parcel.setdefault(parcel_id, []).append((facilityid, zoning, zoning_verbatim))
 
         with conn.cursor() as cur:
             cur.execute("SELECT id FROM parcel WHERE centroid IS NOT NULL")
             all_parcel_ids = {r[0] for r in cur.fetchall()}
-        zero_match = all_parcel_ids - matched.keys() - ambiguous
 
-        print(f"  matched (exactly one district): {len(matched):,}")
+        matched = {}     # parcel_id -> classify_zoning_candidates() "matched" data
+        ambiguous = set()
+        zero_match = set()
+        anomaly_count = 0
+        for parcel_id in all_parcel_ids:
+            kind, data = classify_zoning_candidates(by_parcel.get(parcel_id, []))
+            if kind == "zero_match":
+                zero_match.add(parcel_id)
+            elif kind == "ambiguous":
+                ambiguous.add(parcel_id)
+            else:
+                matched[parcel_id] = data
+                if data["anomaly"] is not None:
+                    anomaly_count += 1
+
+        print(f"  matched (exactly one real classification): {len(matched):,}")
         print(f"  zero-match: {len(zero_match):,}")
-        print(f"  ambiguous (multiple districts): {len(ambiguous):,}")
+        print(f"  ambiguous (>=2 distinct real classifications): {len(ambiguous):,}")
+        print(f"  matched WITH a polygon-overlap anomaly (non-blocking, both fact and exception written): {anomaly_count:,}")
 
         fact_rows = []
-        for parcel_id, (zoning, zoning_verbatim) in matched.items():
+        for parcel_id, data in matched.items():
             fact_rows.append((
-                parcel_id, JURISDICTION_ID, "zoning.district", json.dumps(zoning), "bulk",
+                parcel_id, JURISDICTION_ID, "zoning.district", json.dumps(data["zoning"]), "bulk",
                 SOURCE_ID_ZONING, snapshot_id, retrieved_at, ENDPOINT_URL_ZONING,
                 LICENCE_ID_ZONING, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
                 retrieved_at, FACT_PACK_VERSION,
             ))
-            fact_rows.append((
-                parcel_id, JURISDICTION_ID, "zoning.district_verbatim", json.dumps(zoning_verbatim), "bulk",
-                SOURCE_ID_ZONING, snapshot_id, retrieved_at, ENDPOINT_URL_ZONING,
-                LICENCE_ID_ZONING, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                retrieved_at, FACT_PACK_VERSION,
-            ))
+            # zoning.district_verbatim is skipped, not fabricated, when
+            # ZONINGABBREV conflicts among the rows that agree on ZONING
+            # (data["zoning_verbatim"] is None in that case) -- see
+            # classify_zoning_candidates.
+            if data["zoning_verbatim"] is not None:
+                fact_rows.append((
+                    parcel_id, JURISDICTION_ID, "zoning.district_verbatim", json.dumps(data["zoning_verbatim"]), "bulk",
+                    SOURCE_ID_ZONING, snapshot_id, retrieved_at, ENDPOINT_URL_ZONING,
+                    LICENCE_ID_ZONING, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
+                    retrieved_at, FACT_PACK_VERSION,
+                ))
 
         exception_rows = []
         for parcel_id in zero_match:
             exception_rows.append((
                 parcel_id, JURISDICTION_ID, "coverage_gap", "info",
                 DETECTOR_KEY_ZONING_UNRESOLVABLE, DETECTOR_VERSION_ZONING_UNRESOLVABLE,
-                json.dumps({"reason": "no_containing_district"}),
+                json.dumps({"reason": REASON_NO_CONTAINING_DISTRICT}),
             ))
         for parcel_id in ambiguous:
             exception_rows.append((
                 parcel_id, JURISDICTION_ID, "coverage_gap", "info",
                 DETECTOR_KEY_ZONING_UNRESOLVABLE, DETECTOR_VERSION_ZONING_UNRESOLVABLE,
-                json.dumps({"reason": "multiple_containing_districts"}),
+                json.dumps({"reason": REASON_MULTIPLE_CONTAINING_DISTRICTS}),
             ))
+        # Non-blocking: written for a parcel that ALSO got a fact above.
+        # Resolving the value and recording the polygon-overlap anomaly
+        # are separate obligations -- see REASON_MULTIPLE_POLYGONS_AGREE.
+        for parcel_id, data in matched.items():
+            if data["anomaly"] is not None:
+                exception_rows.append((
+                    parcel_id, JURISDICTION_ID, "coverage_gap", "info",
+                    DETECTOR_KEY_ZONING_UNRESOLVABLE, DETECTOR_VERSION_ZONING_UNRESOLVABLE,
+                    json.dumps({
+                        "reason": REASON_MULTIPLE_POLYGONS_AGREE,
+                        "zoning": data["zoning"],
+                        **data["anomaly"],
+                    }),
+                ))
 
         with conn.cursor() as cur:
             insert_facts(cur, fact_rows)
