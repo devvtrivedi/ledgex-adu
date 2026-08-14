@@ -116,7 +116,7 @@ import requests
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
-from infra.values import is_blank, decimal_default  # noqa: E402
+from infra.values import is_blank, decimal_default, canonicalize_identifier  # noqa: E402
 from core.store import insert_facts  # noqa: E402
 from core.exceptions import insert_exceptions  # noqa: E402
 
@@ -542,7 +542,7 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                 parcel_id, JURISDICTION_ID, "zoning.district", json.dumps(data["zoning"]), "bulk",
                 SOURCE_ID_ZONING, snapshot_id, retrieved_at, ENDPOINT_URL_ZONING,
                 LICENCE_ID_ZONING, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                retrieved_at, FACT_PACK_VERSION,
+                retrieved_at, FACT_PACK_VERSION, None,
             ))
             # zoning.district_verbatim is skipped, not fabricated, when
             # ZONINGABBREV conflicts among the rows that agree on ZONING
@@ -553,7 +553,7 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                     parcel_id, JURISDICTION_ID, "zoning.district_verbatim", json.dumps(data["zoning_verbatim"]), "bulk",
                     SOURCE_ID_ZONING, snapshot_id, retrieved_at, ENDPOINT_URL_ZONING,
                     LICENCE_ID_ZONING, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                    retrieved_at, FACT_PACK_VERSION,
+                    retrieved_at, FACT_PACK_VERSION, None,
                 ))
 
         exception_rows = []
@@ -635,13 +635,19 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
 
     try:
         t0 = time.monotonic()
-        by_apn = {}   # apn -> list of date
+        by_apn = {}   # canonicalized apn -> list of date
         rows_in = 0
         blank_apn = 0
         with open(path, newline="", encoding="utf-8-sig") as f:
             for row in csv.DictReader(f):
                 rows_in += 1
-                apn = (row.get("ASSESSORS_PARCEL_NUMBER") or "").strip()
+                # canonicalize_identifier, not a bare .strip(): a real row
+                # carries a leading apostrophe (spreadsheet-export "force
+                # text" artifact, ASSESSORS_PARCEL_NUMBER = "'67620002")
+                # that never string-equalled parcel.apn's clean
+                # '67620002' -- a real active permit silently dropped.
+                # Fix 1; see infra/values.canonicalize_identifier.
+                apn = canonicalize_identifier(row.get("ASSESSORS_PARCEL_NUMBER"))
                 if is_blank(apn):
                     blank_apn += 1
                     continue
@@ -680,13 +686,13 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                 pid, JURISDICTION_ID, "permits.active", json.dumps(True), "bulk",
                 SOURCE_ID_PERMITS, snapshot_id, retrieved_at, ENDPOINT_URL_PERMITS,
                 LICENCE_ID_PERMITS, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                retrieved_at, FACT_PACK_VERSION,
+                retrieved_at, FACT_PACK_VERSION, None,
             ))
             fact_rows.append((
                 pid, JURISDICTION_ID, "permits.series_earliest", json.dumps(earliest), "bulk",
                 SOURCE_ID_PERMITS, snapshot_id, retrieved_at, ENDPOINT_URL_PERMITS,
                 LICENCE_ID_PERMITS, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                retrieved_at, FACT_PACK_VERSION,
+                retrieved_at, FACT_PACK_VERSION, None,
             ))
 
         print(f"  blank APN: {blank_apn:,} rows")

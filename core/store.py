@@ -1,11 +1,23 @@
 """L4: fact storage -- the write side of "a source observed this value."
 
 insert_facts() is the one shared shape the copy-list audit found: the
-14-column execute_values call at phase_e (scripts/ingest_parcels.py),
-load_zoning and load_permits (scripts/ingest_zoning_permits.py) --
-confirmed byte-identical (same SQL text, same template, same
-page_size=2000) across all three before this move, diffed pairwise, not
-assumed.
+execute_values call at phase_e (scripts/ingest_parcels.py), load_zoning
+and load_permits (scripts/ingest_zoning_permits.py) -- confirmed
+byte-identical (same SQL text, same template, same page_size=2000)
+across all three before this move, diffed pairwise, not assumed.
+
+Widened from 14 to 15 columns (local_verbatim added) for the APN
+canonicalisation fix: fact.local_verbatim has existed since 0006 ("the
+source's own string. NEVER discard.") and no caller wrote it. Once
+phase_e started canonicalising parcel.apn (stripping a leading
+apostrophe / surrounding whitespace) before it becomes the fact's value,
+NOT recording the pre-canonicalisation raw string here would be exactly
+the discard that comment forbids. This is a shared primitive, so the
+column is positional for every caller, not just the one that needed it --
+load_zoning and load_permits pass NULL (no single raw string is
+naturally "the" verbatim form for a spatial-join classification or a
+computed permits.active flag); phase_e's parcel.apn fact is the one
+caller that populates it for real.
 
 Callers still build the 14-tuple list themselves, according to their
 own source-specific mapping from a raw source property to a canonical
@@ -31,16 +43,16 @@ FACT_COLUMNS = (
     "parcel_id, jurisdiction_id, field_key, value, method, "
     "source_id, snapshot_id, retrieved_at, source_url, "
     "licence_id, confidence, confidence_rule_id, "
-    "effective_from, pack_version"
+    "effective_from, pack_version, local_verbatim"
 )
-FACT_TEMPLATE = "(%s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+FACT_TEMPLATE = "(%s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 
 
 def insert_facts(cur, fact_rows):
-    """fact_rows: list of 14-tuples, positional, in FACT_COLUMNS' order.
-    page_size=2000 was identical at all three original call sites, so it
-    stays fixed here rather than becoming a parameter nothing currently
-    needs to vary."""
+    """fact_rows: list of 15-tuples, positional, in FACT_COLUMNS' order
+    (local_verbatim last). page_size=2000 was identical at all three
+    original call sites, so it stays fixed here rather than becoming a
+    parameter nothing currently needs to vary."""
     psycopg2.extras.execute_values(
         cur,
         f"INSERT INTO fact ({FACT_COLUMNS}) VALUES %s",

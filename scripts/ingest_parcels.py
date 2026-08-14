@@ -68,7 +68,7 @@ import requests
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
-from infra.values import is_blank, decimal_default  # noqa: E402
+from infra.values import is_blank, decimal_default, canonicalize_identifier  # noqa: E402
 from core.store import insert_facts  # noqa: E402
 from core.exceptions import insert_exceptions  # noqa: E402
 
@@ -798,13 +798,33 @@ DETECTOR_VERSION_APN_UNRESOLVABLE = "1.0"
 # features, 54 features -- not 30, not 18 -- get no parcel.apn fact.
 # Detected on ANY '?' in the string, not a specific run length or
 # position: a real APN is never expected to contain one.
-def is_unresolvable_apn(apn):
-    """True if apn cannot be recorded as a resolvable public_record
-    observation. Returns (bool, reason) where reason is 'blank' or
-    'placeholder'."""
-    if is_blank(apn):
+#
+# A THIRD shape exists and is NOT handled here: 5 features carry a
+# literal 'XX' prefix (e.g. 'XX000230') -- not a '?' character, so
+# is_unresolvable_apn (both before and after routing through
+# canonicalize_identifier below) does not catch it; these are stored as
+# ordinary resolvable APNs today. Found while measuring Fix 1's real APN
+# shapes; recorded here as a finding, deliberately not acted on --
+# canonicalize_identifier only strips a leading apostrophe and
+# surrounding whitespace (both confirmed raw/canonical representation
+# artifacts of the SAME identifier), and 'XX' is a different kind of
+# problem (an apparent placeholder token, like '?', not a formatting
+# artifact) that wasn't asked for and would need its own investigation
+# before a rule is written for it.
+#
+# is_unresolvable_apn now classifies the CANONICALIZED string, not the
+# raw one -- canonicalize_identifier only strips whitespace/apostrophe,
+# neither of which changes a real APN into '?'-shaped or blank, or vice
+# versa. Confirmed against all 225,039 real features, not assumed: zero
+# features' resolvable/unresolvable classification changed.
+def is_unresolvable_apn(apn_raw):
+    """True if apn_raw cannot be recorded as a resolvable public_record
+    observation, once canonicalized. Returns (bool, reason) where reason
+    is 'blank' or 'placeholder'."""
+    canon = canonicalize_identifier(apn_raw)
+    if is_blank(canon):
         return True, "blank"
-    if "?" in apn:
+    if "?" in canon:
         return True, "placeholder"
     return False, None
 
@@ -946,9 +966,20 @@ def phase_e(snapshot_id):
                     continue
 
                 unresolvable, reason = is_unresolvable_apn(apn_raw)
+                # Canonicalized value is what's stored and what the fact
+                # asserts (Fix 1) -- parcel.apn is a cache of the fact
+                # (0034), so the two must agree. apn_raw itself is never
+                # discarded: it goes into the parcel.apn fact's
+                # local_verbatim below. Confirmed against all 225,039 real
+                # features before this was written: canonicalizing first
+                # changes zero resolvable/unresolvable classifications and
+                # (among resolvable features) introduces zero new APN
+                # collisions -- see is_unresolvable_apn's comment and the
+                # Fix 1 report.
+                canon_apn = canonicalize_identifier(apn_raw)
 
                 parcel_id = str(uuid.uuid4())
-                stored_apn = None if unresolvable else apn_raw
+                stored_apn = None if unresolvable else canon_apn
 
                 parcel_rows.append((parcel_id, JURISDICTION_ID, stored_apn, geojson_geom_param(feat)))
                 identity_rows = (
@@ -960,13 +991,13 @@ def phase_e(snapshot_id):
                     parcel_id, JURISDICTION_ID, "parcel.geometry", geojson_geom_param(feat), "bulk",
                     SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
                     LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                    retrieved_at, FACT_PACK_VERSION,
+                    retrieved_at, FACT_PACK_VERSION, None,
                 ))
                 fact_rows.append((
                     parcel_id, JURISDICTION_ID, "parcel.source_parcel_id", json.dumps(str(pid_raw)), "bulk",
                     SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
                     LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                    retrieved_at, FACT_PACK_VERSION,
+                    retrieved_at, FACT_PACK_VERSION, None,
                 ))
 
                 if unresolvable:
@@ -980,10 +1011,10 @@ def phase_e(snapshot_id):
                 else:
                     resolvable_count += 1
                     fact_rows.append((
-                        parcel_id, JURISDICTION_ID, "parcel.apn", json.dumps(apn_raw), "bulk",
+                        parcel_id, JURISDICTION_ID, "parcel.apn", json.dumps(canon_apn), "bulk",
                         SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
                         LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                        retrieved_at, FACT_PACK_VERSION,
+                        retrieved_at, FACT_PACK_VERSION, apn_raw,
                     ))
 
                 if rows_in % 25000 == 0:
