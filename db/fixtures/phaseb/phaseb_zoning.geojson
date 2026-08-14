@@ -1,0 +1,1 @@
+{"type": "FeatureCollection", "features": [{"type": "Feature", "properties": {"FACILITYID": "phaseb-test-zone", "ZONING": "R-1-8", "ZONINGABBREV": "R-1-8"}, "geometry": {"type": "Polygon", "coordinates": [[[-121.95, 37.35], [-121.95, 37.42], [-121.82, 37.42], [-121.82, 37.35], [-121.95, 37.35]]]}}]}

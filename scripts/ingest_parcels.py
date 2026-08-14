@@ -42,6 +42,16 @@ full-scale load, every feature in the file, not a 20-parcel sample.
      docstring for why. Requires phase b to have already run against the
      target database (needs a real snapshot to cite).
 
+     Phase B reconciliation (same function, same transaction discipline):
+     a snapshot that differs from previous_successful_snapshot() no longer
+     makes phase_e refuse. It classifies every incoming feature as new,
+     changed (>=1 of apn/geometry differs from the live fact), or
+     disappeared (a previously-live source_feature_id absent from this
+     snapshot) via a TEMP staging table + SQL diff against the live fact
+     table, and reconciles each case for real -- see phase_e()'s own
+     docstring for the write shape and NEXT_PROMPTS.md's Phase B report
+     for the design.
+
 DATABASE_URL and OBJECT_STORE_* are read from the process environment
 first, falling back to .env only if unset (python-dotenv's default
 override=False) -- this run is meant to hit a scratch database, never
@@ -784,6 +794,18 @@ JOB_KEY_FULL = "ingest_parcels_full"
 DETECTOR_KEY_APN_UNRESOLVABLE = "parcel_apn_unresolvable"
 DETECTOR_VERSION_APN_UNRESOLVABLE = "1.0"
 
+# Phase B: raised when a parcel disappears from the bulk parcels snapshot
+# (its source_feature_identity is retired) AND it carried a zoning.district
+# fact -- the classification can no longer be confirmed, so the fact is
+# superseded with no successor (not boolean, no honest false value to
+# write) and this exception records why. Distinct detector from
+# ingest_zoning_permits.py's zoning_spatial_join_unresolvable: that one
+# describes a join-quality problem found DURING a zoning ingest; this one
+# describes a parcels-identity problem found during a parcels reconcile,
+# with no zoning re-ingest involved at all.
+DETECTOR_KEY_PARCEL_DISAPPEARED = "parcel_disappeared_from_source"
+DETECTOR_VERSION_PARCEL_DISAPPEARED = "1.0"
+
 # Two placeholder shapes exist in the real data, discovered while writing
 # this phase -- the parcel identity diagnostic's duplicate-only analysis
 # only ever looked at APNs appearing more than once, so it only surfaced
@@ -913,6 +935,18 @@ def phase_e(snapshot_id):
 
     job_run_id = start_job_run(conn, job_key=JOB_KEY_FULL)
 
+    # Captured once, explicitly, and reused for every "this reconciliation
+    # happened now" timestamp below (fact.superseded_at,
+    # source_feature_identity.retired_at) -- not a separate clock_timestamp()
+    # per write. retrieved_at (the SNAPSHOT's own fetch time, set once when
+    # the snapshot row was inserted) is never reused for this: it can be
+    # long past, and source_feature_identity_retired_after_seen requires
+    # retired_at >= last_seen_at, which retrieved_at cannot be trusted to
+    # satisfy.
+    with conn.cursor() as cur:
+        cur.execute("SELECT clock_timestamp()")
+        reconcile_at = cur.fetchone()[0]
+
     t_parse_start = time.monotonic()
 
     parcel_rows = []
@@ -923,10 +957,23 @@ def phase_e(snapshot_id):
     unresolvable_count = 0
     reason_counts = {"blank": 0, "placeholder": 0}
     identity_by_feature_id = {}
-    existing_feature_ids = set()
-    unsupported_changed = 0
-    unsupported_new_after_initial = 0
     identity_rows_to_insert = []
+
+    # Phase B additions -- populated only on the reconciliation path
+    # (same_as_previous is False). See ingest_parcels.py's Phase B report
+    # (NEXT_PROMPTS.md) for the design this implements.
+    fact_ids_to_supersede = []              # bulk UPDATE target, retired BEFORE any successor INSERT
+    parcel_apn_cache_updates = []           # (parcel_id, new_apn) -- parcel.apn cache (0034)
+    parcel_geom_cache_updates = []          # (parcel_id, geometry_json) -- parcel.geom/centroid cache
+    identity_retirements = []               # (source_id, source_feature_id, retired_snapshot_id, retired_at, retirement_reason)
+    identity_touch_updates = []             # (source_id, source_feature_id, last_seen_snapshot_id, last_seen_at, was_reappearing)
+    changed_count = 0
+    changed_field_counts = {"parcel.apn": 0, "parcel.geometry": 0}
+    new_count = 0
+    reappeared_count = 0
+    disappeared_count = 0
+    disappeared_permits_retracted = 0
+    disappeared_zoning_retracted = 0
 
     try:
         with conn.cursor() as cur:
@@ -942,64 +989,157 @@ def phase_e(snapshot_id):
             identity_by_feature_id = {source_feature_id: str(parcel_id) for source_feature_id, parcel_id in cur.fetchall()}
         have_prior_identities = bool(identity_by_feature_id)
 
-        with open(path, "rb") as f:
-            for feat in ijson.items(f, "features.item"):
-                rows_in += 1
-                props = feat.get("properties") or {}
-                apn_raw = props.get("APN")
-                pid_raw = props.get("PARCELID")
-                if is_blank(pid_raw):
-                    raise RuntimeError(f"feature {rows_in} has blank PARCELID; cannot reconcile identity")
-                source_feature_id = str(pid_raw)
-                existing_parcel_id = identity_by_feature_id.get(source_feature_id)
-                if existing_parcel_id is not None:
-                    existing_feature_ids.add(source_feature_id)
-                    if same_as_previous:
-                        if rows_in % 25000 == 0:
-                            print(f"  ...verified unchanged identity for {rows_in:,} features")
-                        continue
-                    unsupported_changed += 1
-                    continue
+        if same_as_previous:
+            # Identical bytes to the last successfully-reconciled snapshot
+            # (previous_successful_snapshot() confirmed it, per the P1 fix,
+            # durably and correctly). Same bytes in can only mean the same
+            # facts out -- verifying identity presence is sufinvariant to
+            # prove that without paying for a full value-by-value database
+            # diff. This is the ONLY case that still skips the Phase B
+            # reconciliation pass below; any genuine snapshot change goes
+            # through it.
+            with open(path, "rb") as f:
+                for feat in ijson.items(f, "features.item"):
+                    rows_in += 1
+                    props = feat.get("properties") or {}
+                    pid_raw = props.get("PARCELID")
+                    if is_blank(pid_raw):
+                        raise RuntimeError(f"feature {rows_in} has blank PARCELID; cannot reconcile identity")
+                    if rows_in % 25000 == 0:
+                        print(f"  ...verified unchanged identity for {rows_in:,} features")
+            t_parse_end = time.monotonic()
+            print(f"\nparse complete: {rows_in:,} features in {t_parse_end - t_parse_start:.1f}s "
+                  f"(same_as_previous -- verified identity only, no reconciliation needed)")
 
-                if have_prior_identities:
-                    unsupported_new_after_initial += 1
-                    continue
+        else:
+            # Phase B reconciliation. Stage every incoming feature and let
+            # Postgres compute the changed/new/disappeared sets -- "set
+            # difference must run in the database, not in Python" (report
+            # 1(d)). staging is a TEMP TABLE inside this same transaction,
+            # same precedent as ingest_zoning_permits.py's zoning_staging:
+            # holds no durable domain truth, rolls back for free with
+            # everything else if this transaction never commits.
+            staging_rows = []
+            with open(path, "rb") as f:
+                for feat in ijson.items(f, "features.item"):
+                    rows_in += 1
+                    props = feat.get("properties") or {}
+                    apn_raw = props.get("APN")
+                    pid_raw = props.get("PARCELID")
+                    if is_blank(pid_raw):
+                        raise RuntimeError(f"feature {rows_in} has blank PARCELID; cannot reconcile identity")
+                    source_feature_id = str(pid_raw)
+                    staging_rows.append((
+                        source_feature_id, apn_raw, canonicalize_identifier(apn_raw),
+                        geojson_geom_param(feat), feat,
+                    ))
+                    if rows_in % 25000 == 0:
+                        print(f"  ...parsed {rows_in:,} features")
 
+            staging_by_feature_id = {r[0]: r for r in staging_rows}
+            t_parse_end = time.monotonic()
+            print(f"\nparse complete: {rows_in:,} features in {t_parse_end - t_parse_start:.1f}s")
+
+            with conn.cursor() as cur:
+                cur.execute("""
+                    CREATE TEMP TABLE parcels_incoming_staging (
+                        source_feature_id text PRIMARY KEY,
+                        apn_canonical      text,
+                        geometry_json      jsonb
+                    )
+                """)
+                psycopg2.extras.execute_values(
+                    cur,
+                    "INSERT INTO parcels_incoming_staging (source_feature_id, apn_canonical, geometry_json) VALUES %s",
+                    [(r[0], r[2], r[3]) for r in staging_rows],
+                    template="(%s, %s, %s::jsonb)",
+                    page_size=2000,
+                )
+
+                # NEW: incoming features with NO identity row at all, ever
+                # (not "no LIVE row" -- source_feature_identity's primary
+                # key is (source_id, source_feature_id), so a feature that
+                # disappeared and reappeared already owns a row, just a
+                # retired one; INSERTing a second row for it would violate
+                # that PK. That case is EXISTING_OR_REAPPEARING below, not
+                # NEW.)
+                cur.execute("""
+                    SELECT s.source_feature_id FROM parcels_incoming_staging s
+                    WHERE NOT EXISTS (
+                        SELECT 1 FROM source_feature_identity sfi
+                        WHERE sfi.source_id = %s AND sfi.source_feature_id = s.source_feature_id
+                    )
+                """, (SOURCE_ID,))
+                new_feature_ids = {r[0] for r in cur.fetchall()}
+
+                # DISAPPEARED: live identity rows with no incoming feature.
+                cur.execute("""
+                    SELECT sfi.source_feature_id, sfi.parcel_id FROM source_feature_identity sfi
+                    WHERE sfi.source_id = %s AND sfi.retired_at IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM parcels_incoming_staging s
+                          WHERE s.source_feature_id = sfi.source_feature_id
+                      )
+                """, (SOURCE_ID,))
+                disappeared_rows = cur.fetchall()
+
+                # EXISTING_OR_REAPPEARING: any identity row (live OR
+                # retired) matching an incoming feature. sfi.retired_at is
+                # selected so Python can tell a plain value-change apart
+                # from a reappearance that also needs the identity
+                # un-retired. parcel.apn/geometry facts are never touched
+                # on disappearance (see the DISAPPEARED write section
+                # below), so they're still there, un-superseded, to
+                # compare against even for a currently-retired identity.
+                # Only features with an existing, resolvable parcel.apn
+                # fact are covered by this join -- a feature whose
+                # resolvability itself flips (resolvable <-> '?'/blank)
+                # between snapshots is a real, distinct case this pass
+                # does not handle; flagged here as a known gap, not
+                # silently absorbed into "changed" or "unchanged".
+                cur.execute("""
+                    SELECT s.source_feature_id, sfi.parcel_id, sfi.retired_at,
+                           fa.id, fa.value, s.apn_canonical,
+                           fg.id, fg.value, s.geometry_json
+                    FROM parcels_incoming_staging s
+                    JOIN source_feature_identity sfi
+                      ON sfi.source_id = %s AND sfi.source_feature_id = s.source_feature_id
+                    JOIN fact fa ON fa.parcel_id = sfi.parcel_id AND fa.field_key = 'parcel.apn' AND fa.superseded_at IS NULL
+                    JOIN fact fg ON fg.parcel_id = sfi.parcel_id AND fg.field_key = 'parcel.geometry' AND fg.superseded_at IS NULL
+                    WHERE sfi.retired_at IS NOT NULL
+                       OR fa.value IS DISTINCT FROM to_jsonb(s.apn_canonical)
+                       OR fg.value IS DISTINCT FROM s.geometry_json
+                """, (SOURCE_ID,))
+                changed_rows = cur.fetchall()
+
+            reappeared_count_query = sum(1 for r in changed_rows if r[2] is not None)
+            print(f"  new: {len(new_feature_ids):,}  disappeared: {len(disappeared_rows):,}  "
+                  f"changed-or-reappeared: {len(changed_rows):,} (of which reappeared: {reappeared_count_query:,})")
+
+            # --- NEW: parcel + source_feature_identity + initial facts. No supersession. ---
+            for source_feature_id in new_feature_ids:
+                _, apn_raw, canon_apn, geometry_json, feat = staging_by_feature_id[source_feature_id]
                 unresolvable, reason = is_unresolvable_apn(apn_raw)
-                # Canonicalized value is what's stored and what the fact
-                # asserts (Fix 1) -- parcel.apn is a cache of the fact
-                # (0034), so the two must agree. apn_raw itself is never
-                # discarded: it goes into the parcel.apn fact's
-                # local_verbatim below. Confirmed against all 225,039 real
-                # features before this was written: canonicalizing first
-                # changes zero resolvable/unresolvable classifications and
-                # (among resolvable features) introduces zero new APN
-                # collisions -- see is_unresolvable_apn's comment and the
-                # Fix 1 report.
-                canon_apn = canonicalize_identifier(apn_raw)
-
                 parcel_id = str(uuid.uuid4())
                 stored_apn = None if unresolvable else canon_apn
 
                 parcel_rows.append((parcel_id, JURISDICTION_ID, stored_apn, geojson_geom_param(feat)))
-                identity_rows = (
+                identity_rows_to_insert.append((
                     SOURCE_ID, source_feature_id, parcel_id,
                     snapshot_id, retrieved_at, snapshot_id, retrieved_at,
-                )
-
+                ))
                 fact_rows.append((
                     parcel_id, JURISDICTION_ID, "parcel.geometry", geojson_geom_param(feat), "bulk",
                     SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
                     LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                    retrieved_at, FACT_PACK_VERSION, None,
+                    retrieved_at, FACT_PACK_VERSION, None, None, None,
                 ))
                 fact_rows.append((
-                    parcel_id, JURISDICTION_ID, "parcel.source_parcel_id", json.dumps(str(pid_raw)), "bulk",
+                    parcel_id, JURISDICTION_ID, "parcel.source_parcel_id", json.dumps(source_feature_id), "bulk",
                     SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
                     LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                    retrieved_at, FACT_PACK_VERSION, None,
+                    retrieved_at, FACT_PACK_VERSION, None, None, None,
                 ))
-
                 if unresolvable:
                     unresolvable_count += 1
                     reason_counts[reason] += 1
@@ -1014,32 +1154,150 @@ def phase_e(snapshot_id):
                         parcel_id, JURISDICTION_ID, "parcel.apn", json.dumps(canon_apn), "bulk",
                         SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
                         LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                        retrieved_at, FACT_PACK_VERSION, apn_raw,
+                        retrieved_at, FACT_PACK_VERSION, apn_raw, None, None,
                     ))
+                new_count += 1
 
-                if rows_in % 25000 == 0:
-                    print(f"  ...parsed {rows_in:,} features")
+            # --- CHANGED: supersede current fact(s), insert successor(s) with
+            # supersedes_fact_id + supersession_reason='unknown' (0042's
+            # parcel/field-match and target-retirement checks apply and were
+            # verified directly -- see the Phase B report). Only the field(s)
+            # that actually differ get superseded; a feature with the same
+            # apn but a moved geometry is one row here but only ONE field
+            # changes. ---
+            for (source_feature_id, parcel_id, sfi_retired_at, apn_fact_id, apn_current_value, apn_incoming,
+                 geom_fact_id, geom_current_value, geom_incoming) in changed_rows:
+                _, apn_raw, canon_apn, geometry_json, feat = staging_by_feature_id[source_feature_id]
 
-                identity_rows_to_insert.append(identity_rows)
+                # A feature that disappeared and reappeared owns its
+                # original identity row (PK is (source_id, source_feature_id),
+                # so it can't be re-INSERTed) -- un-retire it and refresh
+                # last_seen, reusing the SAME parcel_id and SAME un-superseded
+                # apn/geometry facts it always had. Every row reaching this
+                # loop gets its last_seen_snapshot_id/last_seen_at bumped,
+                # reappearing or not -- it was just freshly observed in this
+                # snapshot. (A truly unchanged, never-retired feature that
+                # ISN'T in changed_rows at all does NOT get last_seen bumped
+                # by this pass -- a known, deliberate scope limit; see the
+                # Phase B report.)
+                identity_touch_updates.append((
+                    SOURCE_ID, source_feature_id, snapshot_id, retrieved_at,
+                    sfi_retired_at is not None,
+                ))
+                if sfi_retired_at is not None:
+                    reappeared_count += 1
 
-        t_parse_end = time.monotonic()
+                # psycopg2 hands back jsonb columns already decoded to a
+                # Python value (apn_current_value is a plain str, not a
+                # '"..."'-quoted JSON string) -- compare decoded-to-decoded,
+                # not string forms.
+                apn_changed = (apn_current_value != apn_incoming)
+                geom_changed = (geom_current_value != geom_incoming)
+
+                if apn_changed:
+                    fact_ids_to_supersede.append(apn_fact_id)
+                    fact_rows.append((
+                        parcel_id, JURISDICTION_ID, "parcel.apn", json.dumps(canon_apn), "bulk",
+                        SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
+                        LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
+                        retrieved_at, FACT_PACK_VERSION, apn_raw,
+                        apn_fact_id, "unknown",
+                    ))
+                    parcel_apn_cache_updates.append((parcel_id, canon_apn))
+                    changed_field_counts["parcel.apn"] += 1
+
+                if geom_changed:
+                    fact_ids_to_supersede.append(geom_fact_id)
+                    fact_rows.append((
+                        parcel_id, JURISDICTION_ID, "parcel.geometry", geojson_geom_param(feat), "bulk",
+                        SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
+                        LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
+                        retrieved_at, FACT_PACK_VERSION, None,
+                        geom_fact_id, "unknown",
+                    ))
+                    parcel_geom_cache_updates.append((parcel_id, geojson_geom_param(feat)))
+                    changed_field_counts["parcel.geometry"] += 1
+
+                # 1(c)'s definition is "at least one field's value differs" --
+                # a row that's here ONLY because it reappeared (identity was
+                # retired, but apn/geometry are byte-identical to before)
+                # does not count as changed.
+                if apn_changed or geom_changed:
+                    changed_count += 1
+
+            # --- DISAPPEARED: retire identity; cascade into whatever
+            # OTHER-source facts already exist for this parcel_id.
+            # permits.active -> explicit false successor (boolean: a
+            # meaningful negative). zoning -> supersede with NO successor
+            # + coverage_gap exception (not boolean: no honest false
+            # value to write). geometry/apn/source_parcel_id facts are
+            # left exactly as they are -- not superseded, no successor:
+            # the source no longer confirms this parcel, but 0017 already
+            # makes those facts permanent, and nothing in this pass claims
+            # they are now wrong, only that we no longer observe them. ---
+            if disappeared_rows:
+                disappeared_parcel_ids = [pid for _, pid in disappeared_rows]
+                with conn.cursor() as cur:
+                    cur.execute("""
+                        SELECT parcel_id, id FROM fact
+                        WHERE parcel_id = ANY(%s::uuid[]) AND field_key = 'permits.active'
+                          AND superseded_at IS NULL AND value = 'true'::jsonb
+                    """, (disappeared_parcel_ids,))
+                    active_permits_by_parcel = dict(cur.fetchall())
+
+                    cur.execute("""
+                        SELECT parcel_id, id FROM fact
+                        WHERE parcel_id = ANY(%s::uuid[]) AND field_key = 'zoning.district'
+                          AND superseded_at IS NULL
+                    """, (disappeared_parcel_ids,))
+                    zoning_by_parcel = dict(cur.fetchall())
+
+                for source_feature_id, parcel_id in disappeared_rows:
+                    identity_retirements.append((
+                        SOURCE_ID, source_feature_id, snapshot_id, reconcile_at,
+                        "parcel_absent_from_bulk_parcels_snapshot",
+                    ))
+                    disappeared_count += 1
+
+                    permits_fact_id = active_permits_by_parcel.get(parcel_id)
+                    if permits_fact_id is not None:
+                        fact_ids_to_supersede.append(permits_fact_id)
+                        fact_rows.append((
+                            parcel_id, JURISDICTION_ID, "permits.active", json.dumps(False), "bulk",
+                            SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
+                            LICENCE_ID, FACT_CONFIDENCE, "parcel_absent_from_bulk_parcels_snapshot",
+                            retrieved_at, FACT_PACK_VERSION, None,
+                            permits_fact_id, "unknown",
+                        ))
+                        disappeared_permits_retracted += 1
+
+                    zoning_fact_id = zoning_by_parcel.get(parcel_id)
+                    if zoning_fact_id is not None:
+                        fact_ids_to_supersede.append(zoning_fact_id)
+                        exception_rows.append((
+                            parcel_id, JURISDICTION_ID, "coverage_gap", "info",
+                            DETECTOR_KEY_PARCEL_DISAPPEARED, DETECTOR_VERSION_PARCEL_DISAPPEARED,
+                            json.dumps({
+                                "reason": "zoning_fact_superseded_parcel_disappeared",
+                                "source_feature_id": source_feature_id,
+                            }),
+                        ))
+                        disappeared_zoning_retracted += 1
+
         peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         peak_rss_mb = peak_rss / (1024 * 1024) if sys.platform == "darwin" else peak_rss / 1024
-        print(f"\nparse complete: {rows_in:,} features in {t_parse_end - t_parse_start:.1f}s, "
-              f"peak RSS {peak_rss_mb:.1f} MB")
+        print(f"  peak RSS {peak_rss_mb:.1f} MB")
+        print(f"  new: {new_count:,}  changed: {changed_count:,} "
+              f"(apn={changed_field_counts['parcel.apn']:,}, geometry={changed_field_counts['parcel.geometry']:,})  "
+              f"reappeared: {reappeared_count:,}  "
+              f"disappeared: {disappeared_count:,} "
+              f"(permits retracted={disappeared_permits_retracted:,}, zoning retracted={disappeared_zoning_retracted:,})")
         print(f"  resolvable APN: {resolvable_count:,}  unresolvable: {unresolvable_count:,} "
               f"(blank={reason_counts['blank']}, placeholder={reason_counts['placeholder']})")
         print(f"  parcel rows to insert: {len(parcel_rows):,}")
         print(f"  fact rows to insert: {len(fact_rows):,}")
         print(f"  parcel_exception rows to insert: {len(exception_rows):,}")
-
-        if unsupported_changed or unsupported_new_after_initial:
-            raise RuntimeError(
-                "snapshot differs from the immediately previous successful parcel observation "
-                "and requires Phase B reconciliation "
-                f"(existing features needing changed-value comparison={unsupported_changed:,}, "
-                f"new source features={unsupported_new_after_initial:,})"
-            )
+        print(f"  fact ids to supersede: {len(fact_ids_to_supersede):,}")
 
         # cur.rowcount after execute_values reflects only the LAST internal
         # page (execute_values splits page_size-row chunks into separate
@@ -1075,6 +1333,23 @@ def phase_e(snapshot_id):
                 )
             print(f"  source_feature_identity rows submitted: {len(identity_rows_to_insert):,}")
 
+            # MUST run before insert_facts() below: fact_one_current_per_source
+            # is a plain unique INDEX (not a deferrable constraint -- checked
+            # immediately, per statement, no deferral available), so a
+            # successor row with the same (parcel_id, field_key, source_id,
+            # method_version) key as one of these targets would violate it
+            # if its predecessor weren't already retired. This is one single
+            # UPDATE statement -- by the time it returns, every targeted row
+            # is retired in this transaction, before the INSERT below runs.
+            # Verified directly (Phase B report 1(b)): this order succeeds;
+            # the reverse order raises fact_one_current_per_source for real.
+            if fact_ids_to_supersede:
+                cur.execute(
+                    "UPDATE fact SET superseded_at = %s WHERE id = ANY(%s::uuid[]) AND superseded_at IS NULL",
+                    (reconcile_at, fact_ids_to_supersede),
+                )
+            print(f"  facts superseded: {len(fact_ids_to_supersede):,}")
+
             if fact_rows:
                 insert_facts(cur, fact_rows)
             print(f"  fact rows submitted: {len(fact_rows):,}")
@@ -1082,6 +1357,83 @@ def phase_e(snapshot_id):
             if exception_rows:
                 insert_exceptions(cur, exception_rows)
                 print(f"  parcel_exception rows submitted: {len(exception_rows):,}")
+
+            # parcel.apn / parcel.geom / parcel.centroid are non-authoritative
+            # caches of the fact ledger (0034) -- kept in sync here so a
+            # later zoning spatial join (parcel.centroid IS NULL trigger in
+            # load_zoning) recomputes against the new geometry rather than
+            # silently joining on stale coordinates. centroid is reset to
+            # NULL, not recomputed here -- that recomputation is
+            # load_zoning's own job, unchanged by this pass.
+            if parcel_apn_cache_updates:
+                psycopg2.extras.execute_values(
+                    cur,
+                    "UPDATE parcel AS p SET apn = v.apn FROM (VALUES %s) AS v(id, apn) WHERE p.id = v.id::uuid",
+                    parcel_apn_cache_updates,
+                    template="(%s::uuid, %s)",
+                    page_size=2000,
+                )
+            if parcel_geom_cache_updates:
+                psycopg2.extras.execute_values(
+                    cur,
+                    """
+                    UPDATE parcel AS p SET geom = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(v.geom), 4326)), centroid = NULL
+                    FROM (VALUES %s) AS v(id, geom)
+                    WHERE p.id = v.id::uuid
+                    """,
+                    parcel_geom_cache_updates,
+                    template="(%s::uuid, %s)",
+                    page_size=2000,
+                )
+            print(f"  parcel cache columns updated: apn={len(parcel_apn_cache_updates):,} geom={len(parcel_geom_cache_updates):,}")
+
+            # DISAPPEARED identities retired last -- order doesn't matter
+            # relative to the writes above (no shared unique index), but
+            # doing it after the cascade facts/exceptions that reference
+            # these parcel_ids keeps the transaction's writes in the same
+            # order they were reasoned about.
+            if identity_retirements:
+                psycopg2.extras.execute_values(
+                    cur,
+                    """
+                    UPDATE source_feature_identity AS sfi
+                    SET retired_snapshot_id = v.retired_snapshot_id,
+                        retired_at = v.retired_at,
+                        retirement_reason = v.retirement_reason
+                    FROM (VALUES %s) AS v(source_id, source_feature_id, retired_snapshot_id, retired_at, retirement_reason)
+                    WHERE sfi.source_id = v.source_id AND sfi.source_feature_id = v.source_feature_id
+                    """,
+                    identity_retirements,
+                    template="(%s, %s, %s, %s::timestamptz, %s)",
+                    page_size=2000,
+                )
+            print(f"  source_feature_identity rows retired: {len(identity_retirements):,}")
+
+            # EXISTING_OR_REAPPEARING identities: refresh last_seen always;
+            # un-retire (clear retired_snapshot_id/retired_at/retirement_reason
+            # together, per source_feature_identity_retirement_pairing --
+            # 0043 -- all three or none) only for rows that were actually
+            # retired. A plain CASE keeps this one statement instead of two
+            # separate UPDATEs branching on was_reappearing.
+            if identity_touch_updates:
+                psycopg2.extras.execute_values(
+                    cur,
+                    """
+                    UPDATE source_feature_identity AS sfi
+                    SET last_seen_snapshot_id = v.last_seen_snapshot_id,
+                        last_seen_at = v.last_seen_at,
+                        retired_snapshot_id = CASE WHEN v.was_reappearing THEN NULL ELSE sfi.retired_snapshot_id END,
+                        retired_at = CASE WHEN v.was_reappearing THEN NULL ELSE sfi.retired_at END,
+                        retirement_reason = CASE WHEN v.was_reappearing THEN NULL ELSE sfi.retirement_reason END
+                    FROM (VALUES %s) AS v(source_id, source_feature_id, last_seen_snapshot_id, last_seen_at, was_reappearing)
+                    WHERE sfi.source_id = v.source_id AND sfi.source_feature_id = v.source_feature_id
+                    """,
+                    identity_touch_updates,
+                    template="(%s, %s, %s, %s::timestamptz, %s)",
+                    page_size=2000,
+                )
+            print(f"  source_feature_identity rows touched (last_seen refreshed, {reappeared_count:,} un-retired): "
+                  f"{len(identity_touch_updates):,}")
         t_load_end = time.monotonic()
         print(f"  bulk insert wall-clock: {t_load_end - t_load_start:.1f}s")
 

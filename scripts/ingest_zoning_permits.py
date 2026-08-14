@@ -542,7 +542,7 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                 parcel_id, JURISDICTION_ID, "zoning.district", json.dumps(data["zoning"]), "bulk",
                 SOURCE_ID_ZONING, snapshot_id, retrieved_at, ENDPOINT_URL_ZONING,
                 LICENCE_ID_ZONING, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                retrieved_at, FACT_PACK_VERSION, None,
+                retrieved_at, FACT_PACK_VERSION, None, None, None,
             ))
             # zoning.district_verbatim is skipped, not fabricated, when
             # ZONINGABBREV conflicts among the rows that agree on ZONING
@@ -553,7 +553,7 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                     parcel_id, JURISDICTION_ID, "zoning.district_verbatim", json.dumps(data["zoning_verbatim"]), "bulk",
                     SOURCE_ID_ZONING, snapshot_id, retrieved_at, ENDPOINT_URL_ZONING,
                     LICENCE_ID_ZONING, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                    retrieved_at, FACT_PACK_VERSION, None,
+                    retrieved_at, FACT_PACK_VERSION, None, None, None,
                 ))
 
         exception_rows = []
@@ -686,13 +686,13 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                 pid, JURISDICTION_ID, "permits.active", json.dumps(True), "bulk",
                 SOURCE_ID_PERMITS, snapshot_id, retrieved_at, ENDPOINT_URL_PERMITS,
                 LICENCE_ID_PERMITS, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                retrieved_at, FACT_PACK_VERSION, None,
+                retrieved_at, FACT_PACK_VERSION, None, None, None,
             ))
             fact_rows.append((
                 pid, JURISDICTION_ID, "permits.series_earliest", json.dumps(earliest), "bulk",
                 SOURCE_ID_PERMITS, snapshot_id, retrieved_at, ENDPOINT_URL_PERMITS,
                 LICENCE_ID_PERMITS, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                retrieved_at, FACT_PACK_VERSION, None,
+                retrieved_at, FACT_PACK_VERSION, None, None, None,
             ))
 
         print(f"  blank APN: {blank_apn:,} rows")

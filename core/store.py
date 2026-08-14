@@ -19,6 +19,14 @@ naturally "the" verbatim form for a spatial-join classification or a
 computed permits.active flag); phase_e's parcel.apn fact is the one
 caller that populates it for real.
 
+Widened again, 15 to 17 (supersedes_fact_id, supersession_reason) for
+Phase B reconciliation: any of the three callers can now write a
+successor fact retiring a prior one (0025), and the pairing is enforced
+by fact_supersession_reason_biconditional -- both NULL or both set, never
+one alone. Same shared-primitive reasoning as local_verbatim: every
+caller's tuples grow two columns whether or not that particular call site
+currently writes any successors.
+
 Callers still build the 14-tuple list themselves, according to their
 own source-specific mapping from a raw source property to a canonical
 field_key. That mapping is jurisdiction-specific and deliberately
@@ -43,16 +51,18 @@ FACT_COLUMNS = (
     "parcel_id, jurisdiction_id, field_key, value, method, "
     "source_id, snapshot_id, retrieved_at, source_url, "
     "licence_id, confidence, confidence_rule_id, "
-    "effective_from, pack_version, local_verbatim"
+    "effective_from, pack_version, local_verbatim, "
+    "supersedes_fact_id, supersession_reason"
 )
-FACT_TEMPLATE = "(%s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
+FACT_TEMPLATE = "(%s, %s, %s, %s::jsonb, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"
 
 
 def insert_facts(cur, fact_rows):
-    """fact_rows: list of 15-tuples, positional, in FACT_COLUMNS' order
-    (local_verbatim last). page_size=2000 was identical at all three
-    original call sites, so it stays fixed here rather than becoming a
-    parameter nothing currently needs to vary."""
+    """fact_rows: list of 17-tuples, positional, in FACT_COLUMNS' order
+    (local_verbatim, then supersedes_fact_id, supersession_reason, last).
+    page_size=2000 was identical at all three original call sites, so it
+    stays fixed here rather than becoming a parameter nothing currently
+    needs to vary."""
     psycopg2.extras.execute_values(
         cur,
         f"INSERT INTO fact ({FACT_COLUMNS}) VALUES %s",
