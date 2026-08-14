@@ -810,6 +810,13 @@ def is_unresolvable_apn(apn):
 
 
 def finish_job_run_full(conn, job_run_id, status, snapshot_id, rows_in, rows_out):
+    # Does NOT commit -- the caller (phase_e) commits this UPDATE together
+    # with the ledger rows it describes, in one transaction, so job_run's
+    # terminal status can never be observed (or, after a crash, left stuck
+    # at 'running') without the facts it claims. See phase_e's own call
+    # site and NEXT_PROMPTS.md P1 for why this changed from an
+    # independent commit.
+    #
     # clock_timestamp(), not now() -- found for real, not by inspection:
     # the first full-scale run reported job_run duration as 10.08s
     # (matching parse time alone) against a script-measured 10.0s parse +
@@ -835,7 +842,6 @@ def finish_job_run_full(conn, job_run_id, status, snapshot_id, rows_in, rows_out
             """,
             (status, snapshot_id, rows_in, rows_out, job_run_id),
         )
-    conn.commit()
 
 
 def phase_e(snapshot_id):
@@ -844,14 +850,26 @@ def phase_e(snapshot_id):
     will parse, and refuses if those bytes do not match content_hash.
 
     One transaction for the entire ledger write (parcel + identity + fact
-    + parcel_exception inserts): any failure anywhere rolls back
-    everything, leaving no partial state to repair. 0017 blocks fact
-    deletion, so a bug discovered after a partial COMMIT would be
-    permanent -- the discipline here is to never partially commit in the
-    first place, not to clean up afterward. On failure, the job_run row
-    (already committed by start_job_run, a separate transaction) is
-    marked 'failed' -- the attempt itself is provenance, C7's policy for
-    Phase B applied here to a load, not just a fetch.
+    + parcel_exception inserts, PLUS job_run's own terminal status update):
+    any failure anywhere rolls back everything, leaving no partial state to
+    repair. 0017 blocks fact deletion, so a bug discovered after a partial
+    COMMIT would be permanent -- the discipline here is to never partially
+    commit in the first place, not to clean up afterward. On failure
+    (before this commit), the job_run row (already committed by
+    start_job_run, a separate transaction) is marked 'failed' -- the
+    attempt itself is provenance, C7's policy for Phase B applied here to a
+    load, not just a fetch.
+
+    current_fact's refresh runs AFTER this commit and deliberately does
+    NOT participate in job_run's status: a refresh failure is read-model
+    staleness, not a ledger problem, and must never re-mark a job_run
+    'failed' whose ledger write already succeeded. An earlier version of
+    this function refreshed current_fact and marked job_run 'succeeded' as
+    two separate later steps -- a refresh failure between them left facts
+    permanently committed under a job_run stuck at 'failed', which
+    previous_successful_snapshot() (status='succeeded' only) then could
+    never see as the anchor, permanently wedging every later run against
+    the same snapshot. Fixed in this pass; see NEXT_PROMPTS.md P1.
 
     Every feature becomes exactly one parcel row (apn = the raw value if
     resolvable, else NULL -- 0034's documented cache-column policy: no
@@ -1036,14 +1054,24 @@ def phase_e(snapshot_id):
         t_load_end = time.monotonic()
         print(f"  bulk insert wall-clock: {t_load_end - t_load_start:.1f}s")
 
-        # One ledger transaction: parcel/identity/fact/exception writes
-        # commit together. current_fact refresh cannot run in a transaction
-        # when CONCURRENTLY is used, so job_run stays running until the
-        # committed ledger has been reflected into the read model.
-        conn.commit()
-        refresh_current_fact(conn)
+        # One ledger transaction: parcel/identity/fact/exception writes AND
+        # job_run's terminal status commit together, in this one
+        # conn.commit() below. This is the fix for the refresh-failure hole
+        # (NEXT_PROMPTS.md P1): previously, job_run was marked 'succeeded'
+        # in its own commit AFTER current_fact's refresh, so a refresh
+        # failure left the ledger permanently committed (0017 forbids
+        # deletion) under a job_run stuck at 'failed' -- previous_
+        # successful_snapshot() would then never see this snapshot as the
+        # anchor, and the next run on the same snapshot would misread
+        # already-correct, already-committed data as "changed since the
+        # last successful observation" and refuse to proceed, forever.
+        # Folding the status UPDATE into this same commit means
+        # previous_successful_snapshot() reflects the ledger the instant it
+        # is durable, regardless of what happens to the read-model refresh
+        # afterward.
         finish_job_run_full(conn, job_run_id, "succeeded", snapshot_id, rows_in, len(parcel_rows))
-        print(f"\njob_run {job_run_id} -> succeeded")
+        conn.commit()
+        print(f"\njob_run {job_run_id} -> succeeded (ledger committed)")
 
     except Exception as e:
         conn.rollback()
@@ -1055,6 +1083,26 @@ def phase_e(snapshot_id):
             os.unlink(path)
         except OSError:
             pass
+
+    # Ledger and job_run status are durably committed above. current_fact's
+    # refresh is now a separate, best-effort step: its failure is a
+    # read-model staleness problem, not a ledger problem, and must NEVER
+    # flip job_run back to 'failed' -- doing that is exactly the bug this
+    # fix closes. Report it loudly and exit non-zero so an operator
+    # notices and retries; re-running phase_e against this same
+    # snapshot_id is safe when that happens -- source_feature_identity
+    # already has these features recorded, previous_successful_snapshot()
+    # already points at this snapshot, so the rerun verifies everything as
+    # unchanged (no ledger writes) and simply retries the refresh.
+    try:
+        refresh_current_fact(conn)
+    except Exception as e:
+        print(f"\ncurrent_fact refresh FAILED after job_run {job_run_id} succeeded "
+              f"(ledger is complete and correct; only the read model is stale -- "
+              f"re-run phase_e against this snapshot_id to retry the refresh): {e}",
+              file=sys.stderr)
+        conn.close()
+        raise
 
     conn.close()
 
