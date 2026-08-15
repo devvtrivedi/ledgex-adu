@@ -3,6 +3,41 @@
 Things that are true about this schema but aren't obvious from the migrations
 themselves, or that only bite the first time a given operation runs.
 
+## Which of `make schema` / `make migrate` / `make migrate-baseline` to run
+
+Three ways to bring a database's schema up to date exist (P6). Exactly one is
+correct for any given database, decided by what's already there, not by
+preference:
+
+- **Empty database** (nothing in it at all) → `make schema`. Applies every
+  migration from nothing and records each one in `schema_migrations` as it
+  goes. Fails outright if the database turns out not to be empty — that
+  failure is correct, not a bug to work around.
+- **Existing database, no `schema_migrations` table** (migrations were
+  applied by hand, or by an older checkout of this repo from before P6) →
+  `make migrate-baseline`, once, then `make migrate`. Baselining builds a
+  disposable reference database from empty and only records this database's
+  ledger if a full schema diff against that reference is byte-identical —
+  it never guesses which migrations already ran.
+- **Existing database with a `schema_migrations` table already** → `make
+  migrate`. Applies whatever's missing, records each one atomically with its
+  own row. Safe to run repeatedly; a fully caught-up database is a no-op.
+
+Run `make migrate-verify` after any of the three if there's real doubt —
+it independently checks the database's live schema against what its own
+ledger claims, which none of the three targets above can see going wrong in
+themselves.
+
+Picking wrong is not silently safe: `make schema` against a non-empty
+database refuses outright (the only failure mode that's actually harmless —
+nothing applies). Applying `make migrate-baseline`'s baseline assertion to a
+database that ISN'T actually schema-equivalent to a fresh build is the
+dangerous direction, and the reason baselining verifies by full diff instead
+of taking that on faith — see its own docstring. This decision procedure
+existing at all is the point: guessing which of the three to run, the same
+way `ledgex_schema_check` did before P6, is exactly how a database drifts
+six migrations behind without anyone noticing.
+
 ## Refreshing `current_fact`: the first refresh must NOT be CONCURRENTLY
 
 `current_fact` (0008, tiebreak added in 0014) is a materialized view. 0008's

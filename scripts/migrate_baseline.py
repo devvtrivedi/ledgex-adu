@@ -27,6 +27,7 @@ this script decides for you.
 Requires CREATE DATABASE / DROP DATABASE privilege on the same server
 DATABASE_URL points at, to create and discard the disposable reference.
 """
+import os
 import pathlib
 import subprocess
 import sys
@@ -76,12 +77,17 @@ def strip_dump_noise(text):
 
 def dump_schema(dbname, exclude_table=None):
     u = parsed_url()
-    args = ["pg_dump", "-h", u.hostname, "-p", str(u.port or 5432), "-U", u.username,
+    # Matches the Makefile's own PG_DUMP ?= pg_dump: CI pins this to a
+    # specific version (/usr/lib/postgresql/16/bin/pg_dump) to avoid the
+    # false-diff trap a mismatched client version produces (see db.yml's own
+    # comment) -- an unqualified "pg_dump" here would silently use whatever
+    # happens to be first on PATH instead.
+    pg_dump = os.environ.get("PG_DUMP", "pg_dump")
+    args = [pg_dump, "-h", u.hostname, "-p", str(u.port or 5432), "-U", u.username,
             "-d", dbname, "--schema-only", "--no-owner", "--no-privileges"]
     if exclude_table:
         args += ["--exclude-table", exclude_table]
     env_vars = {"PGPASSWORD": u.password} if u.password else {}
-    import os
     result = subprocess.run(args, capture_output=True, text=True,
                              env={**os.environ, **env_vars})
     if result.returncode != 0:

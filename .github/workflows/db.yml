@@ -59,6 +59,19 @@ jobs:
           "$PSQL" --version
           "$PG_DUMP" --version
 
+      # P6 follow-up: scripts/migrate_verify.py (Python + psycopg2) needs to
+      # run right after `make schema` below, to check the database that
+      # target just built against its own ledger. This job had no Python
+      # step before this pass -- `make schema`/`make schema-dump` are pure
+      # psql/pg_dump and still are; this step exists for migrate_verify.py
+      # alone.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r scripts/requirements.txt
+
       - name: Create clean database (not the service's TIGER-inited default)
         run: |
           "$PSQL" "postgresql://postgres:postgres@localhost:5432/postgres" \
@@ -66,9 +79,22 @@ jobs:
 
       # Spec §1.2 make schema: "Clean apply; constraints, functions and
       # triggers compile." Applies every forward-only migration, in order,
-      # to the empty service database.
+      # to the empty service database -- and, since the P6 follow-up pass,
+      # records each one into schema_migrations as it goes (see the target's
+      # own comment in the Makefile for why and how).
       - name: make schema
         run: make schema DATABASE_URL="$DATABASE_URL" PSQL="$PSQL"
+
+      # P6 follow-up: independent check that the database `make schema` just
+      # built actually matches what its own ledger claims -- the one thing
+      # `make schema`'s own success can't prove by itself (a ledger row and
+      # its DDL could still disagree if something between the two steps
+      # touched the database directly). Needs CREATE DATABASE privilege to
+      # build its own disposable reference -- the CI postgres service user
+      # already has it (same superuser the "Create clean database" step
+      # above already uses).
+      - name: make migrate-verify
+        run: make migrate-verify DATABASE_URL="$DATABASE_URL" PG_DUMP="$PG_DUMP"
 
       # The 34-test self-asserting invariant suite (I2-I5, I13, I18, the
       # parcel_exception biconditional, S1's source-access-method check, and

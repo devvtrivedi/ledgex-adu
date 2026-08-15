@@ -105,19 +105,65 @@ check-boundary:
 	$(PYTHON) build/check_jurisdiction_names.py
 	$(PYTHON) build/qa_check.py
 
-# Apply every forward-only migration to an empty database, in order.
+# Apply every forward-only migration to an empty database, in order, AND
+# record each one in schema_migrations as it goes (P6 follow-up). Still
+# "builds from nothing" -- still fails outright on a non-empty database,
+# ledgered or not, same as before this pass -- CI's guarantee is unchanged;
+# what changed is that the database it produces is no longer the one
+# condition scripts/migrate_verify.py exists to catch (applied, unrecorded).
 # Spec §1.2 make schema: "Clean apply; constraints, functions and triggers
-# compile." Unchanged by P6's ledger (schema_migrations, scripts/migrate.py):
-# this target's contract is specifically "builds from nothing," which is what
-# CI needs and exactly why CI catches a migration that can't build cleanly.
-# Making this idempotent would quietly weaken that guarantee into "whatever's
-# missing applies" -- a different, weaker claim. For a database that already
-# has some migrations applied, see `make migrate` below instead.
+# compile." Making this idempotent (silently apply just what's missing) is
+# still not done here and still deliberately not: that is `make migrate`'s
+# job below, a different, weaker guarantee ("whatever's missing applies" vs
+# "this builds from nothing"), kept as a separate tool for that reason.
+#
+# 0046_schema_migrations_ledger.sql is applied FIRST, out of numeric order,
+# unconditionally, before the loop below -- it has to exist before anything
+# can be recorded into it, and it has no FK to anything else in the schema
+# so running it first is safe regardless of its own number (same reasoning
+# scripts/migrate.py's bootstrap_ledger() already documents; this loop is
+# the bash-only equivalent of that same bootstrap, not a second design).
+#
+# Each migration's own SQL and its ledger INSERT run as ONE psql invocation
+# --single-transaction (confirmed directly: -f file.sql -c "INSERT ..." in
+# one invocation commits both together on success, and a failure in the -f
+# half runs the -c half not at all and commits nothing -- verified against a
+# real deliberate failure before relying on it here) -- the same atomicity
+# guarantee scripts/migrate.py's own psycopg2 transaction gives `make
+# migrate`, just via psql instead of Python, so this target adds no new
+# dependency to CI (db.yml has no Python setup step; it only ever needed
+# psql/pg_dump).
+#
+# --single-transaction is exactly why 0031_output_channel_analytics_model_
+# training.sql is split from 0032_licence_channel_analytics_model_training.sql
+# rather than combined: PostgreSQL 12+ allows ALTER TYPE ... ADD VALUE inside
+# a transaction, but forbids USING the new value (any DML referencing it)
+# within that same transaction. 0031 only adds the two enum values; 0032, a
+# separate migration and therefore a separate --single-transaction
+# invocation here, is what references them. Do not undo that split to
+# "simplify" -- combining them would fail outright the moment this target
+# wraps each file in its own transaction, which it does, deliberately, as of
+# this pass.
+LEDGER_MIGRATION := 0046_schema_migrations_ledger.sql
 schema:
 	@command -v $(PSQL) >/dev/null 2>&1 || { echo "$(PSQL) not found — install PostgreSQL 16 client tools"; exit 1; }
+	@command -v shasum >/dev/null 2>&1 || { echo "shasum not found"; exit 1; }
+	@echo "applying $(MIGRATIONS_DIR)/$(LEDGER_MIGRATION) (bootstrapped first -- see this target's own comment)"
+	@hash0=$$(shasum -a 256 "$(MIGRATIONS_DIR)/$(LEDGER_MIGRATION)" | cut -d' ' -f1); \
+	 $(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 --single-transaction \
+		-f "$(MIGRATIONS_DIR)/$(LEDGER_MIGRATION)" \
+		-c "INSERT INTO schema_migrations (version, file_sha256) VALUES ('0046', '$$hash0')" \
+		|| exit 1
 	@for f in $(MIGRATIONS_DIR)/*.sql; do \
+		base=$$(basename "$$f"); \
+		if [ "$$base" = "$(LEDGER_MIGRATION)" ]; then continue; fi; \
 		echo "applying $$f"; \
-		$(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f "$$f" || exit 1; \
+		version=$$(echo "$$base" | cut -d_ -f1); \
+		hash=$$(shasum -a 256 "$$f" | cut -d' ' -f1); \
+		$(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 --single-transaction \
+			-f "$$f" \
+			-c "INSERT INTO schema_migrations (version, file_sha256) VALUES ('$$version', '$$hash')" \
+			|| exit 1; \
 	done
 
 # P6: bring an already-partially-migrated database forward, safely, which
@@ -138,7 +184,7 @@ migrate:
 # ledger if a real schema diff against that reference is byte-identical. See
 # scripts/migrate_baseline.py's own docstring for the full argument.
 migrate-baseline:
-	$(PYTHON) scripts/migrate_baseline.py
+	PG_DUMP=$(PG_DUMP) $(PYTHON) scripts/migrate_baseline.py
 
 # P6: independent check that a database's LIVE schema actually matches what
 # its own schema_migrations ledger claims -- catches a ledger row with no
@@ -147,7 +193,7 @@ migrate-baseline:
 # produce through migrate.py itself; this is for a database touched some
 # other way). See scripts/migrate_verify.py's own docstring.
 migrate-verify:
-	$(PYTHON) scripts/migrate_verify.py
+	PG_DUMP=$(PG_DUMP) $(PYTHON) scripts/migrate_verify.py
 
 # Regenerate db/schema.sql from whatever schema is live at DATABASE_URL and
 # diff it against the committed dump. Run `make schema` against an empty
