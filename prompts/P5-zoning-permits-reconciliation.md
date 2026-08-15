@@ -135,3 +135,22 @@ APN, and APNs aren't unique. So a permit can appear to move house without anythi
 happened to it. Before you can say "this permit disappeared," you need to know whether the
 source gives permits a name of their own. If it doesn't, "disappeared" isn't a question the
 data can answer yet, and that's worth finding out before building on the assumption.
+
+## Review findings — added after `4d0f7ea`/`8a7286e`, both already pushed
+
+### F1 — `current_fact` claim, wrong in four places, one now permanent
+
+`load_zoning`/`load_permits` read `fact WHERE superseded_at IS NULL` directly, never
+`current_fact` — correct, and for a load-bearing reason (P1 made `current_fact`'s refresh
+best-effort and after commit, so it can legitimately lag a correct ledger; diffing against
+it while lagging would misclassify an already-correct value as changed and supersede it,
+the exact fabricated-supersession failure this package exists to prevent, by a different
+route). The claim that it reads `current_fact` was wrong in three places, found and fixed
+in `8a7286e`: the code comment (twice, `load_zoning` and `load_permits`) and
+`prompts/README.md`'s "No longer current" note.
+
+A fourth instance was found afterward, in `4d0f7ea`'s own commit message ("diff freshly-
+computed values against `current_fact` per field") — already pushed, now immutable
+history. Not rewritten; recorded here instead, so anyone doing git archaeology on why the
+code reads `fact` rather than `current_fact` finds the correction where this package's own
+record lives, not just in the two commits that happen to get the claim right.
