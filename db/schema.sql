@@ -521,14 +521,15 @@ CREATE FUNCTION public.fact_supersession_target_validate() RETURNS trigger
 DECLARE
     target_parcel_id     uuid;
     target_field_key     text;
+    target_source_id     text;
     target_superseded_at timestamptz;
 BEGIN
     IF NEW.supersedes_fact_id IS NULL THEN
         RETURN NULL;
     END IF;
 
-    SELECT parcel_id, field_key, superseded_at
-      INTO target_parcel_id, target_field_key, target_superseded_at
+    SELECT parcel_id, field_key, source_id, superseded_at
+      INTO target_parcel_id, target_field_key, target_source_id, target_superseded_at
       FROM public.fact
      WHERE id = NEW.supersedes_fact_id;
 
@@ -549,6 +550,19 @@ BEGIN
             'fact''s own superseded_at was never set. Superseding a fact '
             'requires setting its superseded_at in the same transaction.',
             NEW.id, NEW.supersedes_fact_id;
+    END IF;
+
+    -- 0044: a retrieved successor (NEW.source_id IS NOT NULL) may only
+    -- supersede a fact from the SAME source. A derived successor
+    -- (source_id IS NULL) is exempt -- fact_input/I5 already governs
+    -- whether a derivation may legitimately draw on that target.
+    IF NEW.source_id IS NOT NULL AND target_source_id IS DISTINCT FROM NEW.source_id THEN
+        RAISE EXCEPTION
+            'I4 violated: fact % (source %) claims to supersede fact % '
+            '(source %) -- a retrieved fact may only supersede a prior '
+            'fact from the SAME source_id. Cross-source disagreement is '
+            'fact.conflict''s job, not supersession''s.',
+            NEW.id, NEW.source_id, NEW.supersedes_fact_id, target_source_id;
     END IF;
 
     RETURN NULL;
@@ -1043,6 +1057,20 @@ CREATE TABLE public.rule (
 
 
 --
+-- Name: schema_migrations; Type: TABLE; Schema: public; Owner: -
+--
+
+CREATE TABLE public.schema_migrations (
+    version text NOT NULL,
+    file_sha256 text NOT NULL,
+    applied_at timestamp with time zone DEFAULT now() NOT NULL,
+    baselined boolean DEFAULT false NOT NULL,
+    CONSTRAINT schema_migrations_file_sha256_format CHECK ((file_sha256 ~ '^[0-9a-f]{64}$'::text)),
+    CONSTRAINT schema_migrations_version_format CHECK ((version ~ '^[0-9]{4}$'::text))
+);
+
+
+--
 -- Name: snapshot; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1295,6 +1323,14 @@ ALTER TABLE ONLY public.rule
 
 
 --
+-- Name: schema_migrations schema_migrations_pkey; Type: CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.schema_migrations
+    ADD CONSTRAINT schema_migrations_pkey PRIMARY KEY (version);
+
+
+--
 -- Name: snapshot snapshot_content_hash_source_id_key; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -1450,6 +1486,13 @@ CREATE INDEX parcel_apn_prefix ON public.parcel USING btree (apn text_pattern_op
 --
 
 CREATE INDEX parcel_centroid_gix ON public.parcel USING gist (centroid);
+
+
+--
+-- Name: parcel_exception_one_open_per_detector_reason; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE UNIQUE INDEX parcel_exception_one_open_per_detector_reason ON public.parcel_exception USING btree (parcel_id, detector_key, detector_version, ((detail ->> 'reason'::text))) WHERE (outcome = 'open'::public.exception_outcome);
 
 
 --
