@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.27
+ Engineering Reference Spec v1.28
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.27                                       Machine-executed build contract.
+   1        This Spec v1.28                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -1710,7 +1710,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.27
+                     Engineering Reference Spec v1.28
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1771,7 +1771,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.27
+                   Engineering Reference Spec v1.28
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1800,7 +1800,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.27
+                Engineering Reference Spec v1.28
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -2549,6 +2549,19 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              region -- reported, not fixed here; restoring it correctly means untangling
                                              that region first. Both rows dropped from SECTION_INDEX until they resolve to
                                              something real.
+
+   Aug 2026             1.28                 Re-added section 6 (Coding workflow) to SECTION_INDEX, carried without a top-   An index that can silently omit a section indexes nothing;
+                                             level heading. build/ledgex_source.py's UNINDEXED_SUBSECTIONS registers which   section 6 is the most cross-referenced section in this
+                                             of its listed subsections (6.1, 6.2, 6.4-6.7; 6.3 excluded, it does not exist)  document (this file's own reading order sends every new task
+                                             must still be present; build_spec_index.py now requires at least one to resolve to 6.1 and 6.3; CLAUDE.md cites 6.2; live references to 6.7
+                                             as a real heading before allowing the row, and hard-fails if the last one ever  and '6.2 rule 12' exist elsewhere), and 'read the sections
+                                             vanishes too. Section 8 stays dropped -- confirmed against this document's own  your task touches' must not be able to route a reader away
+                                             section 12 history and build/ledgex_source.py that no version of this spec ever from one silently. Restoring 6's own top-level heading
+                                             defined it; the one inbound 'Serves: ... section8' cross-reference (section     remains out of scope -- the text immediately preceding 6.1's
+                                             3.3) was corrected, not restored, in the 1.27 pass.                             heading is pdftotext-mangled (task-shape content out of
+                                                                                                                             order, a stray 'E' fragment matching no named task shape)
+                                                                                                                             and untangling it is real content surgery, not an index fix.
+
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

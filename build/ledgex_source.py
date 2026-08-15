@@ -13,7 +13,7 @@ Invariant I17: these strings are authoritative only when read verbatim from the
 filesystem. Change the text HERE, once, then regenerate both artifacts.
 """
 
-SPEC_VERSION = "1.27"
+SPEC_VERSION = "1.28"
 RULES_VERSION = "1.4"
 PHASE = "Phase 1, Step 1 - City of San Jose"
 REVISION_DATE = "August 2026"
@@ -173,41 +173,56 @@ A1_SCOPE = [
 # hand-copying it, the same "one source, two artifacts" shape sec 0.2
 # already establishes for INVARIANTS/MAKE_TARGETS.
 #
-# Two rows REMOVED here, not merely relocated: CONTENTS carried "6 Coding
-# workflow" and "8 Canonical field vocabulary and dependencies" listed as
-# if they were real top-level sections. Confirmed directly, not assumed,
-# while building docs/SPEC_INDEX.md's cross-check -- grep '^## '
-# docs/LEDGEX_SPEC.md has no "## 6." or "## 8." heading -- but the two are
-# NOT the same kind of gap, and only one is fixed here:
+# CONTENTS carried two rows -- "6 Coding workflow" and "8 Canonical field
+# vocabulary and dependencies" -- naming sections with no matching
+# "## N. Title" heading anywhere in the generated Spec. Confirmed directly
+# while building docs/SPEC_INDEX.md's cross-check, not assumed. The two
+# are NOT the same gap:
 #
 #   §8 has no content anywhere. text/LedgeX_Engineering_Reference_Spec_
-#   v1_26.txt's own "Section N —" markers jump 5 -> 7 -> 9; nothing
+#   v1_27.txt's own "Section N —" markers jump 5 -> 7 -> 9; nothing
 #   between them describes field-vocabulary dependencies as its own
-#   section. §3.3 (Canonical field vocabulary, the field_definition DDL)
-#   still cites "§8" in its own "Serves:" line -- a genuinely dangling
-#   cross-reference, corrected in the same pass this comment landed in
-#   (removed the "§8" token; nothing left to point at). Row dropped: there
-#   is no content to index.
+#   section, and its one inbound cross-reference (§3.3's "Serves:" line)
+#   was dangling -- fixed by removing the "§8" token, not by writing
+#   content to make the reference true. Row dropped: there is nothing to
+#   index. See db/README.md / the open-findings review for the separate
+#   question of whether a finding that cites "§8 of the spec" is still
+#   valid -- it is not; it was never checked against the spec that
+#   actually shipped.
 #
-#   §6 is NOT the same gap. Its subsections are real and present --
-#   "### 6.1" through "### 6.7" all exist in docs/LEDGEX_SPEC.md, inside
-#   the byte range between §5's heading and §7's -- only the top-level
-#   "## 6. Coding workflow" heading that should wrap them is missing, and
-#   the raw text at that exact boundary (search "6.1 Task shapes" in the
-#   .txt source) is visibly pdftotext-mangled: task-shape items A-D
-#   interleave in an order that does not read as originally intended.
-#   Restoring the heading correctly means untangling that mangled region
-#   first, not inserting one line -- real content surgery, not an index
-#   fix, and out of scope for a context-hygiene pass whose own hard rule
-#   is "if you find yourself doing more than this, you have misread the
-#   scope." Row dropped for now, reported here rather than silently
-#   worked around: §6's content is real and reachable by reading §5/§7's
-#   surrounding text, just not indexable by number until its heading is
-#   restored in its own pass.
+#   §6 is different: real content exists, just not reachable by number.
+#   Subsections 6.1, 6.2, 6.4, 6.5, 6.6 and 6.7 are all real, present
+#   headings. 6.3 ("definition of done") does NOT exist -- cited once
+#   (the reusable prompt preamble, 6.5's own content: "...then §6.3
+#   definition of done") and never defined, the same one-level-down gap
+#   as §8. The top-level "## 6. Coding workflow" heading that should wrap
+#   6.1-6.7 is missing, and the region immediately before 6.1's own
+#   heading (task-shape B/C/D's full numbered step-lists, plus a stray
+#   "E" fragment matching no task shape the reusable preamble actually
+#   names) is real content sitting in an order that does not read as
+#   originally intended -- pdftotext-mangled, confirmed by reading the
+#   whole region, not assumed from the missing heading alone. Restoring
+#   the heading correctly means resolving that ordering and locating or
+#   writing 6.3 first -- real content surgery, out of scope for a
+#   context-hygiene pass ("if you find yourself doing more than this,
+#   you have misread the scope").
 #
-# SPEC_VERSION bumped (1.26 -> 1.27) and a change-record row added for
-# this correction, per CLAUDE.md: it changes what docs/LEDGEX_SPEC.md's
-# own embedded index table says, and removes a dangling cross-reference.
+#   Decision: carry §6 in SECTION_INDEX with an honest governs string
+#   (below) rather than drop it -- §6 is the most cross-referenced
+#   section in the Spec (CLAUDE.md cites §6.2; the reading-order line and
+#   §5's own text send every new task to §6.1 and §6.3; live references
+#   to §6.7 and "§6.2 rule 12" exist) and an index used by "read the
+#   sections your task touches" must not make absence-from-the-index
+#   indistinguishable from absence-from-the-spec. UNINDEXED_SUBSECTIONS
+#   below is what makes this row's claim checkable instead of another
+#   unverified assertion: build_spec_index.py confirms at least one of
+#   6's listed real subsections still exists, every time, and fails if
+#   the last one ever vanishes too.
+#
+# SPEC_VERSION bumped 1.25 -> 1.27 (two change-record rows, one per pass)
+# for these corrections, per CLAUDE.md: they change what docs/
+# LEDGEX_SPEC.md's own embedded index table says, and remove a dangling
+# cross-reference.
 SECTION_INDEX = [
     ("0",  "How to use this file",                      "Always, before any change."),
     ("1",  "Invariants and internal-fact gate",         "Always. Every change is checked against these."),
@@ -215,6 +230,10 @@ SECTION_INDEX = [
     ("3",  "Database schema",                           "Any data-model change."),
     ("4",  "API endpoints",                             "Any interface change."),
     ("5",  "Runtime workflow",                          "Implementing or debugging a pipeline stage."),
+    ("6",  "Coding workflow",                           "Starting or finishing any task. NO top-level heading in "
+                                                          "the generated Spec -- read subsections 6.1, 6.2, 6.4-6.7 "
+                                                          "directly (6.3 'definition of done' is cited once but not "
+                                                          "itself defined anywhere)."),
     ("7",  "San José source list",                      "Adding or fixing an ingestion."),
     ("9",  "Refusal and error codes",                   "Anywhere something can fail."),
     ("10", "Track A / Track B measurement",             "Anything that touches evidence."),
@@ -224,6 +243,21 @@ SECTION_INDEX = [
     ("14", "Launch dependencies and Base Core",          "Scoping what must ship."),
     ("15", "Architecture Addendum A-1",                  "A-1.1 to A-1.4 gates."),
 ]
+
+# Sections in SECTION_INDEX that have no top-level "## N. Title" heading
+# but ARE indexed anyway (see §6's comment above) because real content
+# exists one level down. {section_number: [subsection_numbers actually
+# verified present]} -- build_spec_index.py requires at least ONE listed
+# subsection to still exist as a real "### N.M Title" heading; if the
+# last one ever disappears too, that IS a hard failure (the section
+# vanished entirely, not just its number), the exact class of drift that
+# let CONTENTS carry "6 Coding workflow" for who knows how long with
+# nothing checking it was still true. 6.3 is deliberately NOT listed: it
+# does not currently exist, and listing it here would silently start
+# treating "cited but undefined" as equivalent to "present."
+UNINDEXED_SUBSECTIONS = {
+    "6": ["6.1", "6.2", "6.4", "6.5", "6.6", "6.7"],
+}
 
 
 def md_table(headers, rows, bold_first=False):

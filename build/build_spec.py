@@ -42,9 +42,11 @@ BUILD_RULES_PY = "build_rules.py"
 
 # SECTION_INDEX (§, governs, use-when) moved to ledgex_source.py -- shared
 # with build_spec_index.py now, same "one source" shape as INVARIANTS/
-# MAKE_TARGETS. See its own comment there for why two rows (6, 8) that
-# used to sit here no longer exist: they never corresponded to a real
-# section of this document.
+# MAKE_TARGETS. See its own comment there: row 8 no longer exists (never
+# corresponded to a real section of this document); row 6 is carried with
+# an honest governs string even though it has no top-level heading of its
+# own -- build_spec_index.py is what actually verifies its subsections
+# still exist, since this table just renders the three columns as given.
 
 
 def render_md():
@@ -65,11 +67,12 @@ def render_md():
     p.append("**For Claude Code / any coding agent.** This file lives at "
              "`docs/LEDGEX_SPEC.md`. Reference it from `CLAUDE.md`:")
     p.append("")
-    p.append("```md\n# CLAUDE.md\nRead `docs/LEDGEX_SPEC.md` in full before making "
-             "changes. It defines the\ndatabase schema, API contracts, invariants and "
-             "workflow for this repository.\nThe invariants in §1 are non-negotiable "
-             "and are enforced in CI.\nNever write jurisdiction-specific logic into "
-             "`core/`. See §1.I1 and §6.2.\n```")
+    p.append("```md\n# CLAUDE.md\nRead `docs/LEDGEX_SPEC.md` §1 (Invariants) in full, "
+             "every session. It is not\nthe part to skip. For everything else, start at "
+             "`docs/SPEC_INDEX.md` and read in\nfull every section your change touches. "
+             "If you cannot tell from the index which\nsections a change touches, say so "
+             "and stop -- do not default to reading the\nwhole file.\nNever write "
+             "jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.\n```")
     p.append("")
     p.append("**Reading order for a new task:** §1 invariants → §2 layout → the "
              "section for your layer (§3 schema, §4 API, §5 runtime) → §6.1 for the "

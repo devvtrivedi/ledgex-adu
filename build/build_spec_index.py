@@ -22,6 +22,18 @@ heading produced by build_spec.render_md() -- called directly, in memory,
 never read off disk, so this can never validate against a stale spec.
 An entry naming a section that isn't really there raises here instead of
 silently emitting a link to nowhere.
+
+One exception, not a loophole: a number listed in S.UNINDEXED_SUBSECTIONS
+(currently just "6") is allowed to have no top-level heading IF at least
+one of its listed subsection numbers still exists as a real "### N.M
+Title" heading. This is what stops the exact failure mode that created
+this file's own reason to exist: SECTION_INDEX naming a section with
+nothing behind it and nothing catching that. Carrying §6 unindexed
+without this check would just be the same silent-drift shape one level
+down -- true today, unverified tomorrow. If the LAST listed subsection
+ever disappears too, that is a real hard failure, same as any other
+missing section, because there is then nothing left to confirm §6's
+content still exists at all.
 """
 import datetime
 import pathlib
@@ -36,6 +48,7 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 OUT = ROOT / "docs" / "SPEC_INDEX.md"
 
 HEADING_RE = re.compile(r"^## (\d+)\. (.+?)\s*$", re.M)
+SUBHEADING_RE = re.compile(r"^### (\d+\.\d+) (.+?)\s*$", re.M)
 
 
 def _slugify(number, title):
@@ -52,24 +65,41 @@ def _slugify(number, title):
 def render_md():
     spec_text = build_spec.render_md()
     real_headings = {m.group(1): m.group(2) for m in HEADING_RE.finditer(spec_text)}
+    real_subheadings = {m.group(1): m.group(2) for m in SUBHEADING_RE.finditer(spec_text)}
 
     rows = []
     missing = []
     for number, governs, use_when in S.SECTION_INDEX:
         title = real_headings.get(number)
-        if title is None:
+        if title is not None:
+            anchor = _slugify(number, title)
+            location = f"[§{number}](LEDGEX_SPEC.md#{anchor})"
+            rows.append((number, title, use_when, location))
+            continue
+
+        # No top-level heading. Only survives if this number is registered
+        # in UNINDEXED_SUBSECTIONS AND at least one of its listed
+        # subsections is still a real heading -- proof the content is
+        # actually still there, not just an assertion that it used to be.
+        candidates = S.UNINDEXED_SUBSECTIONS.get(number, [])
+        found_sub = next((sub for sub in candidates if sub in real_subheadings), None)
+        if found_sub is None:
             missing.append(number)
             continue
-        anchor = _slugify(number, title)
-        location = f"[§{number}](LEDGEX_SPEC.md#{anchor})"
-        rows.append((number, title, use_when, location))
+        sub_title = real_subheadings[found_sub]
+        anchor = _slugify(found_sub, sub_title)
+        location = f"[§{found_sub}](LEDGEX_SPEC.md#{anchor}) (no §{number} heading)"
+        rows.append((number, f"*(no top-level heading)*", use_when, location))
 
     if missing:
         raise ValueError(
             "SECTION_INDEX (build/ledgex_source.py) names section(s) "
             f"{missing} but build_spec.render_md() has no matching "
-            "'## N. Title' heading for them right now -- SECTION_INDEX is "
-            "stale, or the spec build is broken. Fix the data at its "
+            "'## N. Title' heading for them, and either the section is not "
+            "listed in UNINDEXED_SUBSECTIONS or NONE of its listed "
+            "subsections have a matching '### N.M Title' heading either -- "
+            "the content has vanished, not just its number. SECTION_INDEX "
+            "is stale, or the spec build is broken. Fix the data at its "
             "source (ledgex_source.py) or the generator, not this output."
         )
 

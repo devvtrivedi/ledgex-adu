@@ -7,19 +7,36 @@ Finished packages move to `done/` and are not read again unless something contra
 |---|---|---|---|
 | P1 | [Refresh-failure hole](done/P1-refresh-failure.md) | done, pushed | `3bee5bd` |
 | P2 | [Three correctness fixes](done/P2-correctness-fixes.md) | done, pushed | `40b953d`, `bd5db19`, `6cebdaf` |
-| P3 | [Phase B — changed / new / disappeared](P3-phase-b.md) | done, reviewed, **unpushed** | `62cf90f` |
-| P4 | [Source-scoped reconciliation](P4-source-scoped-reconciliation.md) | done, **unpushed** | `46a24c2`, `a62b4a7` |
-| P5 | [Zoning + permits reconciliation](P5-zoning-permits-reconciliation.md) | **gated** — see below | — |
+| P3 | [Phase B — changed / new / disappeared](P3-phase-b.md) | done, reviewed, pushed | `62cf90f` |
+| P4 | [Source-scoped reconciliation](P4-source-scoped-reconciliation.md) | done, pushed | `46a24c2`, `a62b4a7` |
+| P5 | [Zoning + permits reconciliation](P5-zoning-permits-reconciliation.md) | gate resolved, not started | — |
 
-**P5 gate.** Three small items first: push the five local commits; close the `§6` hole in
-`docs/SPEC_INDEX.md` (§6 has no top-level heading, was dropped from the index, and is the
-section the spec's own reading order at line 19 sends every new task to — §6.1 task shapes,
-§6.2 the jurisdiction rule CLAUDE.md itself cites, §6.3 definition of done); and settle
-whether `§8` is empty by accident, since an open finding still cites it.
+**P5 gate — resolved.** Three items:
 
-**Current blocking state:** three commits local-only. `origin/main` is at `6cebdaf`.
-Nothing is externally verifiable at a SHA until they are pushed, and the standing
-multiple-checkouts hazard applies. Push before starting P5.
+- Five local commits pushed (`37def22`, tracking `prompts/` itself).
+- `§6` hole closed: SECTION_INDEX carries a `6` row again (build/ledgex_source.py
+  `SECTION_INDEX` + `UNINDEXED_SUBSECTIONS`), verified against real `### 6.N` headings by
+  `build_spec_index.py` rather than dropped from the index. Restoring §6's own top-level
+  heading is still out of scope — the region immediately before it in
+  `text/LedgeX_Engineering_Reference_Spec_v1_28.txt` is pdftotext-mangled — but a reader
+  following the index now reaches §6.1 instead of finding nothing. SPEC_VERSION 1.28.
+- `§8`: never real. Confirmed against `text/LedgeX_Engineering_Reference_Spec_v1_7.txt`
+  (the earliest version this repo's git history has — the initial commit), whose own
+  "Section N —" markers already jump 5 → 7 → 9 with nothing between them. Every version
+  since does the same. The "open finding" citing `§8` was always pointing at a section
+  number with no corresponding section, not at content that went missing — most likely a
+  stale reference to §3.3 (Canonical field vocabulary, which the same migration's own
+  header names one line below its "§8" citation, and which is what actually defines
+  `stale_after_days`/`required_for_file`, I7/I9). Two dangling `§8` cross-references remain
+  unfixed, both out of scope for this pass: `db/migrations/0003_fields.sql`'s own header
+  comment (a migration file — no changes under `db/` this pass) and the raw text's task-shape
+  B step 1 (inside the same mangled region §6's heading sits in). Do not write §8 content to
+  close this — there is nothing it was ever supposed to say.
+
+**Current blocking state:** none. `origin/main` is at `37def22`, matching HEAD — everything
+above is pushed. The §6/§8/CLAUDE.md work that resolved the P5 gate (this session) is still
+local-only pending review; check `git log --oneline origin/main..HEAD` before trusting a SHA
+named above it in conversation, per the standing multiple-checkouts hazard.
 
 **Also current:** `load_zoning` and `load_permits` raise `UniqueViolation` on
 `fact_one_current_per_source` against any changed snapshot, roll back cleanly and mark

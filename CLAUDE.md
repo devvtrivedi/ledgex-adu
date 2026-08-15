@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Read `docs/LEDGEX_SPEC.md` in full before making changes.
+Read `docs/LEDGEX_SPEC.md` §1 (Invariants) in full, every session. It is not the part to skip. For everything else, start at `docs/SPEC_INDEX.md` and read in full every section your change touches. If you cannot tell from the index which sections a change touches, say so and stop — do not default to reading the whole file, because an unbounded read is how this instruction stopped being followed. One exception the index itself carries: §6 has no top-level heading and is not linked by number, but is still required reading for anything touching coding workflow — read `docs/LEDGEX_SPEC.md` §6.1, 6.2, 6.4–6.7 directly.
 
 The invariants in §1 are non-negotiable and enforced in CI.
 
