@@ -9,20 +9,33 @@ Finished packages move to `done/` and are not read again unless something contra
 | P2 | [Three correctness fixes](done/P2-correctness-fixes.md) | done, pushed | `40b953d`, `bd5db19`, `6cebdaf` |
 | P3 | [Phase B — changed / new / disappeared](P3-phase-b.md) | done, reviewed, pushed | `62cf90f` |
 | P4 | [Source-scoped reconciliation](P4-source-scoped-reconciliation.md) | done, pushed | `46a24c2`, `a62b4a7` |
-| P5 | [Zoning + permits reconciliation](P5-zoning-permits-reconciliation.md) | done, **unpushed** | — |
-| P6 | [Migration application has no ledger](P6-migration-ledger.md) | design reported, not built | — |
+| P5 | [Zoning + permits reconciliation](P5-zoning-permits-reconciliation.md) | done, reviewed, pushed | `4d0f7ea`, `8a7286e` |
+| P6 | [Migration application has no ledger](P6-migration-ledger.md) | done, **unpushed** | `8be8505` |
 | P7 | [`0044`'s derived-fact exemption is unbounded](P7-derived-fact-supersession-unbounded.md) | confirmed finding, not fixed | — |
 | P8 | [Nothing resolves a `parcel_exception` when its condition changes](P8-exception-resolution-undefined.md) | confirmed finding, not fixed | — |
 
-**P6.** `make schema` loops every migration with `ON_ERROR_STOP=1`, so it only works against
-an empty database. There is no `schema_migrations` table and no supported way to bring a
-long-lived database forward. CI never notices — it always starts empty. `ledgex_schema_check`
-drifted **six** migrations behind by construction (0039/41/42/43/44 found and fixed during
-P5's own investigation; 0040 found and fixed separately, mid-package, when T64 in the full
-invariant suite surfaced a stale `fact_no_destructive_update()` body that an earlier,
-existence-only check had missed — a real methodology lesson: checking that a function EXISTS
-is not checking that it is the CURRENT version). Hand-picking is currently the only fix. It
-will drift again. Design in `P6-migration-ledger.md`, not built.
+**P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
+a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
+with its own ledger row. `scripts/migrate_baseline.py` is the one-time adoption path for a
+pre-ledger database (full schema diff against a disposable from-empty reference — refuses on
+any mismatch, never guesses) — already run for real against `ledgex_schema_check` itself,
+MATCH, 46 rows recorded. `scripts/migrate_verify.py` independently checks a database's live
+schema against what its own ledger claims — the one thing `migrate.py`'s own ledger-read
+can't see by construction. `make schema` unchanged (CI's clean-apply contract, not made
+idempotent — what was argued in the design is what got built). All three failure modes
+(applied-unrecorded, recorded-unapplied, file changed after recording) proven RED then GREEN
+with a real deliberate break each, not just reasoned. `make schema` loops every migration
+with `ON_ERROR_STOP=1` and no `--single-transaction` — checked every migration for anything
+that can't run inside a transaction block before finalizing this (one real case, `0031`'s
+`ALTER TYPE ... ADD VALUE`, already split from the migration using the new values for
+exactly this reason); confirmed directly, not just reasoned, by applying all 45
+pre-existing migrations with `--single-transaction` per file against a fresh database.
+`ledgex_schema_check` drifted **six** migrations behind by construction before this pass
+(0039/41/42/43/44 found and fixed during P5's own investigation; 0040 found and fixed
+separately, mid-package, when T64 in the full invariant suite surfaced a stale
+`fact_no_destructive_update()` body that an earlier, existence-only check had missed — a
+real methodology lesson: checking that a function EXISTS is not checking that it is the
+CURRENT version). Full design in `P6-migration-ledger.md`.
 
 **P7.** A derived fact (`source_id IS NULL`) can supersede an arbitrary fact from any source;
 nothing ties `supersedes_fact_id` to `fact_input`. Confirmed by construction against a
@@ -86,9 +99,11 @@ stale-exception gap already flagged in P5's own investigation, not a new bug.
   B step 1 (inside the same mangled region §6's heading sits in). Do not write §8 content to
   close this — there is nothing it was ever supposed to say.
 
-**Current blocking state:** none, but check before trusting any SHA named above in
-conversation — P5/P6/P7/P8 (this session) are local-only pending review. Run
-`git log --oneline origin/main..HEAD` for the real, current list, per the standing
+**Current blocking state:** none. P5 is pushed (`4d0f7ea`, `8a7286e`). Three commits are
+local-only pending review: `8be8505` (P6), `7b6aceb` (S1's skip-counted-as-pass fix, not
+P6-specific — the invariant suite itself), and `47d826e` (P5's Review findings note on the
+fourth `current_fact` instance). Check before trusting a SHA named above in conversation —
+run `git log --oneline origin/main..HEAD` for the real, current list, per the standing
 multiple-checkouts hazard.
 
 **No longer current (P5 lifted it):** `load_zoning` and `load_permits` used to raise
@@ -112,9 +127,9 @@ starts. Measured:
 | What | Size | Loaded when |
 |---|---|---|
 | `docs/LEDGEX_SPEC.md` | 211 KB (~53k tokens) | §1 only, every session (CLAUDE.md, since `9b071c4`) — everything else via `docs/SPEC_INDEX.md` |
-| `db/tests/invariants.sql` | 197 KB | whenever a test is added |
+| `db/tests/invariants.sql` | 199 KB | whenever a test is added |
 | `db/schema.sql` | 61 KB | whenever schema is checked |
-| all of `prompts/` | 88 KB | — |
+| all of `prompts/` | 96 KB | — |
 | README + CONVENTIONS + one package | ~14 KB | what a session should actually load |
 
 So: **one session per package, started cold.** Read this index, `CONVENTIONS.md`, and the
