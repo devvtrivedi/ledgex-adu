@@ -12,7 +12,8 @@ Finished packages move to `done/` and are not read again unless something contra
 | P5 | [Zoning + permits reconciliation](P5-zoning-permits-reconciliation.md) | done, reviewed, pushed | `4d0f7ea`, `8a7286e` |
 | P6 | [Migration application has no ledger](P6-migration-ledger.md) | done, pushed | `8be8505`, `7b6aceb`, `47d826e`, `c5d681a`, `303e0db`, `4eac993`, `aea2d79`, `e02afe2`, `4c66d2d` |
 | P7 | [`0044`'s derived-fact exemption is unbounded](P7-derived-fact-supersession-unbounded.md) | confirmed finding, not fixed | — |
-| P8 | [Nothing resolves a `parcel_exception` when its condition changes](P8-exception-resolution-undefined.md) | confirmed finding, not fixed | — |
+| P8 | [Nothing resolves a `parcel_exception` when its condition changes](P8-exception-resolution-undefined.md) | design reported, folded into P9 | — |
+| P9 | [Closing a `parcel_exception` when its condition clears](P9-exception-resolution.md) | written, not built | — |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
@@ -50,6 +51,24 @@ zoning snapshots now carries both exceptions open simultaneously (different `rea
 and nothing ever closes it. Applies to every exception-writing detector, not just zoning's.
 Full writeup, including what "resolved" should mean and where the code would need to change,
 in `P8-exception-resolution-undefined.md`.
+
+**P9 — written, not built.** Implements P8, with three corrections to P8's own draft
+recommendations settled before drafting: the new `exception_outcome` value is
+`condition_cleared`, not `superseded` (a closed exception has no successor to point at,
+unlike a fact); no documented `resolved_by` convention is needed (the outcome value alone
+already distinguishes machine closure from human review, once `condition_cleared` exists;
+`resolved_by` still gets `detector_key` because the existing 0015 biconditional requires it
+non-null, not because of a new convention); and inline closure only ever reaches
+`load_zoning` — `parcel_apn_unresolvable` has no full-recompute reconciliation pass to
+close from (the resolvability-flip gap below), and `flag_invalid_geometry.py`'s two
+detectors get only the `existing_open` dedup guard that stops their real, reproducible
+`UniqueViolation` crash on rerun, not closure. `load_permits` writes no `parcel_exception`
+rows at all, confirmed by grep — an earlier draft of this scope wrongly named it alongside
+`load_zoning`, corrected before the package was written. One design question P8 didn't
+reach, settled in P9: a condition that clears and later recurs currently produces an
+unlinked new row (`0045`'s index only constrains `open` rows) — P9 adds
+`parcel_exception.reopened_from_id`, one hop back, same shape as `fact.supersedes_fact_id`.
+Full design and paste-ready prompt in `P9-exception-resolution.md`. Not started.
 
 **Both CI gates confirmed green simultaneously, on the real runner, at `4c66d2d`
 (2026-08-15).** `db.yml` (`make schema`, `make migrate-verify`, `make db-test`, `make
@@ -149,6 +168,7 @@ should not be re-read.
 | 14 | Seeded `stale_after_days`/`required_for_file` "contradict §8 of the spec" | **No longer meaningful as stated** | §8 was already established (P5 gate, this README's own §5 note above) to have never existed in any tracked version of the spec — the citation was always a stale pointer, most likely meant for §3.3. `stale_after_days` isn't even set in the seed (`db/seeds/day4_sources.sql` never assigns it — always NULL); nothing there to check against a section with no content. If this needs re-litigating, it has to be re-posed against §3.3, not §8 — not done here, out of scope for a reconciliation pass. |
 | 15 | `core/` a near-empty scaffold, so the jurisdiction-name blocklist grep scans almost nothing | **No longer accurate as stated, not independently fixed** | `core/` now holds `store.py` (`insert_facts`) and `exceptions.py` (`insert_exceptions`), real shared logic both ingest scripts call — grew organically during P3-P5, not from a targeted fix for this finding. Still small (126 lines total); whether it's *enough* coverage for the blocklist to mean something was never re-asked. |
 | 16 | Deferred deliberately (`parcel_lineage` split/merge, matching-key decision, `job_run` metrics column, `pipelines/` split) | **Unchanged, still deferred** | `job_run` metrics column is the same fact as #12 above. `pipelines/` split's stated precondition ("Phase B is the thing that justifies it") is now met (#4, closed) but the split itself hasn't been done — worth a conscious decision, not a rediscovery, next time it comes up. `parcel_lineage` and the matching-key question still await the trigger event (an observed split, an observed source change) neither of which has happened. |
+| 17 | `parcel_apn_unresolvable`'s resolvability flip between snapshots is undetected — a feature whose APN goes from resolvable to unresolvable (or back) between two `ingest_parcels.py` runs isn't covered by that reconciliation pass at all | **New, still open** — surfaced while scoping P9, not part of the original handoff list | `scripts/ingest_parcels.py:1094-1107`, the loader's own comment: "a feature whose resolvability itself flips... between snapshots is a real, distinct case this pass does not handle; flagged here as a known gap, not silently absorbed." Explicitly out of scope for P9 ([P9-exception-resolution.md](P9-exception-resolution.md)) — that's an exception-*resolution* gap (once a detector recomputes correctly, does its exception close); this is a *reconciliation* gap one layer below (the detector doesn't recompute this case correctly in the first place). Own package, later. |
 
 Standing context that does not belong to any package:
 

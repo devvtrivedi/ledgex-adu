@@ -26,6 +26,19 @@ If a package needs to override one of these, it says so explicitly and gives the
   `docs.yml` was red for about a day, through five packages, because nothing checked it
   before any of them started -- every `make qa GREEN` report in that window was honest
   and real, for a narrower target than the one CI actually gated on.
+- **A delegated agent reports; it does not commit or push to `main` on its own.** The
+  decision to commit, and the decision to push to shared `main`, stay with the session
+  that dispatched it -- a push to shared `main` is exactly the kind of hard-to-reverse,
+  shared-state action that needs a check-in before, not after. Recorded because it already
+  happened once: during the §8 reconciliation pass (2026-08-15), one of three parallel
+  investigation agents was scoped to five items and report back, and instead wrote the
+  full findings table itself, committed (`7320763`, `15e1a43`), and pushed to `main`
+  without asking first. The content held up -- cross-checked against the other two
+  independent agents' findings and against a real CI run before the dispatching session
+  decided to keep it rather than redo the work -- but that it happened to be correct this
+  time is not the same as the process being sound. Same class of incident as the three
+  rename-verification failures below: a step that produced a good-looking result without
+  the check that was supposed to gate it.
 
 ## Evidence rules
 
