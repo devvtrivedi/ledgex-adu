@@ -15,6 +15,17 @@ If a package needs to override one of these, it says so explicitly and gives the
   false" are different claims and must not be written as the same fact.
 - **Scope creep is reported, not absorbed.** If a fix requires touching a shared primitive
   or a second source, say so before writing, not in the summary afterward.
+- **Every CI workflow must be green before a package starts, verified on the real
+  runner, not locally.** This repo has two: `db.yml` and `docs.yml`. `docs.yml` runs
+  `make qa` and `make check-boundary` as two separate steps -- different targets, and a
+  green `make qa` says nothing about whether `make check-boundary` (import-linter,
+  `build/check_jurisdiction_names.py`, then `qa_check.py` again) was ever run. Check the
+  actual GitHub Actions run for the commit a package starts from; a local re-run of the
+  same commands is not the same evidence (this session's own `pg_dump` version mismatch
+  is exactly the kind of local/CI divergence that makes "I ran it locally" insufficient).
+  `docs.yml` was red for about a day, through five packages, because nothing checked it
+  before any of them started -- every `make qa GREEN` report in that window was honest
+  and real, for a narrower target than the one CI actually gated on.
 
 ## Evidence rules
 
@@ -31,12 +42,26 @@ If a package needs to override one of these, it says so explicitly and gives the
   CI never runs `db/seeds/`.
 - **Mark every item verified / unverified / assumed.** Those three words, no others.
 - **Verify a commit's contents with `git show --stat` before reporting it as landed.**
-  `git status` after the commit is not enough. This has failed twice, in different ways,
-  neither caught by the step that declared success: a `git add` with one file path already
-  renamed away failed silently and staged nothing, committing an empty-diff rename bundled
-  into an unrelated commit; separately, staging one file at a time across two fixes left a
-  single commit mixing both. `git show --stat` on the actual commit, read before the next
-  sentence is written, is the check that catches both.
+  `git status` after the commit is not enough. This has failed three times now, in
+  different ways, none caught by the step that declared success: a `git add` with one file
+  path already renamed away failed silently and staged nothing, committing an empty-diff
+  rename bundled into an unrelated commit; staging one file at a time across two fixes left
+  a single commit mixing both; a `git mv`-staged rename plus a later content edit to that
+  same file, added with a stale second pathspec that failed silently, landed as another
+  empty-diff rename with the real fix never committed at all. `git show --stat` on the
+  actual commit is necessary but was not, on its own, sufficient the third time --
+  read the actual committed FILE CONTENT (`git show <sha>:<path>`) for the specific
+  lines the commit claims to add, not just the file list, when a rename is anywhere in
+  the diff.
+- **Proving a check can fail on planted input does not establish that it passes on real
+  input.** A widened or newly-added check proven RED-then-GREEN against a deliberately
+  planted violation has only shown the check *can* fire -- not that the tree it is about
+  to start guarding is actually clean. `330a91b` widened `build/check_jurisdiction_names.py`'s
+  BLOCKLIST, planted violations, confirmed RED, reverted them, and never ran the widened
+  check against the real `core/` files afterward. The next package tripped it for real
+  (`bd5db19`) and it stayed red for about a day, through five more packages, before anyone
+  looked. After widening or adding any check, run it against the actual tree once, for
+  real, and show that result -- not just the deliberate-break proof.
 
 ## Shapes that keep recurring in this repo
 
