@@ -17,9 +17,17 @@ Finished packages move to `done/` and are not read again unless something contra
 - `§6` hole closed: SECTION_INDEX carries a `6` row again (build/ledgex_source.py
   `SECTION_INDEX` + `UNINDEXED_SUBSECTIONS`), verified against real `### 6.N` headings by
   `build_spec_index.py` rather than dropped from the index. Restoring §6's own top-level
-  heading is still out of scope — the region immediately before it in
-  `text/LedgeX_Engineering_Reference_Spec_v1_28.txt` is pdftotext-mangled — but a reader
-  following the index now reaches §6.1 instead of finding nothing. SPEC_VERSION 1.28.
+  heading is still out of scope — the region immediately before §6.1 is pdftotext-mangled
+  (task shapes reordered) — but a reader following the index now reaches §6.1 instead of
+  finding nothing. SPEC_VERSION 1.28.
+- `§6.3` restored (SPEC_VERSION 1.29): applied the same absence-at-origin test used to
+  settle §8 — checked the earliest tracked spec text instead of assuming. §8's gap was
+  empty in every version back to the initial commit; §6.3's gap was not — three orphaned
+  checklist lines (a bullet style used nowhere else in the document) sat unclaimed exactly
+  between §6.2 and §6.4, inside the same already-confirmed-mangled region. A "6.3
+  Definition of done" heading was added directly above them — no new prose, only a
+  heading on content already there. May be incomplete. §6.1's and §6.5's reading-order
+  references to "§6.3 definition of done" now resolve.
 - `§8`: never real. Confirmed against `text/LedgeX_Engineering_Reference_Spec_v1_7.txt`
   (the earliest version this repo's git history has — the initial commit), whose own
   "Section N —" markers already jump 5 → 7 → 9 with nothing between them. Every version
