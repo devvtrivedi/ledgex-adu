@@ -13,7 +13,7 @@
 # diff against the committed file — match PG_DUMP/DATABASE_URL to 16 before
 # regenerating it.
 
-.PHONY: docs pdf site qa all clean check-boundary schema schema-dump db-test conformance test golden
+.PHONY: docs pdf site qa all clean check-boundary schema schema-dump db-test conformance test golden state
 
 # `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
 # not guaranteed under `make -j`: parallel make can start pdf's docs
@@ -38,11 +38,18 @@ DATABASE_URL   ?= postgresql://localhost/ledgex_schema_check
 # "no diff" actually means no diff. Must be alphanumeric only.
 PG_DUMP_RESTRICT_KEY ?= ledgexschemadumpfixedkey
 
+# Session orientation, one command instead of ten. Generated at call time
+# from the live repo -- never written to a committed file; a cached state
+# file is worse than none, since nothing would ever mark it stale.
+state:
+	@$(PYTHON) build/state.py
+
 # Regenerate the markdown files of record from build/ledgex_source.py and
 # text/*.txt. Never hand-edit docs/LEDGEX_SPEC.md or docs/LEDGEX_RULES.md.
 docs:
 	$(PYTHON) build/build_spec.py
 	$(PYTHON) build/build_rules.py
+	$(PYTHON) build/build_spec_index.py
 
 # Presentation artifact rendered from the regenerated markdown. No-ops with
 # exit 0 if pandoc isn't installed — the markdown is the file of record.

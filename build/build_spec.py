@@ -40,24 +40,11 @@ OUT  = ROOT / "docs" / "LEDGEX_SPEC.md"
 BUILD_SPEC_PY = pathlib.Path(__file__).name
 BUILD_RULES_PY = "build_rules.py"
 
-CONTENTS = [
-    ("0",  "How to use this file",                      "Always, before any change."),
-    ("1",  "Invariants and internal-fact gate",         "Always. Every change is checked against these."),
-    ("2",  "Repository layout",                         "Deciding where a file goes."),
-    ("3",  "Database schema",                           "Any data-model change."),
-    ("4",  "API endpoints",                             "Any interface change."),
-    ("5",  "Runtime workflow",                          "Implementing or debugging a pipeline stage."),
-    ("6",  "Coding workflow",                           "Starting or finishing any task."),
-    ("7",  "San José source list",                      "Adding or fixing an ingestion."),
-    ("8",  "Canonical field vocabulary and dependencies","Adding a field."),
-    ("9",  "Refusal and error codes",                   "Anywhere something can fail."),
-    ("10", "Track A / Track B measurement",             "Anything that touches evidence."),
-    ("11", "Environment and configuration",             "Setup and deployment."),
-    ("12", "Change record",                             "Amending this spec."),
-    ("13", "Subscription commerce schema",              "Billing, entitlement or plan work."),
-    ("14", "Launch dependencies and Base Core",         "Scoping what must ship."),
-    ("15", "Architecture Addendum A-1",                 "A-1.1 to A-1.4 gates."),
-]
+# SECTION_INDEX (§, governs, use-when) moved to ledgex_source.py -- shared
+# with build_spec_index.py now, same "one source" shape as INVARIANTS/
+# MAKE_TARGETS. See its own comment there for why two rows (6, 8) that
+# used to sit here no longer exist: they never corresponded to a real
+# section of this document.
 
 
 def render_md():
@@ -90,7 +77,7 @@ def render_md():
     p.append("")
     p.append("### Section index")
     p.append("")
-    p.append(S.md_table(["§", "Section", "Use when"], CONTENTS, bold_first=True))
+    p.append(S.md_table(["§", "Section", "Use when"], S.SECTION_INDEX, bold_first=True))
     p.append("")
     p.append("### Authority order")
     p.append("")

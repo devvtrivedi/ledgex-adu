@@ -13,7 +13,7 @@ Invariant I17: these strings are authoritative only when read verbatim from the
 filesystem. Change the text HERE, once, then regenerate both artifacts.
 """
 
-SPEC_VERSION = "1.26"
+SPEC_VERSION = "1.27"
 RULES_VERSION = "1.4"
 PHASE = "Phase 1, Step 1 - City of San Jose"
 REVISION_DATE = "August 2026"
@@ -161,6 +161,68 @@ A1_SCOPE = [
     ("A-1.4", "Edge request guard",
      "Edge infrastructure protection before entitlement and core/compose; "
      "rejection is HTTP 429, not a file outcome and not a fourth outcome."),
+]
+
+
+# --------------------------------------------------------------------------
+# SECTION_INDEX - one row per top-level section of the Spec. (number,
+# governs, use-when). Previously a private list named CONTENTS inside
+# build_spec.py, used only to render the "Section index" table embedded in
+# the Spec itself -- moved here so build_spec_index.py (docs/SPEC_INDEX.md,
+# a session-cost-hygiene artifact) can share the identical data instead of
+# hand-copying it, the same "one source, two artifacts" shape sec 0.2
+# already establishes for INVARIANTS/MAKE_TARGETS.
+#
+# Two rows REMOVED here, not merely relocated: CONTENTS carried "6 Coding
+# workflow" and "8 Canonical field vocabulary and dependencies" listed as
+# if they were real top-level sections. Confirmed directly, not assumed,
+# while building docs/SPEC_INDEX.md's cross-check -- grep '^## '
+# docs/LEDGEX_SPEC.md has no "## 6." or "## 8." heading -- but the two are
+# NOT the same kind of gap, and only one is fixed here:
+#
+#   §8 has no content anywhere. text/LedgeX_Engineering_Reference_Spec_
+#   v1_26.txt's own "Section N —" markers jump 5 -> 7 -> 9; nothing
+#   between them describes field-vocabulary dependencies as its own
+#   section. §3.3 (Canonical field vocabulary, the field_definition DDL)
+#   still cites "§8" in its own "Serves:" line -- a genuinely dangling
+#   cross-reference, corrected in the same pass this comment landed in
+#   (removed the "§8" token; nothing left to point at). Row dropped: there
+#   is no content to index.
+#
+#   §6 is NOT the same gap. Its subsections are real and present --
+#   "### 6.1" through "### 6.7" all exist in docs/LEDGEX_SPEC.md, inside
+#   the byte range between §5's heading and §7's -- only the top-level
+#   "## 6. Coding workflow" heading that should wrap them is missing, and
+#   the raw text at that exact boundary (search "6.1 Task shapes" in the
+#   .txt source) is visibly pdftotext-mangled: task-shape items A-D
+#   interleave in an order that does not read as originally intended.
+#   Restoring the heading correctly means untangling that mangled region
+#   first, not inserting one line -- real content surgery, not an index
+#   fix, and out of scope for a context-hygiene pass whose own hard rule
+#   is "if you find yourself doing more than this, you have misread the
+#   scope." Row dropped for now, reported here rather than silently
+#   worked around: §6's content is real and reachable by reading §5/§7's
+#   surrounding text, just not indexable by number until its heading is
+#   restored in its own pass.
+#
+# SPEC_VERSION bumped (1.26 -> 1.27) and a change-record row added for
+# this correction, per CLAUDE.md: it changes what docs/LEDGEX_SPEC.md's
+# own embedded index table says, and removes a dangling cross-reference.
+SECTION_INDEX = [
+    ("0",  "How to use this file",                      "Always, before any change."),
+    ("1",  "Invariants and internal-fact gate",         "Always. Every change is checked against these."),
+    ("2",  "Repository layout",                         "Deciding where a file goes."),
+    ("3",  "Database schema",                           "Any data-model change."),
+    ("4",  "API endpoints",                             "Any interface change."),
+    ("5",  "Runtime workflow",                          "Implementing or debugging a pipeline stage."),
+    ("7",  "San José source list",                      "Adding or fixing an ingestion."),
+    ("9",  "Refusal and error codes",                   "Anywhere something can fail."),
+    ("10", "Track A / Track B measurement",             "Anything that touches evidence."),
+    ("11", "Environment and configuration",             "Setup and deployment."),
+    ("12", "Change record",                             "Amending this spec."),
+    ("13", "Subscription commerce schema",               "Billing, entitlement or plan work."),
+    ("14", "Launch dependencies and Base Core",          "Scoping what must ship."),
+    ("15", "Architecture Addendum A-1",                  "A-1.1 to A-1.4 gates."),
 ]
 
 

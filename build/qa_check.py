@@ -34,7 +34,17 @@ It asserts:
      replacement: it can't verify DDL content matches, but it can catch a
      migration added without a spec pointer, or a spec pointer to a file
      that was renamed or never written.
-  8. The refusal-code vocabulary inside 0038_refusals_code_check.sql's
+  8. docs/SPEC_INDEX.md is current -- regenerating via build_spec_index.py
+     produces no diff -- AND every ledgex_source.SECTION_INDEX entry
+     resolves to a real "## N. Title" heading in what build_spec.render_md()
+     produces right now (build_spec_index.render_md() performs that
+     cross-check itself and raises if it fails; this just surfaces the
+     failure the same way every other stale-artifact check here does).
+     Added because SECTION_INDEX's own predecessor (a private list called
+     CONTENTS, inside build_spec.py) had silently named two sections that
+     did not exist in the document it claimed to index -- nothing had ever
+     checked it against real headings before this.
+  9. The refusal-code vocabulary inside 0038_refusals_code_check.sql's
      refusals_codes_valid() (an IMMUTABLE CHECK function -- an enum's
      enum_range() would unify this with §9 for free, but enum_range() is
      STABLE, not IMMUTABLE, so it can't back a CHECK honestly; see 0038's
@@ -55,6 +65,7 @@ import build_website as W
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 SPEC = ROOT / "docs" / "LEDGEX_SPEC.md"
 RULES = ROOT / "docs" / "LEDGEX_RULES.md"
+SPEC_INDEX = ROOT / "docs" / "SPEC_INDEX.md"
 
 failures = []
 
@@ -169,6 +180,40 @@ def check_regenerates_clean():
             failures.append(
                 f"{path.name}: on-disk file differs from builder output — "
                 f"hand-edited or stale. Run `make docs`.")
+
+
+def check_spec_index_current():
+    """docs/SPEC_INDEX.md must be current, AND every SECTION_INDEX entry
+    must resolve to a real section -- same regenerate-and-diff shape as
+    check_regenerates_clean, but a plain diff alone can't catch a stale
+    entry: an index describing a section that doesn't exist regenerates
+    "cleanly" against its own wrong claim forever, byte-identical every
+    time, with nothing to notice the claim is false. build_spec_index's
+    own render_md() performs that cross-check and raises if it fails --
+    this surfaces the failure through the same failures list as every
+    other check here, instead of letting it crash the whole script.
+    """
+    import importlib
+    try:
+        mod = importlib.import_module("build_spec_index")
+        importlib.reload(mod)
+    except Exception as e:  # pragma: no cover
+        failures.append(f"build_spec_index: builder failed to import ({e})")
+        return
+    try:
+        fresh = mod.render_md()
+    except Exception as e:
+        failures.append(f"SPEC_INDEX.md: {e}")
+        return
+    if not SPEC_INDEX.exists():
+        failures.append(f"MISSING ARTIFACT: {SPEC_INDEX.relative_to(ROOT)}")
+        return
+    on_disk = SPEC_INDEX.read_text(encoding="utf-8")
+    strip = lambda t: re.sub(r"\*Generated \d{4}-\d{2}-\d{2}.*", "", t).strip()
+    if strip(fresh) != strip(on_disk):
+        failures.append(
+            f"{SPEC_INDEX.name}: on-disk file differs from builder output "
+            f"-- stale or hand-edited. Run `make docs`.")
 
 
 def check_website_current():
@@ -398,6 +443,7 @@ if __name__ == "__main__":
     check_no_duplicate_table()
     check_no_mangled_invariant_prose()
     check_regenerates_clean()
+    check_spec_index_current()
     check_website_current()
     check_website_version_strings()
     check_spec_references_migrations()
@@ -410,7 +456,8 @@ if __name__ == "__main__":
         sys.exit(1)
     print(f"DOCUMENT QA PASSED — {len(S.INVARIANTS)} invariants and "
           f"{len(S.MAKE_TARGETS)} make targets verbatim in both artifacts; "
-          f"no copied tables; markdown current; website/*.html current; "
+          f"no copied tables; markdown current; SPEC_INDEX.md current and "
+          f"every section resolvable; website/*.html current; "
           f"no stale version strings anywhere in website/*.html; every "
           f"migration referenced and resolvable; every referenced build/ "
           f"file exists; refusals_codes_valid()'s vocabulary matches §9.")
