@@ -10,7 +10,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P3 | [Phase B — changed / new / disappeared](P3-phase-b.md) | done, reviewed, pushed | `62cf90f` |
 | P4 | [Source-scoped reconciliation](P4-source-scoped-reconciliation.md) | done, pushed | `46a24c2`, `a62b4a7` |
 | P5 | [Zoning + permits reconciliation](P5-zoning-permits-reconciliation.md) | done, reviewed, pushed | `4d0f7ea`, `8a7286e` |
-| P6 | [Migration application has no ledger](P6-migration-ledger.md) | done, **unpushed** | `8be8505` |
+| P6 | [Migration application has no ledger](P6-migration-ledger.md) | done, pushed | `8be8505`, `7b6aceb`, `47d826e`, `c5d681a`, `303e0db`, `4eac993`, `aea2d79`, `e02afe2`, `4c66d2d` |
 | P7 | [`0044`'s derived-fact exemption is unbounded](P7-derived-fact-supersession-unbounded.md) | confirmed finding, not fixed | — |
 | P8 | [Nothing resolves a `parcel_exception` when its condition changes](P8-exception-resolution-undefined.md) | confirmed finding, not fixed | — |
 
@@ -51,7 +51,19 @@ and nothing ever closes it. Applies to every exception-writing detector, not jus
 Full writeup, including what "resolved" should mean and where the code would need to change,
 in `P8-exception-resolution-undefined.md`.
 
-**P5 — landed, unpushed.** `db/migrations/0045` adds a partial unique index closing the
+**Both CI gates confirmed green simultaneously, on the real runner, at `4c66d2d`
+(2026-08-15).** `db.yml` (`make schema`, `make migrate-verify`, `make db-test`, `make
+schema-dump`) and `docs.yml` (`make qa`, then separately `make check-boundary`) both
+passed in full on that commit — the first point in this session either was actually
+checked on CI rather than assumed, and the first point both are known green at once.
+`docs.yml` had been red since `bd5db19` (`core/store.py`'s docstring named `APN`,
+blocklisted since `330a91b`, before this session) — closed by `e02afe2`. Worth being able
+to point at directly rather than re-deriving: anything built on top of `4c66d2d` inherits
+a verified-clean starting point for both gates; anything built on an earlier commit does
+not, regardless of what any individual package's own local `make qa`/`make check-boundary`
+run reported at the time.
+
+**P5 — landed, pushed.** `db/migrations/0045` adds a partial unique index closing the
 exception-duplication gap (RED-first, T73/T74 in `invariants.sql`, floor 90 → 92).
 `scripts/ingest_zoning_permits.py`'s `load_zoning`/`load_permits` are real diff-based
 reconciliation now, not blind insert — no same-snapshot short-circuit (zoning/permits
@@ -99,10 +111,8 @@ stale-exception gap already flagged in P5's own investigation, not a new bug.
   B step 1 (inside the same mangled region §6's heading sits in). Do not write §8 content to
   close this — there is nothing it was ever supposed to say.
 
-**Current blocking state:** none. P5 is pushed (`4d0f7ea`, `8a7286e`). Three commits are
-local-only pending review: `8be8505` (P6), `7b6aceb` (S1's skip-counted-as-pass fix, not
-P6-specific — the invariant suite itself), and `47d826e` (P5's Review findings note on the
-fourth `current_fact` instance). Check before trusting a SHA named above in conversation —
+**Current blocking state:** none. Everything through `4c66d2d` is pushed — both CI gates
+green there, see above. Check before trusting a SHA named above in conversation anyway —
 run `git log --oneline origin/main..HEAD` for the real, current list, per the standing
 multiple-checkouts hazard.
 
@@ -126,10 +136,10 @@ starts. Measured:
 
 | What | Size | Loaded when |
 |---|---|---|
-| `docs/LEDGEX_SPEC.md` | 211 KB (~53k tokens) | §1 only, every session (CLAUDE.md, since `9b071c4`) — everything else via `docs/SPEC_INDEX.md` |
+| `docs/LEDGEX_SPEC.md` | 223 KB (~56k tokens) | §1 only, every session (CLAUDE.md, since `9b071c4`) — everything else via `docs/SPEC_INDEX.md` |
 | `db/tests/invariants.sql` | 199 KB | whenever a test is added |
-| `db/schema.sql` | 61 KB | whenever schema is checked |
-| all of `prompts/` | 96 KB | — |
+| `db/schema.sql` | 63 KB | whenever schema is checked |
+| all of `prompts/` | 100 KB | — |
 | README + CONVENTIONS + one package | ~14 KB | what a session should actually load |
 
 So: **one session per package, started cold.** Read this index, `CONVENTIONS.md`, and the
