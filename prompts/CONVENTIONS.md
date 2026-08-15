@@ -30,6 +30,13 @@ If a package needs to override one of these, it says so explicitly and gives the
 - **Run every suite twice**, and once against a fresh migrations-only database with no seed.
   CI never runs `db/seeds/`.
 - **Mark every item verified / unverified / assumed.** Those three words, no others.
+- **Verify a commit's contents with `git show --stat` before reporting it as landed.**
+  `git status` after the commit is not enough. This has failed twice, in different ways,
+  neither caught by the step that declared success: a `git add` with one file path already
+  renamed away failed silently and staged nothing, committing an empty-diff rename bundled
+  into an unrelated commit; separately, staging one file at a time across two fixes left a
+  single commit mixing both. `git show --stat` on the actual commit, read before the next
+  sentence is written, is the check that catches both.
 
 ## Shapes that keep recurring in this repo
 
