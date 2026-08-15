@@ -13,7 +13,7 @@ Invariant I17: these strings are authoritative only when read verbatim from the
 filesystem. Change the text HERE, once, then regenerate both artifacts.
 """
 
-SPEC_VERSION = "1.29"
+SPEC_VERSION = "1.30"
 RULES_VERSION = "1.4"
 PHASE = "Phase 1, Step 1 - City of San Jose"
 REVISION_DATE = "August 2026"
@@ -266,6 +266,38 @@ SECTION_INDEX = [
 UNINDEXED_SUBSECTIONS = {
     "6": ["6.1", "6.2", "6.3", "6.4", "6.5", "6.6", "6.7"],
 }
+
+# Injected into §6.3's own rendered content via the {{SECTION_6_3_PROVENANCE}}
+# token in text/*.txt (build_spec.py substitutes it before md_convert.convert()
+# runs, same mechanism as {{BUILD_SPEC_PY}}/{{BUILD_RULES_PY}}) -- generated,
+# not hand-typed into the raw extraction, so it can't silently drift from what
+# actually happened the way a note typed once into text/*.txt could.
+#
+# Why this exists: §6.3's restoration (§12's 1.29 row) recovered exactly three
+# checklist lines from the pdftotext-mangled region that also took §6's own
+# top-level heading. Two independent reasons say that's not the whole original
+# section, not just "three items happened to be all there was": (1) the
+# restoration's own change-record entry already said three items may not be
+# complete: (2) structurally, all three are migration/spec-update shaped --
+# nothing about tests, nothing about proving a check can fail, which is
+# prompts/CONVENTIONS.md's own central rule and cannot plausibly have been
+# absent from a real definition of done for this project. A rendered §6.3
+# with an authoritative heading and three checkboxes, with CLAUDE.md now
+# routing every coding task to it by name, would read as complete without
+# this note -- silently promoting "what survived" to "what there was", the
+# same failure shape the whole §6/§8 investigation exists to catch.
+SECTION_6_3_PROVENANCE = (
+    "> **Provenance -- this list is not the whole original section.**\n"
+    ">\n"
+    "> These three items are what survived pdftotext extraction of this "
+    "section, recovered from the same mangled region that took §6's own "
+    "top-level heading with it (§12, 1.28 and 1.29). They are not a "
+    "complete definition of done, only what was recoverable. Absence from "
+    "this list does not mean optional -- see §6.4 (CI gates) and "
+    "`prompts/CONVENTIONS.md` (this repository's inherited hard and "
+    "evidence rules, including that every check must be seen to fail at "
+    "least once) for what a completed task is actually required to satisfy."
+)
 
 
 def md_table(headers, rows, bold_first=False):

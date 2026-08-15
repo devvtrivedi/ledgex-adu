@@ -158,7 +158,8 @@ def render_md():
     # table, which sec 0.2 prohibits.
     body_text = (BODY.read_text(encoding="utf-8")
                  .replace("{{BUILD_SPEC_PY}}", BUILD_SPEC_PY)
-                 .replace("{{BUILD_RULES_PY}}", BUILD_RULES_PY))
+                 .replace("{{BUILD_RULES_PY}}", BUILD_RULES_PY)
+                 .replace("{{SECTION_6_3_PROVENANCE}}", S.SECTION_6_3_PROVENANCE))
     p.append(md_convert.convert(body_text, drop_before="Section 2"))
     p.append("")
     p.append("---")

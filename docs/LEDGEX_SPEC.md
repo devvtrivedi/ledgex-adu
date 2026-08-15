@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.29
+# LedgeX / ADU.X — Engineering Reference Spec v1.30
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.29 | Machine-executed build contract. |
+| 1 | This Spec v1.30 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -117,7 +117,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.29 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.30 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -1050,6 +1050,10 @@ and the stored evidence file win. (I17)
 
 ### 6.3 Definition of done
 
+> **Provenance -- this list is not the whole original section.**
+>
+> These three items are what survived pdftotext extraction of this section, recovered from the same mangled region that took §6's own top-level heading with it (§12, 1.28 and 1.29). They are not a complete definition of done, only what was recoverable. Absence from this list does not mean optional -- see §6.4 (CI gates) and `prompts/CONVENTIONS.md` (this repository's inherited hard and evidence rules, including that every check must be seen to fail at least once) for what a completed task is actually required to satisfy.
+
 □ make schema-dump produces no diff
 □ Migration is forward-only and numbered
 □ This spec is updated if a contract changed, with a §12 row
@@ -1692,7 +1696,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.29
+Engineering Reference Spec v1.30
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1753,7 +1757,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.29
+Engineering Reference Spec v1.30
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1784,7 +1788,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.29
+Engineering Reference Spec v1.30
 
 ## 9. Refusal and error codes
 
@@ -2574,6 +2578,22 @@ labels content that was already there. UNINDEXED_SUBSECTIONS
 (build/ledgex_source.py) now lists 6.3 among section 6's verified-present
 subsections. May be incomplete -- three items may not be the whole original
 section -- reported as such, not presented as certainly complete.
+
+Aug 2026             1.30                 Added an in-document provenance note to section 6.3, generated from             Before this: section 6.3 rendered as three checkboxes under
+build/ledgex_source.py's SECTION_6_3_PROVENANCE constant and substituted into   an authoritative heading, and CLAUDE.md now routes every
+the raw text at build time (same token-substitution mechanism BUILD_SPEC_PY and coding task to it by name as the definition of done. Nothing
+BUILD_RULES_PY already use), not hand-typed into the raw extraction. States     in the rendered document itself said the list was partial --
+plainly that the three recovered checklist items are not the whole original     that flag existed only in a commit message and a
+section, and points at section 6.4 and prompts/CONVENTIONS.md for what          conversation summary, neither of which a reader following
+completing a task actually requires. Two reasons prompted this, not one: the    the index would ever see. Recording that content was lost is
+1.29 change-record row already said three items may not be complete, and        not the same claim as the content being complete; the two
+structurally all three are migration/spec-update shaped -- nothing about tests, must not read the same to whoever opens section 6.3 next.
+nothing about proving a check can fail, which prompts/CONVENTIONS.md treats as
+its central evidence rule and a real definition of done for this project could
+not plausibly have omitted. Searched the full document again for further
+checkbox-marked fragments by the same evidence used to recover the first three;
+found none. No further items restored on that weaker basis -- reported, not
+written.
 
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

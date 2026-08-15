@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.29
+ Engineering Reference Spec v1.30
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.29                                       Machine-executed build contract.
+   1        This Spec v1.30                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -1075,6 +1075,8 @@ D. Add a detector
 
  6.3 Definition of done
 
+{{SECTION_6_3_PROVENANCE}}
+
       □ make schema-dump produces no diff
       □ Migration is forward-only and numbered
       □ This spec is updated if a contract changed, with a §12 row
@@ -1712,7 +1714,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.29
+                     Engineering Reference Spec v1.30
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1773,7 +1775,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.29
+                   Engineering Reference Spec v1.30
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1802,7 +1804,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.29
+                Engineering Reference Spec v1.30
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -2577,6 +2579,22 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              subsections. May be incomplete -- three items may not be the whole original
                                              section -- reported as such, not presented as certainly complete.
 
+
+   Aug 2026             1.30                 Added an in-document provenance note to section 6.3, generated from             Before this: section 6.3 rendered as three checkboxes under
+                                             build/ledgex_source.py's SECTION_6_3_PROVENANCE constant and substituted into   an authoritative heading, and CLAUDE.md now routes every
+                                             the raw text at build time (same token-substitution mechanism BUILD_SPEC_PY and coding task to it by name as the definition of done. Nothing
+                                             BUILD_RULES_PY already use), not hand-typed into the raw extraction. States     in the rendered document itself said the list was partial --
+                                             plainly that the three recovered checklist items are not the whole original     that flag existed only in a commit message and a
+                                             section, and points at section 6.4 and prompts/CONVENTIONS.md for what          conversation summary, neither of which a reader following
+                                             completing a task actually requires. Two reasons prompted this, not one: the    the index would ever see. Recording that content was lost is
+                                             1.29 change-record row already said three items may not be complete, and        not the same claim as the content being complete; the two
+                                             structurally all three are migration/spec-update shaped -- nothing about tests, must not read the same to whoever opens section 6.3 next.
+                                             nothing about proving a check can fail, which prompts/CONVENTIONS.md treats as
+                                             its central evidence rule and a real definition of done for this project could
+                                             not plausibly have omitted. Searched the full document again for further
+                                             checkbox-marked fragments by the same evidence used to recover the first three;
+                                             found none. No further items restored on that weaker basis -- reported, not
+                                             written.
 
 
                                                                                           vocabulary.
