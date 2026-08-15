@@ -6,8 +6,8 @@ and load_permits (scripts/ingest_zoning_permits.py) -- confirmed
 byte-identical (same SQL text, same template, same page_size=2000)
 across all three before this move, diffed pairwise, not assumed.
 
-Widened from 14 to 15 columns (local_verbatim added) for the APN
-canonicalisation fix: fact.local_verbatim has existed since 0006 ("the
+Widened from 14 to 15 columns (local_verbatim added) for an identifier
+canonicalisation fix in a caller: fact.local_verbatim has existed since 0006 ("the
 source's own string. NEVER discard.") and no caller wrote it. Once
 phase_e started canonicalising parcel.apn (stripping a leading
 apostrophe / surrounding whitespace) before it becomes the fact's value,
