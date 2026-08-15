@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.25
+# LedgeX / ADU.X — Engineering Reference Spec v1.26
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -43,7 +43,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.25 | Machine-executed build contract. |
+| 1 | This Spec v1.26 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -116,7 +116,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.25 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.26 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -479,6 +479,25 @@ set by commit -- DEFERRABLE INITIALLY DEFERRED for the same reason fact_licence_
 two-statement shape (UPDATE the old fact's superseded_at, INSERT the new fact citing it) can land in either
 order within one transaction. Whether one fact may be superseded by two different successors -- a unique
 index on supersedes_fact_id would forbid it -- is a modelling question this migration does not decide.
+
+db/migrations/0043_source_feature_identity.sql adds source_feature_identity: the reconciliation lookup
+mapping one source feature id to one internal parcel id per source, with first/last-seen and retirement
+(retired_snapshot_id/retired_at/retirement_reason -- all three or none) columns. It is append-and-retire
+operational identity state, not a public-record fact. Re-running a bulk parcel snapshot previously had no
+durable identity to reconcile against, so the loader could parse the same bytes twice and insert a second
+full parcel/fact set; this table is what Phase A/B ingest reconciliation (ingest_parcels.py phase_e) matches
+incoming source features against to classify each as new, changed, disappeared or reappeared.
+
+db/migrations/0044_fact_supersession_source_match.sql closes a second gap 0042 left open: nothing checked
+that a superseding fact came from the SAME source_id as the fact it claims to supersede. Reproduced directly:
+a parcels-source successor superseded a permits-source fact and a zoning-source fact, both citing the
+parcels source and snapshot as if they had observed permit status and zoning classification -- committed
+cleanly, pre-fix, because fact_one_current_per_source is partial-unique PER SOURCE (a cross-source successor
+never collides with the row it supersedes) and 0042 never checked source_id at all. Fixed by extending
+0042's own trigger function: a retrieved (non-derived) successor may only supersede a fact from the same
+source_id; a derived successor (source_id IS NULL) remains exempt, since fact_input/I5 already governs
+whether a derivation may legitimately draw on a given source -- the argument for and against ever allowing
+cross-source supersession is recorded in the migration file itself, not only here.
 
 ### 3.8 Current-fact resolution
 
@@ -1670,7 +1689,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.25
+Engineering Reference Spec v1.26
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1731,7 +1750,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.25
+Engineering Reference Spec v1.26
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1762,7 +1781,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.25
+Engineering Reference Spec v1.26
 
 ## 9. Refusal and error codes
 
@@ -2507,6 +2526,13 @@ directly against the list as it stood. All four added, each proven
 individually capable of failing (planted, confirmed RED, reverted)
 before trusting the list again.
 
+Aug 2026             1.26                 Recorded the supersession_reason evidence survey (NEXT_PROMPTS.md, Phase B     fact.supersession_reason (0025) is written 'unknown' by every
+P4): across all 225,039 real ca_san_jose.parcels features, LASTUPDATE is a     ingest_parcels.py Phase B supersession because no source field
+single constant value (2005-10-25T12:21:45Z) for 205,380 of them, not a per-   reliably distinguishes world_change from source_correction today --
+edit timestamp for most rows; PLANMOD is blank for 214,775; NOTES is blank for this is the measured evidence for that choice, not an unexamined
+207,700. The only real signal found is PLANMOD's APNU_* batch-renumber code,   default, and the raw material the next person needs before building
+present on a small minority of non-blank rows.                                 a real rule instead of re-deriving it from scratch.
+
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
 Review” → “Composition &                review stage.
@@ -3164,4 +3190,4 @@ These checks are required and not asserted complete by this PDF. Record CI outpu
 
 ---
 
-*Generated 2026-08-07 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*
+*Generated 2026-08-14 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*
