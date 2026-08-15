@@ -13,7 +13,7 @@
 # diff against the committed file — match PG_DUMP/DATABASE_URL to 16 before
 # regenerating it.
 
-.PHONY: docs pdf site qa all clean check-boundary schema schema-dump db-test conformance test golden state
+.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden state
 
 # `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
 # not guaranteed under `make -j`: parallel make can start pdf's docs
@@ -107,13 +107,47 @@ check-boundary:
 
 # Apply every forward-only migration to an empty database, in order.
 # Spec §1.2 make schema: "Clean apply; constraints, functions and triggers
-# compile."
+# compile." Unchanged by P6's ledger (schema_migrations, scripts/migrate.py):
+# this target's contract is specifically "builds from nothing," which is what
+# CI needs and exactly why CI catches a migration that can't build cleanly.
+# Making this idempotent would quietly weaken that guarantee into "whatever's
+# missing applies" -- a different, weaker claim. For a database that already
+# has some migrations applied, see `make migrate` below instead.
 schema:
 	@command -v $(PSQL) >/dev/null 2>&1 || { echo "$(PSQL) not found — install PostgreSQL 16 client tools"; exit 1; }
 	@for f in $(MIGRATIONS_DIR)/*.sql; do \
 		echo "applying $$f"; \
 		$(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f "$$f" || exit 1; \
 	done
+
+# P6: bring an already-partially-migrated database forward, safely, which
+# `make schema` above cannot do (it only works against an empty database).
+# Applies only migrations not yet recorded in schema_migrations, each atomic
+# with its own ledger row -- see scripts/migrate.py's own docstring for the
+# three things it checks on every run: a migration applied but unrecorded,
+# one recorded whose file changed since (refuses -- migrations are
+# forward-only), and a pre-ledger database with no ledger AND no way to
+# safely guess what already ran (refuses -- see `make migrate-baseline`).
+migrate:
+	$(PYTHON) scripts/migrate.py
+
+# P6, one-time only: adopt a pre-ledger database (schema_migrations does not
+# exist, but the database is not empty either -- `make migrate` refuses this
+# case outright rather than guess). Builds a disposable reference database,
+# applies every migration to it from empty, and only records this database's
+# ledger if a real schema diff against that reference is byte-identical. See
+# scripts/migrate_baseline.py's own docstring for the full argument.
+migrate-baseline:
+	$(PYTHON) scripts/migrate_baseline.py
+
+# P6: independent check that a database's LIVE schema actually matches what
+# its own schema_migrations ledger claims -- catches a ledger row with no
+# matching DDL, or DDL with no matching ledger row, neither of which
+# migrate.py's own read-the-ledger logic can see (both are impossible to
+# produce through migrate.py itself; this is for a database touched some
+# other way). See scripts/migrate_verify.py's own docstring.
+migrate-verify:
+	$(PYTHON) scripts/migrate_verify.py
 
 # Regenerate db/schema.sql from whatever schema is live at DATABASE_URL and
 # diff it against the committed dump. Run `make schema` against an empty
