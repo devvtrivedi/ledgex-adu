@@ -8,3 +8,4 @@ dist/
 *.tmp
 db/schema.sql.tmp
 .venv-ingest/
+.claude/settings.local.json

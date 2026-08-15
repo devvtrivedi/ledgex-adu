@@ -13,7 +13,7 @@ Invariant I17: these strings are authoritative only when read verbatim from the
 filesystem. Change the text HERE, once, then regenerate both artifacts.
 """
 
-SPEC_VERSION = "1.28"
+SPEC_VERSION = "1.29"
 RULES_VERSION = "1.4"
 PHASE = "Phase 1, Step 1 - City of San Jose"
 REVISION_DATE = "August 2026"
@@ -191,21 +191,33 @@ A1_SCOPE = [
 #   actually shipped.
 #
 #   §6 is different: real content exists, just not reachable by number.
-#   Subsections 6.1, 6.2, 6.4, 6.5, 6.6 and 6.7 are all real, present
-#   headings. 6.3 ("definition of done") does NOT exist -- cited once
-#   (the reusable prompt preamble, 6.5's own content: "...then §6.3
-#   definition of done") and never defined, the same one-level-down gap
-#   as §8. The top-level "## 6. Coding workflow" heading that should wrap
-#   6.1-6.7 is missing, and the region immediately before 6.1's own
-#   heading (task-shape B/C/D's full numbered step-lists, plus a stray
-#   "E" fragment matching no task shape the reusable preamble actually
-#   names) is real content sitting in an order that does not read as
-#   originally intended -- pdftotext-mangled, confirmed by reading the
-#   whole region, not assumed from the missing heading alone. Restoring
-#   the heading correctly means resolving that ordering and locating or
-#   writing 6.3 first -- real content surgery, out of scope for a
-#   context-hygiene pass ("if you find yourself doing more than this,
-#   you have misread the scope").
+#   Subsections 6.1-6.7 are all real, present headings, INCLUDING 6.3
+#   ("definition of done") -- initially believed absent (cited by 6.5's
+#   own reusable-prompt preamble, "...then §6.3 definition of done", and
+#   by the reading-order line, but with no matching heading), until the
+#   §8 absence-at-origin test was applied to it directly: unlike §8,
+#   which has no content anywhere in ANY tracked version back to the
+#   initial commit, 6.3's gap (6.1, 6.2, [gap], 6.4-6.7 -- a hole in a
+#   contiguous run, not a clean skip) sat inside a region already
+#   confirmed pdftotext-mangled, and contained three orphaned checklist
+#   lines (marked "□", a bullet style used nowhere else in the document,
+#   distinct from 6.2's "•") positioned exactly between 6.2's content and
+#   6.4's heading. Restored: a "6.3 Definition of done" heading placed
+#   directly above those three existing lines -- no prose invented, only
+#   a heading added to content that was already there, unclaimed. May be
+#   incomplete (three items may not be the whole original section), but
+#   this is what the source, read whole, actually contains.
+#
+#   The top-level "## 6. Coding workflow" heading that should wrap
+#   6.1-6.7 is a separate, still-open gap: the region immediately before
+#   6.1's own heading (task-shape B/C/D's full numbered step-lists, plus
+#   a stray "E" fragment matching no task shape the reusable preamble
+#   actually names, plus a second, shorter "C. Add a rule" appearing
+#   again just after 6.1's heading) is real content sitting in an order
+#   that does not read as originally intended. Restoring §6's own heading
+#   correctly means resolving that ordering -- real content surgery, out
+#   of scope for a context-hygiene pass ("if you find yourself doing more
+#   than this, you have misread the scope").
 #
 #   Decision: carry §6 in SECTION_INDEX with an honest governs string
 #   (below) rather than drop it -- §6 is the most cross-referenced
@@ -231,9 +243,7 @@ SECTION_INDEX = [
     ("4",  "API endpoints",                             "Any interface change."),
     ("5",  "Runtime workflow",                          "Implementing or debugging a pipeline stage."),
     ("6",  "Coding workflow",                           "Starting or finishing any task. NO top-level heading in "
-                                                          "the generated Spec -- read subsections 6.1, 6.2, 6.4-6.7 "
-                                                          "directly (6.3 'definition of done' is cited once but not "
-                                                          "itself defined anywhere)."),
+                                                          "the generated Spec -- read subsections 6.1-6.7 directly."),
     ("7",  "San José source list",                      "Adding or fixing an ingestion."),
     ("9",  "Refusal and error codes",                   "Anywhere something can fail."),
     ("10", "Track A / Track B measurement",             "Anything that touches evidence."),
@@ -252,11 +262,9 @@ SECTION_INDEX = [
 # last one ever disappears too, that IS a hard failure (the section
 # vanished entirely, not just its number), the exact class of drift that
 # let CONTENTS carry "6 Coding workflow" for who knows how long with
-# nothing checking it was still true. 6.3 is deliberately NOT listed: it
-# does not currently exist, and listing it here would silently start
-# treating "cited but undefined" as equivalent to "present."
+# nothing checking it was still true.
 UNINDEXED_SUBSECTIONS = {
-    "6": ["6.1", "6.2", "6.4", "6.5", "6.6", "6.7"],
+    "6": ["6.1", "6.2", "6.3", "6.4", "6.5", "6.6", "6.7"],
 }
 
 

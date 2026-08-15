@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.28
+ Engineering Reference Spec v1.29
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.28                                       Machine-executed build contract.
+   1        This Spec v1.29                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -1073,6 +1073,8 @@ D. Add a detector
 
   •    Do not infer geometry, placement or a cost input to preserve paid value. Refuse the dependent conclusion.
 
+ 6.3 Definition of done
+
       □ make schema-dump produces no diff
       □ Migration is forward-only and numbered
       □ This spec is updated if a contract changed, with a §12 row
@@ -1710,7 +1712,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.28
+                     Engineering Reference Spec v1.29
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1771,7 +1773,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.28
+                   Engineering Reference Spec v1.29
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1800,7 +1802,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.28
+                Engineering Reference Spec v1.29
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -2561,6 +2563,20 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              3.3) was corrected, not restored, in the 1.27 pass.                             heading is pdftotext-mangled (task-shape content out of
                                                                                                                              order, a stray 'E' fragment matching no named task shape)
                                                                                                                              and untangling it is real content surgery, not an index fix.
+
+   Aug 2026             1.29                 Restored section 6.3 (Definition of done): a 'section 6.3 Definition of done'   Every coding task is now routed through section 6.1 by
+                                             heading added directly above three existing checklist lines (marked with a box  CLAUDE.md's own reading order, which sends it on to 'section
+                                             character used nowhere else in this document, distinct from 6.2's bullet) that  6.3 definition of done' -- a promise the index could not
+                                             sat unclaimed between 6.2's content and 6.4's heading. Applied the same         keep while 6.3 did not exist. Two other live references
+                                             absence-at-origin test used to settle section 8: unlike section 8, whose gap is (this file's own reading-order line, and 6.5's reusable
+                                             empty in every tracked version back to the initial commit, 6.3's gap sits       prompt preamble) already named 'section 6.3 definition of
+                                             inside the region already confirmed pdftotext-mangled and is not empty -- three done' verbatim before this fix; both now resolve.
+                                             orphaned lines occupy exactly its position. No prose invented; the heading
+                                             labels content that was already there. UNINDEXED_SUBSECTIONS
+                                             (build/ledgex_source.py) now lists 6.3 among section 6's verified-present
+                                             subsections. May be incomplete -- three items may not be the whole original
+                                             section -- reported as such, not presented as certainly complete.
+
 
 
                                                                                           vocabulary.

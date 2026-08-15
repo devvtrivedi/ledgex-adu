@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.28
+# LedgeX / ADU.X — Engineering Reference Spec v1.29
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -30,7 +30,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 | **3** | Database schema | Any data-model change. |
 | **4** | API endpoints | Any interface change. |
 | **5** | Runtime workflow | Implementing or debugging a pipeline stage. |
-| **6** | Coding workflow | Starting or finishing any task. NO top-level heading in the generated Spec -- read subsections 6.1, 6.2, 6.4-6.7 directly (6.3 'definition of done' is cited once but not itself defined anywhere). |
+| **6** | Coding workflow | Starting or finishing any task. NO top-level heading in the generated Spec -- read subsections 6.1-6.7 directly. |
 | **7** | San José source list | Adding or fixing an ingestion. |
 | **9** | Refusal and error codes | Anywhere something can fail. |
 | **10** | Track A / Track B measurement | Anything that touches evidence. |
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.28 | Machine-executed build contract. |
+| 1 | This Spec v1.29 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -117,7 +117,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.28 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.29 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -1048,6 +1048,8 @@ and the stored evidence file win. (I17)
 
 - Do not infer geometry, placement or a cost input to preserve paid value. Refuse the dependent conclusion.
 
+### 6.3 Definition of done
+
 □ make schema-dump produces no diff
 □ Migration is forward-only and numbered
 □ This spec is updated if a contract changed, with a §12 row
@@ -1690,7 +1692,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.28
+Engineering Reference Spec v1.29
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1751,7 +1753,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.28
+Engineering Reference Spec v1.29
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1782,7 +1784,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.28
+Engineering Reference Spec v1.29
 
 ## 9. Refusal and error codes
 
@@ -2559,6 +2561,19 @@ defined it; the one inbound 'Serves: ... section8' cross-reference (section     
 3.3) was corrected, not restored, in the 1.27 pass.                             heading is pdftotext-mangled (task-shape content out of
 order, a stray 'E' fragment matching no named task shape)
 and untangling it is real content surgery, not an index fix.
+
+Aug 2026             1.29                 Restored section 6.3 (Definition of done): a 'section 6.3 Definition of done'   Every coding task is now routed through section 6.1 by
+heading added directly above three existing checklist lines (marked with a box  CLAUDE.md's own reading order, which sends it on to 'section
+character used nowhere else in this document, distinct from 6.2's bullet) that  6.3 definition of done' -- a promise the index could not
+sat unclaimed between 6.2's content and 6.4's heading. Applied the same         keep while 6.3 did not exist. Two other live references
+absence-at-origin test used to settle section 8: unlike section 8, whose gap is (this file's own reading-order line, and 6.5's reusable
+empty in every tracked version back to the initial commit, 6.3's gap sits       prompt preamble) already named 'section 6.3 definition of
+inside the region already confirmed pdftotext-mangled and is not empty -- three done' verbatim before this fix; both now resolve.
+orphaned lines occupy exactly its position. No prose invented; the heading
+labels content that was already there. UNINDEXED_SUBSECTIONS
+(build/ledgex_source.py) now lists 6.3 among section 6's verified-present
+subsections. May be incomplete -- three items may not be the whole original
+section -- reported as such, not presented as certainly complete.
 
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
