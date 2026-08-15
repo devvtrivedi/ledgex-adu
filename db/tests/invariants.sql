@@ -302,7 +302,9 @@ INSERT INTO field_definition (
   ('test.t64_field', 'Test Field T64', 'public_record', 'string', 'test', 'T64 invariant test field (whole-row immutability, every column)'),
   ('test.t68_field', 'Test Field T68', 'public_record', 'string', 'test', 'T68 invariant test field (supersession parcel/field mismatch)'),
   ('test.t69_field', 'Test Field T69', 'public_record', 'string', 'test', 'T69 invariant test field (supersession target not superseded)'),
-  ('test.t70_field', 'Test Field T70', 'public_record', 'string', 'test', 'T70 invariant test field (legitimate supersession, positive control)')
+  ('test.t70_field', 'Test Field T70', 'public_record', 'string', 'test', 'T70 invariant test field (legitimate supersession, positive control)'),
+  ('test.t71_field', 'Test Field T71', 'public_record', 'string', 'test', 'T71 invariant test field (cross-source supersession rejected, 0044)'),
+  ('test.t72_field', 'Test Field T72', 'public_record', 'string', 'test', 'T72 invariant test field (same-source supersession still succeeds, 0044 positive control)')
 ON CONFLICT (field_key) DO NOTHING;
 
 -- Cross-block scratch state for this run: the fresh parcel id, and (later)
@@ -3947,6 +3949,112 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T71: fact_supersession_target_validate() rejects a RETRIEVED
+-- successor superseding a fact from a DIFFERENT source_id (0044).
+-- Reproduces the exact bug P4 found: ingest_parcels.py's disappearance
+-- cascade superseded a ca_san_jose.building_permits_active fact with a
+-- successor citing ca_san_jose.parcels' own provenance -- committed
+-- cleanly pre-0044, because fact_one_current_per_source is partial-unique
+-- PER SOURCE (a cross-source successor never collides) and 0042 never
+-- checked source_id at all.
+-- ============================================================================
+
+\echo '### TEST T71: cross-source RETRIEVED supersession is rejected (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_target_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t71_field', '"original"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+        'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_target_id;
+
+    UPDATE fact SET superseded_at = now() WHERE id = v_target_id;
+
+    BEGIN
+        -- Same parcel, same field, target correctly retired -- but the
+        -- successor is RETRIEVED (not derived) and comes from a DIFFERENT
+        -- source (test_source_b, not test_source).
+        INSERT INTO fact (
+            parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+            retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+            effective_from, pack_version, supersedes_fact_id, supersession_reason
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'test.t71_field', '"claimed_successor"'::jsonb, 'bulk',
+            'ca_san_jose.test_source_b', 'ca_san_jose.test_source_b:sha256:2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d', now(), 'https://example.com/b',
+            'test.cc0', 'high', 'rule_1', now(), 'v1.0',
+            v_target_id, 'unknown'
+        );
+
+        SET CONSTRAINTS fact_supersession_target_valid IMMEDIATE;
+
+        RAISE EXCEPTION 'FAIL T71: cross-source retrieved supersession was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'I4 violated:%SAME source_id%' THEN
+                RAISE NOTICE 'PASS T71: cross-source retrieved supersession rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T71');
+            ELSE
+                RAISE EXCEPTION 'FAIL T71: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T72: same-source RETRIEVED supersession still succeeds (0044
+-- positive control -- proves T71 rejects cross-source specifically, not
+-- every retrieved-supersedes-retrieved supersession).
+-- ============================================================================
+
+\echo '### TEST T72: same-source RETRIEVED supersession still succeeds (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id    uuid;
+    v_target_id    uuid;
+    v_successor_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t72_field', '"original"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+        'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_target_id;
+
+    UPDATE fact SET superseded_at = now() WHERE id = v_target_id;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version, supersedes_fact_id, supersession_reason
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'test.t72_field', '"corrected"'::jsonb, 'direct',
+        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+        'test.cc0', 'high', 'rule_1', now(), 'v1.0',
+        v_target_id, 'unknown'
+    ) RETURNING id INTO v_successor_id;
+
+    SET CONSTRAINTS fact_supersession_target_valid IMMEDIATE;
+
+    RAISE NOTICE 'PASS T72: fact % (same source as its target) correctly supersedes fact %', v_successor_id, v_target_id;
+    INSERT INTO test_pass VALUES ('T72');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -3977,8 +4085,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 88 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 88 passing tests, got %', v_pass_count;
+    IF v_pass_count < 90 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 90 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

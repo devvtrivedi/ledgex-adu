@@ -794,15 +794,25 @@ JOB_KEY_FULL = "ingest_parcels_full"
 DETECTOR_KEY_APN_UNRESOLVABLE = "parcel_apn_unresolvable"
 DETECTOR_VERSION_APN_UNRESOLVABLE = "1.0"
 
-# Phase B: raised when a parcel disappears from the bulk parcels snapshot
-# (its source_feature_identity is retired) AND it carried a zoning.district
-# fact -- the classification can no longer be confirmed, so the fact is
-# superseded with no successor (not boolean, no honest false value to
-# write) and this exception records why. Distinct detector from
+# Phase B (P4 revision): raised once for every parcel that disappears from
+# the bulk parcels snapshot (its source_feature_identity is retired) --
+# unconditionally, not only when it happens to carry a zoning.district
+# fact. A parcel absent from its own identity source is worth flagging
+# whether or not any other source has ever observed it; the exception's
+# detail lists whatever other-source facts are currently live so a reader
+# can see what's riding on an identity no longer confirmed, without this
+# pass touching a single one of them (P4: it used to, wrongly -- see
+# NEXT_PROMPTS.md). Distinct detector from
 # ingest_zoning_permits.py's zoning_spatial_join_unresolvable: that one
 # describes a join-quality problem found DURING a zoning ingest; this one
 # describes a parcels-identity problem found during a parcels reconcile,
-# with no zoning re-ingest involved at all.
+# with no zoning (or permits) re-ingest involved at all.
+#
+# version stays "1.0": this detector was never pushed/run for real under
+# the P4-revised meaning or the pre-revision one (Phase B, commit 62cf90f,
+# was local-only) -- there is no real historical exception data whose
+# interpretation this change could make ambiguous, so there is nothing a
+# version bump would protect here.
 DETECTOR_KEY_PARCEL_DISAPPEARED = "parcel_disappeared_from_source"
 DETECTOR_VERSION_PARCEL_DISAPPEARED = "1.0"
 
@@ -972,8 +982,6 @@ def phase_e(snapshot_id):
     new_count = 0
     reappeared_count = 0
     disappeared_count = 0
-    disappeared_permits_retracted = 0
-    disappeared_zoning_retracted = 0
 
     try:
         with conn.cursor() as cur:
@@ -1225,32 +1233,44 @@ def phase_e(snapshot_id):
                 if apn_changed or geom_changed:
                     changed_count += 1
 
-            # --- DISAPPEARED: retire identity; cascade into whatever
-            # OTHER-source facts already exist for this parcel_id.
-            # permits.active -> explicit false successor (boolean: a
-            # meaningful negative). zoning -> supersede with NO successor
-            # + coverage_gap exception (not boolean: no honest false
-            # value to write). geometry/apn/source_parcel_id facts are
-            # left exactly as they are -- not superseded, no successor:
-            # the source no longer confirms this parcel, but 0017 already
-            # makes those facts permanent, and nothing in this pass claims
-            # they are now wrong, only that we no longer observe them. ---
+            # --- DISAPPEARED: retire identity; raise ONE exception. That is
+            # ALL. P4 finding: the previous version of this pass also wrote
+            # a permits.active=false successor and superseded zoning.district
+            # -- both carrying SOURCE_ID/snapshot_id/ENDPOINT_URL/LICENCE_ID
+            # from ca_san_jose.parcels. A parcel absent from the PARCELS
+            # snapshot is not evidence about permit status and not evidence
+            # about zoning; it is only evidence that the parcels source no
+            # longer confirms this parcel. The comment that used to sit here
+            # already said as much about geometry/apn/source_parcel_id --
+            # this pass now applies the same reasoning to every other-source
+            # field, not just this source's own.
+            #
+            # Type/reason, argued: exception_type has no dedicated "identity
+            # no longer confirmed" bucket. coverage_gap (used elsewhere in
+            # this file) means "we lack a value" -- wrong here, values exist,
+            # some from other sources, and are not being touched. cross_source
+            # means sources disagree -- wrong, nothing here conflicts with
+            # anything. record_to_ground is the fit: whether a ledger record
+            # still corresponds to a real, currently-observable thing is
+            # exactly what "record to ground" asks, and losing the
+            # authoritative identity source's confirmation is precisely
+            # that question going unanswered. severity='warning', not 'info'
+            # (coverage_gap's usual level elsewhere in this file): unlike an
+            # unresolved APN or an unmatched zoning join, this parcel may
+            # still have LIVE facts from other sources that a consumer could
+            # mistake for still-current-and-confirmed if this exception goes
+            # unnoticed.
             if disappeared_rows:
                 disappeared_parcel_ids = [pid for _, pid in disappeared_rows]
                 with conn.cursor() as cur:
                     cur.execute("""
-                        SELECT parcel_id, id FROM fact
-                        WHERE parcel_id = ANY(%s::uuid[]) AND field_key = 'permits.active'
-                          AND superseded_at IS NULL AND value = 'true'::jsonb
+                        SELECT parcel_id, field_key, source_id FROM fact
+                        WHERE parcel_id = ANY(%s::uuid[]) AND superseded_at IS NULL
                     """, (disappeared_parcel_ids,))
-                    active_permits_by_parcel = dict(cur.fetchall())
-
-                    cur.execute("""
-                        SELECT parcel_id, id FROM fact
-                        WHERE parcel_id = ANY(%s::uuid[]) AND field_key = 'zoning.district'
-                          AND superseded_at IS NULL
-                    """, (disappeared_parcel_ids,))
-                    zoning_by_parcel = dict(cur.fetchall())
+                    live_facts_by_parcel = {}
+                    for pid, field_key, source_id in cur.fetchall():
+                        live_facts_by_parcel.setdefault(pid, []).append(
+                            {"field_key": field_key, "source_id": source_id})
 
                 for source_feature_id, parcel_id in disappeared_rows:
                     identity_retirements.append((
@@ -1259,30 +1279,15 @@ def phase_e(snapshot_id):
                     ))
                     disappeared_count += 1
 
-                    permits_fact_id = active_permits_by_parcel.get(parcel_id)
-                    if permits_fact_id is not None:
-                        fact_ids_to_supersede.append(permits_fact_id)
-                        fact_rows.append((
-                            parcel_id, JURISDICTION_ID, "permits.active", json.dumps(False), "bulk",
-                            SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
-                            LICENCE_ID, FACT_CONFIDENCE, "parcel_absent_from_bulk_parcels_snapshot",
-                            retrieved_at, FACT_PACK_VERSION, None,
-                            permits_fact_id, "unknown",
-                        ))
-                        disappeared_permits_retracted += 1
-
-                    zoning_fact_id = zoning_by_parcel.get(parcel_id)
-                    if zoning_fact_id is not None:
-                        fact_ids_to_supersede.append(zoning_fact_id)
-                        exception_rows.append((
-                            parcel_id, JURISDICTION_ID, "coverage_gap", "info",
-                            DETECTOR_KEY_PARCEL_DISAPPEARED, DETECTOR_VERSION_PARCEL_DISAPPEARED,
-                            json.dumps({
-                                "reason": "zoning_fact_superseded_parcel_disappeared",
-                                "source_feature_id": source_feature_id,
-                            }),
-                        ))
-                        disappeared_zoning_retracted += 1
+                    exception_rows.append((
+                        parcel_id, JURISDICTION_ID, "record_to_ground", "warning",
+                        DETECTOR_KEY_PARCEL_DISAPPEARED, DETECTOR_VERSION_PARCEL_DISAPPEARED,
+                        json.dumps({
+                            "reason": "parcel_absent_from_source_snapshot",
+                            "source_feature_id": source_feature_id,
+                            "live_facts_from_other_sources": live_facts_by_parcel.get(parcel_id, []),
+                        }),
+                    ))
 
         peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         peak_rss_mb = peak_rss / (1024 * 1024) if sys.platform == "darwin" else peak_rss / 1024
@@ -1290,8 +1295,7 @@ def phase_e(snapshot_id):
         print(f"  new: {new_count:,}  changed: {changed_count:,} "
               f"(apn={changed_field_counts['parcel.apn']:,}, geometry={changed_field_counts['parcel.geometry']:,})  "
               f"reappeared: {reappeared_count:,}  "
-              f"disappeared: {disappeared_count:,} "
-              f"(permits retracted={disappeared_permits_retracted:,}, zoning retracted={disappeared_zoning_retracted:,})")
+              f"disappeared: {disappeared_count:,} (record_to_ground exception raised, no cross-source writes)")
         print(f"  resolvable APN: {resolvable_count:,}  unresolvable: {unresolvable_count:,} "
               f"(blank={reason_counts['blank']}, placeholder={reason_counts['placeholder']})")
         print(f"  parcel rows to insert: {len(parcel_rows):,}")

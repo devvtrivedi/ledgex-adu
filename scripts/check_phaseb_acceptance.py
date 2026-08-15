@@ -70,34 +70,52 @@ def check_after_b(conn):
         row = cur.fetchone()
         check(cur, f"after B: source_feature_id {pid}: new parcel created, live identity", row is not None, f"got {row}")
 
+    # P4: a parcel disappearing from PARCELS is not evidence about permits
+    # or zoning. Neither fact should be touched AT ALL -- no supersession,
+    # no successor, still exactly the fact that was there before B ran,
+    # still carrying its OWN source's provenance (never ca_san_jose.parcels').
+    # The only real observation here is that the parcels source no longer
+    # confirms the parcel's identity -- one record_to_ground exception,
+    # plus the identity retirement already asserted elsewhere.
     for pid in ("510", "11908"):
         cur.execute("""
-            SELECT f.value FROM source_feature_identity sfi
-            JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'permits.active' AND f.superseded_at IS NULL
+            SELECT f.value, f.superseded_at, f.source_id FROM source_feature_identity sfi
+            JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'permits.active'
             WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = %s
         """, (pid,))
-        row = cur.fetchone()
-        check(cur, f"after B: source_feature_id {pid}: permits.active is now false (explicit successor)",
-              row is not None and row[0] is False, f"got {row}")
+        permits_rows = cur.fetchall()
+        check(cur, f"after B: source_feature_id {pid}: permits.active untouched -- exactly one fact row, "
+                   f"still true, never superseded, still permits' own provenance",
+              permits_rows == [(True, None, "ca_san_jose.building_permits_active")], f"got {permits_rows}")
 
         cur.execute("""
-            SELECT count(*) FROM source_feature_identity sfi
-            JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'zoning.district' AND f.superseded_at IS NULL
+            SELECT f.value, f.superseded_at, f.source_id FROM source_feature_identity sfi
+            JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'zoning.district'
             WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = %s
         """, (pid,))
-        live_zoning_count = cur.fetchone()[0]
-        check(cur, f"after B: source_feature_id {pid}: zoning.district superseded, NO successor",
-              live_zoning_count == 0, f"got {live_zoning_count}")
+        zoning_rows = cur.fetchall()
+        check(cur, f"after B: source_feature_id {pid}: zoning.district untouched -- exactly one fact row, "
+                   f"never superseded, still zoning's own provenance",
+              len(zoning_rows) == 1 and zoning_rows[0][1] is None
+              and zoning_rows[0][2] == "ca_san_jose.zoning_districts",
+              f"got {zoning_rows}")
 
         cur.execute("""
-            SELECT count(*) FROM source_feature_identity sfi
+            SELECT pe.type, pe.severity, pe.detail FROM source_feature_identity sfi
             JOIN parcel_exception pe ON pe.parcel_id = sfi.parcel_id
             WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = %s
               AND pe.detector_key = 'parcel_disappeared_from_source'
         """, (pid,))
-        exc_count = cur.fetchone()[0]
-        check(cur, f"after B: source_feature_id {pid}: coverage_gap exception raised",
-              exc_count == 1, f"got {exc_count}")
+        exc_rows = cur.fetchall()
+        check(cur, f"after B: source_feature_id {pid}: exactly one record_to_ground/warning exception raised",
+              len(exc_rows) == 1 and exc_rows[0][0] == "record_to_ground" and exc_rows[0][1] == "warning",
+              f"got {exc_rows}")
+        if len(exc_rows) == 1:
+            live_facts = exc_rows[0][2].get("live_facts_from_other_sources", [])
+            live_field_keys = {f["field_key"] for f in live_facts}
+            check(cur, f"after B: source_feature_id {pid}: exception detail lists the live permits.active "
+                       f"and zoning.district facts riding on this now-unconfirmed identity",
+                  {"permits.active", "zoning.district"} <= live_field_keys, f"got {live_facts}")
 
         cur.execute("""
             SELECT retired_at, retired_snapshot_id, retirement_reason FROM source_feature_identity
@@ -163,14 +181,21 @@ def check_after_a2(conn):
         check(cur, f"after A2: source_feature_id {pid}: last_seen_snapshot_id updated to A's snapshot",
               row is not None and row[1] == A_SID, f"got {row}")
 
+        # P4: permits.active/zoning.district were never touched by B's
+        # disappearance handling (see check_after_b) and reappearing in A2
+        # doesn't touch them either -- reappearance is a parcels-identity
+        # event, not a permits or zoning re-observation. Still exactly one
+        # fact row each, from their OWN source, still their original value,
+        # never superseded, through the entire A -> B -> A2 sequence.
         cur.execute("""
-            SELECT value FROM source_feature_identity sfi
-            JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'permits.active' AND f.superseded_at IS NULL
+            SELECT f.value, f.superseded_at, f.source_id FROM source_feature_identity sfi
+            JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'permits.active'
             WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = %s
         """, (pid,))
-        permits_row = cur.fetchone()
-        check(cur, f"after A2: source_feature_id {pid}: permits.active STILL false (not auto-restored by reappearing)",
-              permits_row is not None and permits_row[0] is False, f"got {permits_row}")
+        permits_rows = cur.fetchall()
+        check(cur, f"after A2: source_feature_id {pid}: permits.active STILL untouched -- one fact row, "
+                   f"true, never superseded, still permits' own provenance",
+              permits_rows == [(True, None, "ca_san_jose.building_permits_active")], f"got {permits_rows}")
 
 
 if __name__ == "__main__":
