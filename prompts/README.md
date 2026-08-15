@@ -12,6 +12,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P5 | [Zoning + permits reconciliation](P5-zoning-permits-reconciliation.md) | done, **unpushed** | — |
 | P6 | [Migration application has no ledger](P6-migration-ledger.md) | design reported, not built | — |
 | P7 | [`0044`'s derived-fact exemption is unbounded](P7-derived-fact-supersession-unbounded.md) | confirmed finding, not fixed | — |
+| P8 | [Nothing resolves a `parcel_exception` when its condition changes](P8-exception-resolution-undefined.md) | confirmed finding, not fixed | — |
 
 **P6.** `make schema` loops every migration with `ON_ERROR_STOP=1`, so it only works against
 an empty database. There is no `schema_migrations` table and no supported way to bring a
@@ -27,6 +28,15 @@ will drift again. Design in `P6-migration-ledger.md`, not built.
 nothing ties `supersedes_fact_id` to `fact_input`. Confirmed by construction against a
 correctly-installed trigger, not reasoned. `0044` deliberately untouched. Full writeup in
 `P7-derived-fact-supersession-unbounded.md`.
+
+**P8.** `0045` stops a detector writing the same open exception twice; it does nothing when
+an exception's condition changes instead of repeating. Confirmed empirically during P5's
+acceptance run, not hypothesized: a parcel that went `zero-match` → `ambiguous` across two
+zoning snapshots now carries both exceptions open simultaneously (different `reason`, so
+`0045`'s index doesn't block it) — the first one describes a state that is no longer true,
+and nothing ever closes it. Applies to every exception-writing detector, not just zoning's.
+Full writeup, including what "resolved" should mean and where the code would need to change,
+in `P8-exception-resolution-undefined.md`.
 
 **P5 — landed, unpushed.** `db/migrations/0045` adds a partial unique index closing the
 exception-duplication gap (RED-first, T73/T74 in `invariants.sql`, floor 90 → 92).
@@ -77,13 +87,15 @@ stale-exception gap already flagged in P5's own investigation, not a new bug.
   close this — there is nothing it was ever supposed to say.
 
 **Current blocking state:** none, but check before trusting any SHA named above in
-conversation — P5/P6/P7 (this session) are local-only pending review. Run
+conversation — P5/P6/P7/P8 (this session) are local-only pending review. Run
 `git log --oneline origin/main..HEAD` for the real, current list, per the standing
 multiple-checkouts hazard.
 
 **No longer current (P5 lifted it):** `load_zoning` and `load_permits` used to raise
 `UniqueViolation` on `fact_one_current_per_source` against any changed snapshot (P4 step 4).
-Both now reconcile via diff-against-`current_fact`, same shape as parcels' own Phase B.
+Both now reconcile via diff-against-`fact WHERE superseded_at IS NULL` (not `current_fact`,
+which P1 made a best-effort, after-commit refresh — reading it could misclassify an
+already-correct value as changed while it lags), same shape as parcels' own Phase B.
 
 Standing context that does not belong to any package:
 
@@ -99,18 +111,19 @@ starts. Measured:
 
 | What | Size | Loaded when |
 |---|---|---|
-| `docs/LEDGEX_SPEC.md` | 209 KB (~52k tokens) | **every session** — CLAUDE.md says "in full" |
-| `db/tests/invariants.sql` | 199 KB | whenever a test is added |
-| `db/schema.sql` | 63 KB | whenever schema is checked |
-| all of `prompts/` | 49 KB | — |
+| `docs/LEDGEX_SPEC.md` | 211 KB (~53k tokens) | §1 only, every session (CLAUDE.md, since `9b071c4`) — everything else via `docs/SPEC_INDEX.md` |
+| `db/tests/invariants.sql` | 197 KB | whenever a test is added |
+| `db/schema.sql` | 61 KB | whenever schema is checked |
+| all of `prompts/` | 88 KB | — |
 | README + CONVENTIONS + one package | ~14 KB | what a session should actually load |
 
 So: **one session per package, started cold.** Read this index, `CONVENTIONS.md`, and the
 one active package. Do not carry a finished package's conversation into the next one — the
 Review findings section exists so the next session does not need the transcript.
 
-Grep `invariants.sql` and `schema.sql`; never read them whole. Same for the spec until
-`docs/SPEC_INDEX.md` exists.
+Grep `invariants.sql` and `schema.sql`; never read them whole. Same for the spec — start
+at `docs/SPEC_INDEX.md` and read in full only the sections your change touches (§1 always,
+per CLAUDE.md).
 
 ## How a package is written
 

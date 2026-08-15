@@ -543,11 +543,24 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
         # snapshot as last time" does NOT imply "no-op" the way it does for
         # parcels' own Phase B. There is deliberately no same-snapshot
         # short-circuit here: every run recomputes the full classification
-        # above and diffs it against current_fact for real. The spatial join
-        # is ~8s at this scale -- not expensive enough to justify inventing a
-        # new invalidation key whose own correctness would be one more thing
-        # to get wrong, in exactly the direction that matters here: a run
-        # that silently skips work it should have done.
+        # above and diffs it against the live ledger. The spatial join is ~8s
+        # at this scale -- not expensive enough to justify inventing a new
+        # invalidation key whose own correctness would be one more thing to
+        # get wrong, in exactly the direction that matters here: a run that
+        # silently skips work it should have done.
+        #
+        # Reads fact WHERE superseded_at IS NULL directly, NOT current_fact --
+        # same reasoning P3's own Phase B diff already established for
+        # parcels (current_fact can be stale). Load-bearing, not a style
+        # choice: P1 made current_fact's refresh best-effort and AFTER
+        # commit (ingest_parcels.py's refresh_current_fact), specifically so
+        # a refresh failure can never re-mark an already-succeeded job_run
+        # failed. That means current_fact can legitimately lag a correct
+        # ledger. Diffing against it in that state would read the OLD value,
+        # classify it as "changed" relative to the fresh classification, and
+        # supersede a fact that was already correct -- the exact fabricated-
+        # supersession failure this package exists to prevent, arriving by a
+        # different route than the one already closed.
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT parcel_id, field_key, id, value
@@ -830,6 +843,14 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
         # dependency as zoning (P5 finding): the APN join is a function of the
         # CURRENT parcel set, not the permits snapshot alone -- no
         # same-snapshot short-circuit here either, for the identical reason.
+        #
+        # Reads fact WHERE superseded_at IS NULL, NOT current_fact -- same
+        # reasoning as load_zoning above (see its comment for the full
+        # argument): current_fact's refresh is best-effort and runs after
+        # commit (P1), so it can legitimately lag a correct ledger, and
+        # diffing against it while lagging would misclassify an already-
+        # correct value as changed and supersede it -- the fabricated-
+        # supersession failure this package exists to prevent.
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT parcel_id, field_key, id, value
