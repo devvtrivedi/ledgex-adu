@@ -1,0 +1,72 @@
+-- 0045_parcel_exception_one_open_per_detector_reason.sql
+-- Fixes: parcel_exception (0010). Serves: I12. P5 finding.
+--
+-- THE GAP. insert_exceptions() (core/exceptions.py) is a bare, unconditional
+-- INSERT -- no ON CONFLICT, no dedup. parcel_exception itself has no
+-- uniqueness constraint of any kind beyond its own surrogate id. Nothing in
+-- the schema stops a second reconcile of the same snapshot writing a second
+-- open exception for the same parcel and the same underlying problem.
+-- Confirmed directly, not assumed: load_zoning's current code
+-- (scripts/ingest_zoning_permits.py) writes a coverage_gap exception for
+-- every zero-match/ambiguous parcel on EVERY run, unconditionally -- a
+-- second run against an unchanged snapshot would double all 10,150 open
+-- zoning_spatial_join_unresolvable exceptions that exist today.
+--
+-- Diff-aware exception writing (only write on a genuine transition into
+-- zero-match/ambiguous) is necessary but not sufficient on its own --
+-- application logic that a constraint could enforce is the weaker half of
+-- this repo's own pattern (see e.g. 0042/0044's trigger-enforced
+-- supersession lineage, not merely "the ingest code is supposed to get this
+-- right"). This migration is the enforced half.
+--
+-- THE SCOPE CHECK, before writing. Does any parcel legitimately need two
+-- simultaneously-open exceptions for the same (parcel_id, detector_key,
+-- detector_version, reason)? Checked directly against ledgex_schema_check's
+-- real data (10,393 total open exceptions across four real detector_keys:
+-- zoning_spatial_join_unresolvable, zoning_source_geometry_invalid,
+-- parcel_geometry_invalid, parcel_apn_unresolvable) -- grouped by exactly
+-- the four columns below, zero groups with count > 1. Every detector in
+-- this codebase writes a single {"reason": ...} classification per parcel
+-- per run; a parcel is never simultaneously two different reasons under
+-- one detector_key/detector_version. No legitimate case found.
+--
+-- detail->>'reason' is part of the key, not just detector_key: a single
+-- detector_key can carry multiple distinct, independently-meaningful
+-- reasons (zoning_spatial_join_unresolvable alone has
+-- no_containing_district, multiple_containing_districts and
+-- multiple_containing_polygons_agree -- see ingest_zoning_permits.py). A
+-- key without the reason would forbid a parcel from legitimately holding
+-- open exceptions for two DIFFERENT problems from the same detector at
+-- once, which the data show does happen (a parcel can be zero-match under
+-- one reason and, on a later run, ambiguous under another, with the first
+-- correctly still open pending investigation).
+--
+-- detector_version is part of the key, not left out: a detector's rule can
+-- change (DETECTOR_VERSION_ZONING_UNRESOLVABLE went 1.0 -> 2.0, already
+-- landed) without every previously-open exception being revisited.
+-- Confirmed directly: all 10,150 existing zoning_spatial_join_unresolvable
+-- rows are version '1.0', but the code currently writes '2.0' -- meaning an
+-- unknown subset of those 10,150 are already stale (the v1.0 row-count bug
+-- documented in ingest_zoning_permits.py's own comment misclassified some
+-- parcels that v2.0 resolves cleanly) and nothing today closes them
+-- automatically. Excluding detector_version from this key would make this
+-- migration collide with that pre-existing staleness immediately. Including
+-- it means today's rows aren't touched (verified zero collisions on the
+-- exact index columns) and a version bump is free to open a fresh finding
+-- without fighting an old one for the same slot -- but it also means a
+-- stale open exception is NOT automatically resolved by a version bump or
+-- by the underlying condition going away. That gap is real, reported
+-- separately (P5 session record), not fixed here -- no outcome value in
+-- exception_outcome (open, confirmed, false_positive, unresolved) cleanly
+-- means "closed because new data superseded it," and picking one to bolt
+-- auto-resolution onto is its own design decision this migration does not
+-- make.
+--
+-- THE 10,150 EXISTING ROWS: left alone. Verified before writing this
+-- migration, not assumed: zero groups of (parcel_id, detector_key,
+-- detector_version, detail->>'reason') among them have count > 1, so
+-- creating this index requires no data change and no row is touched.
+
+CREATE UNIQUE INDEX parcel_exception_one_open_per_detector_reason
+    ON parcel_exception (parcel_id, detector_key, detector_version, (detail->>'reason'))
+    WHERE outcome = 'open';

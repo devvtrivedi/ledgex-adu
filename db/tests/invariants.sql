@@ -4055,6 +4055,64 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T73: a second OPEN exception for the same (parcel_id, detector_key,
+-- detector_version, reason) is rejected (0045). P5 finding: insert_exceptions()
+-- is a bare INSERT with no dedup, and parcel_exception had no uniqueness of
+-- any kind -- a second reconcile of an unchanged snapshot would double every
+-- open exception it produced. Positive control below (T74) proves a
+-- DIFFERENT reason for the same parcel/detector/version is NOT blocked.
+-- ============================================================================
+
+\echo '### TEST T73: duplicate open exception, same parcel/detector/version/reason (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
+    VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t73_detector', '1.0', '{"reason":"t73_probe"}'::jsonb);
+
+    BEGIN
+        INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
+        VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t73_detector', '1.0', '{"reason":"t73_probe"}'::jsonb);
+        RAISE EXCEPTION 'FAIL T73: duplicate open exception was accepted';
+    EXCEPTION
+        WHEN unique_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'parcel_exception_one_open_per_detector_reason' THEN
+                RAISE NOTICE 'PASS T73: duplicate open exception rejected';
+                INSERT INTO test_pass VALUES ('T73');
+            ELSE
+                RAISE EXCEPTION 'FAIL T73: unique_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T74: a DIFFERENT reason, same parcel/detector/version, still succeeds
+-- (0045 positive control -- proves T73 rejects the exact duplicate, not
+-- every open exception for the same parcel/detector).
+-- ============================================================================
+
+\echo '### TEST T74: different reason, same parcel/detector/version (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
+    VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t73_detector', '1.0', '{"reason":"t74_different_reason"}'::jsonb);
+
+    RAISE NOTICE 'PASS T74: second open exception with a different reason accepted';
+    INSERT INTO test_pass VALUES ('T74');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -4085,8 +4143,8 @@ DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 90 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 90 passing tests, got %', v_pass_count;
+    IF v_pass_count < 92 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 92 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

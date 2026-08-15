@@ -536,34 +536,111 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
         print(f"  ambiguous (>=2 distinct real classifications): {len(ambiguous):,}")
         print(f"  matched WITH a polygon-overlap anomaly (non-blocking, both fact and exception written): {anomaly_count:,}")
 
+        # --- Reconciliation, not blind insert. P5 finding: this classification
+        # is a function of (zoning snapshot x current parcel set), not the
+        # snapshot alone -- the parcel set can and does grow between zoning
+        # runs (P3/P4 keep re-ingesting parcels independently), so "same
+        # snapshot as last time" does NOT imply "no-op" the way it does for
+        # parcels' own Phase B. There is deliberately no same-snapshot
+        # short-circuit here: every run recomputes the full classification
+        # above and diffs it against current_fact for real. The spatial join
+        # is ~8s at this scale -- not expensive enough to justify inventing a
+        # new invalidation key whose own correctness would be one more thing
+        # to get wrong, in exactly the direction that matters here: a run
+        # that silently skips work it should have done.
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT parcel_id, field_key, id, value
+                FROM fact
+                WHERE field_key IN ('zoning.district','zoning.district_verbatim')
+                  AND superseded_at IS NULL
+            """)
+            live = {(pid, fk): (fid, val) for pid, fk, fid, val in cur.fetchall()}
+
+        fact_ids_to_supersede = []
         fact_rows = []
-        for parcel_id, data in matched.items():
-            fact_rows.append((
-                parcel_id, JURISDICTION_ID, "zoning.district", json.dumps(data["zoning"]), "bulk",
-                SOURCE_ID_ZONING, snapshot_id, retrieved_at, ENDPOINT_URL_ZONING,
-                LICENCE_ID_ZONING, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                retrieved_at, FACT_PACK_VERSION, None, None, None,
-            ))
-            # zoning.district_verbatim is skipped, not fabricated, when
-            # ZONINGABBREV conflicts among the rows that agree on ZONING
-            # (data["zoning_verbatim"] is None in that case) -- see
-            # classify_zoning_candidates.
-            if data["zoning_verbatim"] is not None:
-                fact_rows.append((
-                    parcel_id, JURISDICTION_ID, "zoning.district_verbatim", json.dumps(data["zoning_verbatim"]), "bulk",
-                    SOURCE_ID_ZONING, snapshot_id, retrieved_at, ENDPOINT_URL_ZONING,
-                    LICENCE_ID_ZONING, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                    retrieved_at, FACT_PACK_VERSION, None, None, None,
-                ))
+        diff_counts = {
+            "zoning.district": {"same": 0, "different": 0, "new": 0, "retired": 0},
+            "zoning.district_verbatim": {"same": 0, "different": 0, "new": 0, "retired": 0},
+        }
+
+        def extract_district(d):
+            return d["zoning"]
+
+        def extract_verbatim(d):
+            return d["zoning_verbatim"]
+
+        for field_key, extract in (
+            ("zoning.district", extract_district),
+            ("zoning.district_verbatim", extract_verbatim),
+        ):
+            counts = diff_counts[field_key]
+            for parcel_id in all_parcel_ids:
+                live_entry = live.get((parcel_id, field_key))
+                fresh_value = extract(matched[parcel_id]) if parcel_id in matched else None
+
+                if live_entry is None:
+                    if fresh_value is None:
+                        continue  # absent stays absent -- no-op
+                    # zero-match/ambiguous -> matched (or first-ever
+                    # classification): a NEW fact, never a supersession --
+                    # there is nothing live to supersede.
+                    fact_rows.append((
+                        parcel_id, JURISDICTION_ID, field_key, json.dumps(fresh_value), "bulk",
+                        SOURCE_ID_ZONING, snapshot_id, retrieved_at, ENDPOINT_URL_ZONING,
+                        LICENCE_ID_ZONING, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
+                        retrieved_at, FACT_PACK_VERSION, None, None, None,
+                    ))
+                    counts["new"] += 1
+                else:
+                    live_fact_id, live_value = live_entry
+                    if fresh_value is None:
+                        # matched -> zero-match/ambiguous: supersede, NO
+                        # successor. The exception (below) records why.
+                        fact_ids_to_supersede.append(live_fact_id)
+                        counts["retired"] += 1
+                    elif live_value == fresh_value:
+                        counts["same"] += 1  # no-op -- the whole point of this diff
+                    else:
+                        fact_ids_to_supersede.append(live_fact_id)
+                        fact_rows.append((
+                            parcel_id, JURISDICTION_ID, field_key, json.dumps(fresh_value), "bulk",
+                            SOURCE_ID_ZONING, snapshot_id, retrieved_at, ENDPOINT_URL_ZONING,
+                            LICENCE_ID_ZONING, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
+                            retrieved_at, FACT_PACK_VERSION, None, live_fact_id, "unknown",
+                        ))
+                        counts["different"] += 1
+
+            print(f"  {field_key}: same={counts['same']:,} different={counts['different']:,} "
+                  f"new={counts['new']:,} retired-no-successor={counts['retired']:,}")
+
+        # Exception-writing is diff-aware too (P5 finding): insert_exceptions()
+        # has no dedup and parcel_exception had no uniqueness (0045 now adds
+        # one) -- an unconditional write here would re-open the same finding
+        # on every single re-run. Only write when this (parcel, reason) is
+        # not ALREADY a currently-open exception at this detector_version.
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT parcel_id, detail->>'reason' FROM parcel_exception
+                WHERE detector_key = %s AND detector_version = %s AND outcome = 'open'
+            """, (DETECTOR_KEY_ZONING_UNRESOLVABLE, DETECTOR_VERSION_ZONING_UNRESOLVABLE))
+            existing_open = {(pid, reason) for pid, reason in cur.fetchall()}
 
         exception_rows = []
+        exception_skipped = 0
         for parcel_id in zero_match:
+            if (parcel_id, REASON_NO_CONTAINING_DISTRICT) in existing_open:
+                exception_skipped += 1
+                continue
             exception_rows.append((
                 parcel_id, JURISDICTION_ID, "coverage_gap", "info",
                 DETECTOR_KEY_ZONING_UNRESOLVABLE, DETECTOR_VERSION_ZONING_UNRESOLVABLE,
                 json.dumps({"reason": REASON_NO_CONTAINING_DISTRICT}),
             ))
         for parcel_id in ambiguous:
+            if (parcel_id, REASON_MULTIPLE_CONTAINING_DISTRICTS) in existing_open:
+                exception_skipped += 1
+                continue
             exception_rows.append((
                 parcel_id, JURISDICTION_ID, "coverage_gap", "info",
                 DETECTOR_KEY_ZONING_UNRESOLVABLE, DETECTOR_VERSION_ZONING_UNRESOLVABLE,
@@ -574,6 +651,9 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
         # are separate obligations -- see REASON_MULTIPLE_POLYGONS_AGREE.
         for parcel_id, data in matched.items():
             if data["anomaly"] is not None:
+                if (parcel_id, REASON_MULTIPLE_POLYGONS_AGREE) in existing_open:
+                    exception_skipped += 1
+                    continue
                 exception_rows.append((
                     parcel_id, JURISDICTION_ID, "coverage_gap", "info",
                     DETECTOR_KEY_ZONING_UNRESOLVABLE, DETECTOR_VERSION_ZONING_UNRESOLVABLE,
@@ -583,9 +663,22 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                         **data["anomaly"],
                     }),
                 ))
+        print(f"  exceptions: {len(exception_rows):,} new, {exception_skipped:,} skipped "
+              f"(already open at this detector_version)")
 
         with conn.cursor() as cur:
-            insert_facts(cur, fact_rows)
+            # MUST run before insert_facts() below -- fact_one_current_per_source
+            # is a plain unique index, checked immediately, no deferral. Same
+            # order Phase E already established.
+            if fact_ids_to_supersede:
+                cur.execute(
+                    "UPDATE fact SET superseded_at = clock_timestamp() WHERE id = ANY(%s::uuid[]) AND superseded_at IS NULL",
+                    (fact_ids_to_supersede,),
+                )
+            print(f"  facts superseded: {len(fact_ids_to_supersede):,}")
+
+            if fact_rows:
+                insert_facts(cur, fact_rows)
             print(f"  fact rows submitted: {len(fact_rows):,}")
 
             if exception_rows:
@@ -594,7 +687,11 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
 
         rows_in = len(all_parcel_ids)
         rows_out = len(matched)
-        finish_job_run(conn, job_run_id, "succeeded", snapshot_id, rows_in, rows_out)
+        finish_job_run(conn, job_run_id, "succeeded", snapshot_id, rows_in, rows_out, {
+            "diff": diff_counts,
+            "exceptions_written": len(exception_rows),
+            "exceptions_skipped_already_open": exception_skipped,
+        })
         print(f"\njob_run {job_run_id} -> succeeded (rows_in={rows_in:,}, rows_out={rows_out:,})")
 
     except Exception as e:
@@ -668,7 +765,7 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
         not_found_rows = 0
         ambiguous_rows = 0
         matched_rows = 0
-        fact_rows = []
+        fresh_by_parcel = {}   # parcel_id -> (active_bool, series_earliest_iso_or_None)
         for apn, dates in by_apn.items():
             n_rows = len(dates)
             if apn in dup_apns:
@@ -681,24 +778,12 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                 not_found_rows += n_rows
                 continue
             matched_rows += n_rows
-            earliest = min(dates).isoformat()
-            fact_rows.append((
-                pid, JURISDICTION_ID, "permits.active", json.dumps(True), "bulk",
-                SOURCE_ID_PERMITS, snapshot_id, retrieved_at, ENDPOINT_URL_PERMITS,
-                LICENCE_ID_PERMITS, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                retrieved_at, FACT_PACK_VERSION, None, None, None,
-            ))
-            fact_rows.append((
-                pid, JURISDICTION_ID, "permits.series_earliest", json.dumps(earliest), "bulk",
-                SOURCE_ID_PERMITS, snapshot_id, retrieved_at, ENDPOINT_URL_PERMITS,
-                LICENCE_ID_PERMITS, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                retrieved_at, FACT_PACK_VERSION, None, None, None,
-            ))
+            fresh_by_parcel[pid] = (True, min(dates).isoformat())
 
         print(f"  blank APN: {blank_apn:,} rows")
         print(f"  not-found APN: {not_found:,} distinct ({not_found_rows:,} rows)")
         print(f"  ambiguous (duplicated parcel APN): {ambiguous:,} distinct ({ambiguous_rows:,} rows)")
-        print(f"  matched: {len(fact_rows)//2:,} parcels ({matched_rows:,} rows)")
+        print(f"  matched: {len(fresh_by_parcel):,} parcels ({matched_rows:,} rows)")
         total_unmatched_rows = blank_apn + not_found_rows + ambiguous_rows
         print(f"  TOTAL UNMATCHED ROWS: {total_unmatched_rows:,} / {rows_in:,} "
               f"({100*total_unmatched_rows/rows_in:.1f}%) -- no parcel to attach a "
@@ -741,6 +826,94 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
         # all of them uniformly instead of each one arguing its way into
         # a column named for something else.) Not added here -- that is a
         # schema change, out of scope for this pass -- reported instead.
+        # --- Reconciliation, not blind insert. Same source-set-vs-parcel-set
+        # dependency as zoning (P5 finding): the APN join is a function of the
+        # CURRENT parcel set, not the permits snapshot alone -- no
+        # same-snapshot short-circuit here either, for the identical reason.
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT parcel_id, field_key, id, value
+                FROM fact
+                WHERE field_key IN ('permits.active','permits.series_earliest')
+                  AND superseded_at IS NULL
+            """)
+            live = {(pid, fk): (fid, val) for pid, fk, fid, val in cur.fetchall()}
+
+        candidate_parcels = set(fresh_by_parcel) | {pid for (pid, fk) in live}
+
+        fact_ids_to_supersede = []
+        fact_rows = []
+        diff_counts = {
+            "permits.active": {"same": 0, "different": 0, "new": 0, "retired": 0},
+            "permits.series_earliest": {"same": 0, "different": 0, "new": 0, "retired": 0},
+        }
+
+        for parcel_id in candidate_parcels:
+            fresh = fresh_by_parcel.get(parcel_id)  # (True, iso_date) or None
+            fresh_active = True if fresh is not None else None
+            fresh_earliest = fresh[1] if fresh is not None else None
+
+            for field_key, fresh_value, retire_with_false_successor in (
+                ("permits.active", fresh_active, True),
+                ("permits.series_earliest", fresh_earliest, False),
+            ):
+                counts = diff_counts[field_key]
+                live_entry = live.get((parcel_id, field_key))
+
+                if live_entry is None:
+                    if fresh_value is None:
+                        continue  # never had one, still doesn't -- no-op
+                    fact_rows.append((
+                        parcel_id, JURISDICTION_ID, field_key, json.dumps(fresh_value), "bulk",
+                        SOURCE_ID_PERMITS, snapshot_id, retrieved_at, ENDPOINT_URL_PERMITS,
+                        LICENCE_ID_PERMITS, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
+                        retrieved_at, FACT_PACK_VERSION, None, None, None,
+                    ))
+                    counts["new"] += 1
+                    continue
+
+                live_fact_id, live_value = live_entry
+                if fresh_value == live_value:
+                    counts["same"] += 1
+                    continue
+
+                fact_ids_to_supersede.append(live_fact_id)
+                if fresh_value is not None:
+                    fact_rows.append((
+                        parcel_id, JURISDICTION_ID, field_key, json.dumps(fresh_value), "bulk",
+                        SOURCE_ID_PERMITS, snapshot_id, retrieved_at, ENDPOINT_URL_PERMITS,
+                        LICENCE_ID_PERMITS, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
+                        retrieved_at, FACT_PACK_VERSION, None, live_fact_id, "world_change",
+                    ))
+                    counts["different"] += 1
+                elif retire_with_false_successor:
+                    # permits.active: a permit dropping off the source's own
+                    # pre-filtered active-permits export IS evidence it is no
+                    # longer active -- an explicit false successor, not a
+                    # bare retirement. Same source on both sides (0044
+                    # satisfied), so this is honest in a way parcels'
+                    # cross-source disappearance cascade (P4) was not.
+                    fact_rows.append((
+                        parcel_id, JURISDICTION_ID, field_key, json.dumps(False), "bulk",
+                        SOURCE_ID_PERMITS, snapshot_id, retrieved_at, ENDPOINT_URL_PERMITS,
+                        LICENCE_ID_PERMITS, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
+                        retrieved_at, FACT_PACK_VERSION, None, live_fact_id, "world_change",
+                    ))
+                    counts["different"] += 1
+                else:
+                    # permits.series_earliest with zero active permits left:
+                    # no remaining permit to take MIN over. Retire, no
+                    # successor -- zoning's zero-match mechanism, for a
+                    # different reason: this is a positive, confirmed fact
+                    # (permits.active=false already says so), not a matching
+                    # failure, so no exception either.
+                    counts["retired"] += 1
+
+        for field_key in ("permits.active", "permits.series_earliest"):
+            c = diff_counts[field_key]
+            print(f"  {field_key}: same={c['same']:,} different={c['different']:,} "
+                  f"new={c['new']:,} retired-no-successor={c['retired']:,}")
+
         schema_drift = {
             "unmatched_breakdown": {
                 "blank_apn_rows": blank_apn,
@@ -749,11 +922,20 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                 "ambiguous_apn_rows": ambiguous_rows,
                 "ambiguous_apn_distinct": ambiguous,
             },
+            "diff": diff_counts,
             "_note": "stretched beyond schema_drift's literal 'fields expected but missing' meaning -- see ingest_zoning_permits.py load_permits() for why",
         }
 
         with conn.cursor() as cur:
-            insert_facts(cur, fact_rows)
+            if fact_ids_to_supersede:
+                cur.execute(
+                    "UPDATE fact SET superseded_at = clock_timestamp() WHERE id = ANY(%s::uuid[]) AND superseded_at IS NULL",
+                    (fact_ids_to_supersede,),
+                )
+            print(f"  facts superseded: {len(fact_ids_to_supersede):,}")
+
+            if fact_rows:
+                insert_facts(cur, fact_rows)
             print(f"  fact rows submitted: {len(fact_rows):,}")
 
         finish_job_run(conn, job_run_id, "succeeded", snapshot_id, rows_in, matched_rows, schema_drift)

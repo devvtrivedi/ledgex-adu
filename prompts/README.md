@@ -9,7 +9,42 @@ Finished packages move to `done/` and are not read again unless something contra
 | P2 | [Three correctness fixes](done/P2-correctness-fixes.md) | done, pushed | `40b953d`, `bd5db19`, `6cebdaf` |
 | P3 | [Phase B — changed / new / disappeared](P3-phase-b.md) | done, reviewed, pushed | `62cf90f` |
 | P4 | [Source-scoped reconciliation](P4-source-scoped-reconciliation.md) | done, pushed | `46a24c2`, `a62b4a7` |
-| P5 | [Zoning + permits reconciliation](P5-zoning-permits-reconciliation.md) | gate resolved, not started | — |
+| P5 | [Zoning + permits reconciliation](P5-zoning-permits-reconciliation.md) | done, **unpushed** | — |
+| P6 | [Migration application has no ledger](P6-migration-ledger.md) | design reported, not built | — |
+| P7 | [`0044`'s derived-fact exemption is unbounded](P7-derived-fact-supersession-unbounded.md) | confirmed finding, not fixed | — |
+
+**P6.** `make schema` loops every migration with `ON_ERROR_STOP=1`, so it only works against
+an empty database. There is no `schema_migrations` table and no supported way to bring a
+long-lived database forward. CI never notices — it always starts empty. `ledgex_schema_check`
+drifted **six** migrations behind by construction (0039/41/42/43/44 found and fixed during
+P5's own investigation; 0040 found and fixed separately, mid-package, when T64 in the full
+invariant suite surfaced a stale `fact_no_destructive_update()` body that an earlier,
+existence-only check had missed — a real methodology lesson: checking that a function EXISTS
+is not checking that it is the CURRENT version). Hand-picking is currently the only fix. It
+will drift again. Design in `P6-migration-ledger.md`, not built.
+
+**P7.** A derived fact (`source_id IS NULL`) can supersede an arbitrary fact from any source;
+nothing ties `supersedes_fact_id` to `fact_input`. Confirmed by construction against a
+correctly-installed trigger, not reasoned. `0044` deliberately untouched. Full writeup in
+`P7-derived-fact-supersession-unbounded.md`.
+
+**P5 — landed, unpushed.** `db/migrations/0045` adds a partial unique index closing the
+exception-duplication gap (RED-first, T73/T74 in `invariants.sql`, floor 90 → 92).
+`scripts/ingest_zoning_permits.py`'s `load_zoning`/`load_permits` are real diff-based
+reconciliation now, not blind insert — no same-snapshot short-circuit (zoning/permits
+classification is a function of the snapshot AND the current parcel set, not the snapshot
+alone; proven directly, not assumed, by an 11-parcel drift the first same-snapshot probe
+didn't predict). Core safety property (`different=0`, `retired-no-successor=0` on a
+same-snapshot re-run) proven in the acceptance suite itself, not just a prototype:
+`scripts/run_p5_acceptance.sh` (A→B→A per source, plus a same-snapshot re-run at the end),
+`scripts/check_p5_acceptance.py` (115 assertions), fixtures in `db/fixtures/p5/`. Run RED
+against the pre-P5 code (real `UniqueViolation` crash, exactly P4's documented finding) and
+GREEN against the current code, three times: twice against an independent
+migrations+`db/seeds/day4_sources.sql` database, once against a fresh migrations-only one.
+One assertion needed correcting mid-run, not the code: a parcel found genuinely ambiguous
+under a live-data drift retained a stale, still-open exception from an earlier zero-match
+classification that nothing auto-resolves — direct, empirical confirmation of the
+stale-exception gap already flagged in P5's own investigation, not a new bug.
 
 **P5 gate — resolved.** Three items:
 
@@ -41,16 +76,14 @@ Finished packages move to `done/` and are not read again unless something contra
   B step 1 (inside the same mangled region §6's heading sits in). Do not write §8 content to
   close this — there is nothing it was ever supposed to say.
 
-**Current blocking state:** none. `origin/main` is at `37def22`, matching HEAD — everything
-above is pushed. The §6/§8/CLAUDE.md work that resolved the P5 gate (this session) is still
-local-only pending review; check `git log --oneline origin/main..HEAD` before trusting a SHA
-named above it in conversation, per the standing multiple-checkouts hazard.
+**Current blocking state:** none, but check before trusting any SHA named above in
+conversation — P5/P6/P7 (this session) are local-only pending review. Run
+`git log --oneline origin/main..HEAD` for the real, current list, per the standing
+multiple-checkouts hazard.
 
-**Also current:** `load_zoning` and `load_permits` raise `UniqueViolation` on
-`fact_one_current_per_source` against any changed snapshot, roll back cleanly and mark
-`job_run` failed (established in P4 step 4, no silent duplication). Two of three sources
-therefore cannot re-ingest at all until P5. This is safe, not broken — but it is the
-operating state, and P5 exists to lift it.
+**No longer current (P5 lifted it):** `load_zoning` and `load_permits` used to raise
+`UniqueViolation` on `fact_one_current_per_source` against any changed snapshot (P4 step 4).
+Both now reconcile via diff-against-`current_fact`, same shape as parcels' own Phase B.
 
 Standing context that does not belong to any package:
 
