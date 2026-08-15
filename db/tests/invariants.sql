@@ -325,6 +325,17 @@ CREATE TEMP TABLE test_pass (name text PRIMARY KEY);
 -- in the summary and never contributes to the floor.
 CREATE TEMP TABLE known_gaps (name text PRIMARY KEY, note text);
 
+-- Separate again from both test_pass AND known_gaps: a test whose
+-- prerequisite data is conditionally absent (S1, guarded on db/seeds/
+-- day4_sources.sql) is neither a pass (its assertion did not run) nor an
+-- unenforceable invariant (it enforces something real, when it can run).
+-- P6 finding: S1 used to INSERT INTO test_pass on its own skip branch,
+-- counted in the floor -- meaning CI (always migrations-only, no seed) ran
+-- S1 zero times yet recorded it passing, every run. Same defect class I5c
+-- was already fixed for (a gap counted as coverage); same fix, its own
+-- table so a skip is never mistaken for either a pass or a permanent gap.
+CREATE TEMP TABLE test_skipped (name text PRIMARY KEY, note text);
+
 DO $$
 DECLARE
     v_parcel_id uuid;
@@ -1002,7 +1013,9 @@ END $$;
 --
 -- It creates nothing and modifies nothing; it only reads.
 --
--- Absence is a skip, not a failure, and the skip is labelled as one. This
+-- Absence is a skip, not a failure -- recorded in test_skipped, not
+-- test_pass, so a skip can never be mistaken for a pass in the floor below
+-- (P6 finding: it used to be, silently, every CI run). This
 -- suite is normally run against a migrations-only database (`make schema`
 -- then `make db-test`); there is no seed target, so on that path the three
 -- rows do not exist and there is nothing to check. Asserting presence would
@@ -1030,8 +1043,8 @@ BEGIN
     SELECT count(*) INTO v_present FROM source WHERE id = ANY(v_ids);
 
     IF v_present = 0 THEN
-        RAISE NOTICE 'PASS S1 (skipped): none of the three seeded sources present -- db/seeds/day4_sources.sql has not been applied to this database, so there is nothing to regress';
-        INSERT INTO test_pass VALUES ('S1');
+        RAISE NOTICE 'SKIP S1: none of the three seeded sources present -- db/seeds/day4_sources.sql has not been applied to this database, so there is nothing to regress. NOT counted as a pass.';
+        INSERT INTO test_skipped VALUES ('S1', 'db/seeds/day4_sources.sql not applied to this database -- assertion did not run');
         RETURN;
     END IF;
 
@@ -4138,13 +4151,26 @@ END $$;
 -- the schema does, so counting it toward "coverage" would misrepresent it
 -- as an enforced invariant. It is reported separately below, by name, so a
 -- reader sees it without it inflating the enforced-invariant number.
+--
+-- test_skipped is ALSO not part of this floor, for a related but distinct
+-- reason (P6 finding). S1's assertion is real and enforceable -- unlike
+-- I5c, it is not a permanent gap -- but it only RUNS when db/seeds/
+-- day4_sources.sql has been applied, and CI never applies seeds (this
+-- suite's own standard path is migrations-only). The floor below is 91, not
+-- 92: the guaranteed count when S1 does not run (the common case, CI
+-- included), not the optimistic count from a seeded environment. A seeded
+-- run where S1 executes for real still satisfies `>= 91` -- the floor is a
+-- minimum, not an exact match -- so this is not environment-conditional
+-- logic, just an honest floor. Previously S1 inserted into test_pass on ITS
+-- OWN skip branch, counted in a floor of 92 -- meaning CI recorded S1
+-- passing on every single run without its assertion ever executing.
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 92 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 92 passing tests, got %', v_pass_count;
+    IF v_pass_count < 91 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 91 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 
@@ -4154,7 +4180,13 @@ SELECT count(*) AS pass_count FROM test_pass
 SELECT count(*) AS known_gap_count FROM known_gaps
 \gset
 
-SELECT string_agg(name || ' (' || note || ')', E'\n  ') AS known_gap_detail FROM known_gaps
+SELECT coalesce(string_agg(name || ' (' || note || ')', E'\n  '), '(none)') AS known_gap_detail FROM known_gaps
+\gset
+
+SELECT count(*) AS skipped_count FROM test_skipped
+\gset
+
+SELECT coalesce(string_agg(name || ' (' || note || ')', E'\n  '), '(none)') AS skipped_detail FROM test_skipped
 \gset
 
 \echo ''
@@ -4172,4 +4204,11 @@ SELECT string_agg(name || ' (' || note || ')', E'\n  ') AS known_gap_detail FROM
 \echo 'These are excluded from the pass floor above: they cannot fail no'
 \echo 'matter what the schema does, so counting them would misrepresent an'
 \echo 'unenforced invariant as covered.'
+\echo ''
+\echo 'SKIPPED --' :skipped_count 'test(s) whose assertion did not run this pass'
+\echo '  ' :skipped_detail
+\echo 'Also excluded from the pass floor: unlike a known gap, these enforce'
+\echo 'something real when their prerequisite data exists -- they are just'
+\echo 'not counted as having passed when it does not, so a skip can never'
+\echo 'silently read as coverage.'
 \echo ''
