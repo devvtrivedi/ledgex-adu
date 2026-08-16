@@ -1,0 +1,67 @@
+-- 0047_parcel_exception_condition_cleared_reopened.sql
+-- Fixes: parcel_exception (0010, 0045). Serves: I12. P8/P9 finding.
+--
+-- THE GAP. 0045 stops a detector writing the same open exception twice; it
+-- does nothing when an exception's underlying condition changes instead of
+-- repeating -- confirmed empirically during P5's acceptance run (a parcel
+-- that went zero-match -> ambiguous across two zoning snapshots carried
+-- both exceptions open simultaneously, the first describing a state no
+-- longer true, and nothing ever closed it). Full writeup:
+-- P8-exception-resolution-undefined.md, P9-exception-resolution.md.
+--
+-- THIS MIGRATION adds the two schema primitives P9's design needs: a new
+-- exception_outcome value for a machine-closed exception, and a nullable
+-- self-FK linking a reopened exception back to the row it followed. Both
+-- corrections to P8's own draft are explained in full in
+-- prompts/P9-exception-resolution.md and not repeated here beyond the
+-- reasoning each statement below needs on its own.
+--
+-- condition_cleared, not superseded. 'superseded' is this codebase's word
+-- for a fact replaced by a successor that supersedes_fact_id points at --
+-- the row is gone but its replacement is findable. A closed exception has
+-- no successor: the condition didn't get replaced by a newer observation
+-- of the same kind, it just stopped being true. condition_cleared says
+-- exactly that and invites no supersedes_fact_id-shaped expectation a
+-- parcel_exception cannot satisfy.
+--
+-- ALTER TYPE ... ADD VALUE, following 0031's precedent explicitly (see
+-- that migration's own header). PostgreSQL 12+ allows this inside a
+-- transaction but forbids USING the new value (any DML referencing it)
+-- within that same transaction. The second statement below only adds a
+-- column and an FK constraint -- neither references the literal
+-- 'condition_cleared' in a DEFAULT, CHECK, or any DML -- so it is safe to
+-- combine in this one migration under make schema's per-file
+-- --single-transaction invocation (Makefile:148-167), same reasoning 0031
+-- itself already confirmed for the identical shape. If anything ever needs
+-- to reference 'condition_cleared' (a DEFAULT, a CHECK, a seed, a test
+-- fixture), that goes in a separate, later migration -- not this one.
+--
+-- -- IRREVERSIBLE: ALTER TYPE ... ADD VALUE cannot be undone by a later
+-- migration (PostgreSQL has no DROP VALUE). See §12 for the change-record
+-- note this requires under §3.13, same obligation 0031 already carried.
+--
+-- reopened_from_id: one hop back, same shape as fact.supersedes_fact_id
+-- (which links a fact to its immediate predecessor, not the whole chain).
+-- Set exactly when a fresh open row is about to be written for a
+-- (parcel_id, detector_key, detector_version, reason) that matches an
+-- existing, non-open row -- pointing at the most recently resolved_at one.
+-- Scoped to an EXACT key match deliberately, including detector_version:
+-- 0045's own header already argues a detector_version bump opens a fresh
+-- finding rather than fighting an old one for the same slot, and
+-- cross-version reopening linkage is a harder, separate question not
+-- decided here (see this package's own investigation, recorded in
+-- prompts/P9-exception-resolution.md and the session that built it, for
+-- why cross-version linking would fabricate a "condition_cleared" claim
+-- the current run never actually evaluated under its own rule).
+--
+-- No change to parcel_exception_outcome_resolution_biconditional (0015) or
+-- parcel_exception_resolved_after_detected (0020): both are already
+-- generic over any non-open outcome and any resolution timestamp: neither
+-- constraint needs to know about condition_cleared or reopened_from_id
+-- specifically.
+
+ALTER TYPE exception_outcome ADD VALUE 'condition_cleared';
+
+ALTER TABLE parcel_exception ADD COLUMN reopened_from_id uuid;
+ALTER TABLE parcel_exception ADD CONSTRAINT parcel_exception_reopened_from_fk
+    FOREIGN KEY (reopened_from_id) REFERENCES parcel_exception (id);

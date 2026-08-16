@@ -13,7 +13,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P6 | [Migration application has no ledger](P6-migration-ledger.md) | done, pushed | `8be8505`, `7b6aceb`, `47d826e`, `c5d681a`, `303e0db`, `4eac993`, `aea2d79`, `e02afe2`, `4c66d2d` |
 | P7 | [`0044`'s derived-fact exemption is unbounded](P7-derived-fact-supersession-unbounded.md) | confirmed finding, not fixed | — |
 | P8 | [Nothing resolves a `parcel_exception` when its condition changes](P8-exception-resolution-undefined.md) | design reported, folded into P9 | — |
-| P9 | [Closing a `parcel_exception` when its condition clears](P9-exception-resolution.md) | written, not built | — |
+| P9 | [Closing a `parcel_exception` when its condition clears](P9-exception-resolution.md) | done, not yet pushed | — |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
@@ -69,6 +69,51 @@ reach, settled in P9: a condition that clears and later recurs currently produce
 unlinked new row (`0045`'s index only constrains `open` rows) — P9 adds
 `parcel_exception.reopened_from_id`, one hop back, same shape as `fact.supersedes_fact_id`.
 Full design and paste-ready prompt in `P9-exception-resolution.md`. Not started.
+
+**P9 — built.** `db/migrations/0047` adds `condition_cleared` (following 0031's
+ALTER-TYPE-ADD-VALUE precedent explicitly, in its own migration comment) and
+`parcel_exception.reopened_from_id` in one migration (neither addition
+references the new enum value in a DEFAULT/CHECK/DML, confirmed against
+0031's reasoning before combining them, not assumed). `core/exceptions.py`
+gains `close_resolved_exceptions()`/`relink_reopened_exceptions()` -- each one
+set-based `UPDATE`, not a per-row loop -- wired into `load_zoning` only, per
+the package's own scope table. One open question P9 left unsettled, decided
+before the migration was written: the close helper matches on EXACT
+`(detector_key, detector_version)`, same shape `existing_open` already used --
+not cross-version. Checked directly, not assumed, before deciding:
+`ledgex_schema_check` carries 10,150 real open
+`zoning_spatial_join_unresolvable` rows at `detector_version='1.0'` with zero
+overlap against `2.0` (v2.0 has never actually run against this dataset) --
+cross-version closing would assert `condition_cleared` for a condition the
+current run's classifier never evaluated under the OLD rule, fabricating a
+claim; exact-version match doesn't touch those 10,150 rows at all, the same
+gap `0045`'s own header already named and deferred, not a new one (see finding
+#18 below). Found while building, not in the original plan: `0045`'s unique
+index never fires for `flag_zoning_source_geometry`
+(`scripts/flag_invalid_geometry.py`) -- its `detail` never sets a `reason`
+key, so `detail->>'reason'` is SQL `NULL` for every row and Postgres unique
+indexes never treat `NULL = NULL`; confirmed directly, a second real run
+silently doubled 157 rows to 314 instead of raising `UniqueViolation` the way
+`flag_parcel_geometry`'s does. Both detectors' dedup guard is keyed on
+`parcel_id` alone (not `(parcel_id, reason)`) for this reason -- correct for
+both, since neither ever writes more than one open exception per parcel per
+run, and it is the only key that actually works for the NULL-reason
+detector. RED-first throughout: the `flag_invalid_geometry.py` crash
+reproduced for real against `ledgex_schema_check`'s own prior output before
+any fix; P8's own zero-match-then-ambiguous staleness (`23707070` in P5's own
+fixtures) reconstructed against pre-P9 code first (both exceptions open
+simultaneously, confirmed) and again against post-P9 code (the stale one
+closes, `condition_cleared`, `resolved_by='zoning_spatial_join_unresolvable'`;
+the new one opens with `reopened_from_id IS NULL`); a third run of the same
+parcel back to its original reason confirmed `reopened_from_id` links to the
+row closed two runs earlier; a same-snapshot rerun closed exactly the
+predicted 0. `db/tests/invariants.sql` gained T75-T78 (floor 91 -> 95),
+RED against pre-0047 schema (the whole suite errors loudly, `ON_ERROR_STOP`,
+at the first new test referencing the not-yet-existing column) then GREEN.
+Every suite run twice, plus once each against a fresh migrations-only
+database with no seed -- satisfied directly, since every local run in this
+package used a fresh migrations-only scratch database, none seeded.
+Full design and reasoning in `P9-exception-resolution.md`.
 
 **Both CI gates confirmed green simultaneously, on the real runner, at `4c66d2d`
 (2026-08-15).** `db.yml` (`make schema`, `make migrate-verify`, `make db-test`, `make
@@ -169,6 +214,7 @@ should not be re-read.
 | 15 | `core/` a near-empty scaffold, so the jurisdiction-name blocklist grep scans almost nothing | **No longer accurate as stated, not independently fixed** | `core/` now holds `store.py` (`insert_facts`) and `exceptions.py` (`insert_exceptions`), real shared logic both ingest scripts call — grew organically during P3-P5, not from a targeted fix for this finding. Still small (126 lines total); whether it's *enough* coverage for the blocklist to mean something was never re-asked. |
 | 16 | Deferred deliberately (`parcel_lineage` split/merge, matching-key decision, `job_run` metrics column, `pipelines/` split) | **Unchanged, still deferred** | `job_run` metrics column is the same fact as #12 above. `pipelines/` split's stated precondition ("Phase B is the thing that justifies it") is now met (#4, closed) but the split itself hasn't been done — worth a conscious decision, not a rediscovery, next time it comes up. `parcel_lineage` and the matching-key question still await the trigger event (an observed split, an observed source change) neither of which has happened. |
 | 17 | `parcel_apn_unresolvable`'s resolvability flip between snapshots is undetected — a feature whose APN goes from resolvable to unresolvable (or back) between two `ingest_parcels.py` runs isn't covered by that reconciliation pass at all | **New, still open** — surfaced while scoping P9, not part of the original handoff list | `scripts/ingest_parcels.py:1094-1107`, the loader's own comment: "a feature whose resolvability itself flips... between snapshots is a real, distinct case this pass does not handle; flagged here as a known gap, not silently absorbed." Explicitly out of scope for P9 ([P9-exception-resolution.md](P9-exception-resolution.md)) — that's an exception-*resolution* gap (once a detector recomputes correctly, does its exception close); this is a *reconciliation* gap one layer below (the detector doesn't recompute this case correctly in the first place). Own package, later. |
+| 18 | A `detector_version` bump leaves every OLDER-version open exception permanently unclosable by P9's own closure mechanism | **New, still open** — surfaced while settling P9's own design question, not part of the original handoff list | P9's close helper matches exact `(detector_key, detector_version)`, same shape `existing_open` already used (`scripts/ingest_zoning_permits.py:638-639`) — deliberately, not an oversight: cross-version closing would assert `condition_cleared` (the current run determined this is false) for a condition the running detector's CURRENT rule never actually evaluated, since the old row was classified under a different rule. Confirmed live, not hypothetical: `ledgex_schema_check` carries 10,150 real open `zoning_spatial_join_unresolvable` rows at `detector_version='1.0'` that `db/migrations/0047`'s closure mechanism will never touch. Not a new gap P9 created — `0045`'s own migration comment already named and explicitly deferred this exact consequence of scoping its unique index by `detector_version`. Own package, later: would need a decision on how (or whether) to migrate/reconcile the specific stale rows a version bump leaves behind, which P9 was never scoped to make. |
 
 Standing context that does not belong to any package:
 

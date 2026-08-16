@@ -4126,6 +4126,125 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T75: reopened_from_id rejects a reference to a nonexistent
+-- parcel_exception row (0047, P9: prompts/P9-exception-resolution.md).
+-- Positive control below (T76) proves a REAL reference is accepted, so
+-- T75 is proven to be the FK firing, not some unrelated failure.
+-- ============================================================================
+
+\echo '### TEST T75: reopened_from_id FK rejects a nonexistent row (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, reopened_from_id)
+        VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t75_detector', '1.0', '{"reason":"t75_probe"}'::jsonb, gen_random_uuid());
+        RAISE EXCEPTION 'FAIL T75: reopened_from_id pointing at a nonexistent row was accepted';
+    EXCEPTION
+        WHEN foreign_key_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'parcel_exception_reopened_from_fk' THEN
+                RAISE NOTICE 'PASS T75: reopened_from_id FK rejected a nonexistent row';
+                INSERT INTO test_pass VALUES ('T75');
+            ELSE
+                RAISE EXCEPTION 'FAIL T75: foreign_key_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T76: reopened_from_id accepts a reference to a REAL parcel_exception
+-- row (0047 positive control -- proves T75 rejects a genuinely dangling
+-- reference, not every non-NULL reopened_from_id).
+-- ============================================================================
+
+\echo '### TEST T76: reopened_from_id FK accepts a real row (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_target_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
+    VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t76_detector', '1.0', '{"reason":"t76_original"}'::jsonb)
+    RETURNING id INTO v_target_id;
+
+    UPDATE parcel_exception
+       SET outcome = 'condition_cleared', resolved_at = clock_timestamp(), resolved_by = 'test_t76_detector'
+     WHERE id = v_target_id;
+
+    INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, reopened_from_id)
+    VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t76_detector', '1.0', '{"reason":"t76_original"}'::jsonb, v_target_id);
+
+    RAISE NOTICE 'PASS T76: reopened_from_id % (real prior row) accepted', v_target_id;
+    INSERT INTO test_pass VALUES ('T76');
+END $$;
+
+-- ============================================================================
+-- TEST T77: outcome='condition_cleared' with resolved_at/resolved_by both
+-- set satisfies parcel_exception_outcome_resolution_biconditional (0015)
+-- with NO change to that constraint (0047's own header: the biconditional
+-- is already generic over any non-open outcome). Negative control below
+-- (T78) proves the SAME constraint still rejects condition_cleared without
+-- a resolution -- the new enum value doesn't get a free pass.
+-- ============================================================================
+
+\echo '### TEST T77: condition_cleared with resolution set satisfies 0015 (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, outcome, resolved_at, resolved_by)
+    VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t77_detector', '1.0', '{"reason":"t77_probe"}'::jsonb,
+            'condition_cleared', clock_timestamp(), 'test_t77_detector');
+
+    RAISE NOTICE 'PASS T77: condition_cleared with resolved_at/resolved_by accepted';
+    INSERT INTO test_pass VALUES ('T77');
+END $$;
+
+-- ============================================================================
+-- TEST T78: outcome='condition_cleared' with resolved_at/resolved_by NULL
+-- is rejected by the SAME pre-existing 0015 biconditional, unchanged by
+-- 0047 (0047 negative control).
+-- ============================================================================
+
+\echo '### TEST T78: condition_cleared without a resolution is rejected (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, outcome)
+        VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t78_detector', '1.0', '{"reason":"t78_probe"}'::jsonb,
+                'condition_cleared');
+        RAISE EXCEPTION 'FAIL T78: condition_cleared with no resolved_at/resolved_by was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'parcel_exception_outcome_resolution_biconditional' THEN
+                RAISE NOTICE 'PASS T78: unresolved condition_cleared rejected by the pre-existing 0015 biconditional';
+                INSERT INTO test_pass VALUES ('T78');
+            ELSE
+                RAISE EXCEPTION 'FAIL T78: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -4156,21 +4275,24 @@ END $$;
 -- reason (P6 finding). S1's assertion is real and enforceable -- unlike
 -- I5c, it is not a permanent gap -- but it only RUNS when db/seeds/
 -- day4_sources.sql has been applied, and CI never applies seeds (this
--- suite's own standard path is migrations-only). The floor below is 91, not
--- 92: the guaranteed count when S1 does not run (the common case, CI
+-- suite's own standard path is migrations-only). The floor below is 95, not
+-- 96: the guaranteed count when S1 does not run (the common case, CI
 -- included), not the optimistic count from a seeded environment. A seeded
--- run where S1 executes for real still satisfies `>= 91` -- the floor is a
+-- run where S1 executes for real still satisfies `>= 95` -- the floor is a
 -- minimum, not an exact match -- so this is not environment-conditional
 -- logic, just an honest floor. Previously S1 inserted into test_pass on ITS
 -- OWN skip branch, counted in a floor of 92 -- meaning CI recorded S1
 -- passing on every single run without its assertion ever executing.
+-- Raised 91 -> 95 by 0047/P9 (T75-T78: reopened_from_id FK negative/
+-- positive, condition_cleared satisfies/violates the pre-existing 0015
+-- biconditional).
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 91 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 91 passing tests, got %', v_pass_count;
+    IF v_pass_count < 95 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 95 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

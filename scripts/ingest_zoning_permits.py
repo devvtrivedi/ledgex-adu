@@ -118,7 +118,7 @@ sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
 from infra.values import is_blank, decimal_default, canonicalize_identifier  # noqa: E402
 from core.store import insert_facts  # noqa: E402
-from core.exceptions import insert_exceptions  # noqa: E402
+from core.exceptions import insert_exceptions, close_resolved_exceptions, relink_reopened_exceptions  # noqa: E402
 
 JURISDICTION_ID = "ca_san_jose"
 
@@ -639,6 +639,22 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
             """, (DETECTOR_KEY_ZONING_UNRESOLVABLE, DETECTOR_VERSION_ZONING_UNRESOLVABLE))
             existing_open = {(pid, reason) for pid, reason in cur.fetchall()}
 
+        # P9 (prompts/P9-exception-resolution.md): the closure half of exception
+        # resolution needs the same (parcel_id, reason) shape as existing_open
+        # above, but for "still true this run", not "already open" -- every
+        # zero_match/ambiguous/matched-with-anomaly parcel this run's full
+        # classification actually found, regardless of whether it was already
+        # open. Same three populations exception_rows is built from below.
+        still_true_pairs = (
+            {(parcel_id, REASON_NO_CONTAINING_DISTRICT) for parcel_id in zero_match}
+            | {(parcel_id, REASON_MULTIPLE_CONTAINING_DISTRICTS) for parcel_id in ambiguous}
+            | {
+                (parcel_id, REASON_MULTIPLE_POLYGONS_AGREE)
+                for parcel_id, data in matched.items()
+                if data["anomaly"] is not None
+            }
+        )
+
         exception_rows = []
         exception_skipped = 0
         for parcel_id in zero_match:
@@ -694,9 +710,23 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                 insert_facts(cur, fact_rows)
             print(f"  fact rows submitted: {len(fact_rows):,}")
 
+            # P9: closure before insert -- a (parcel_id, reason) key can never be
+            # both "not still true" (closed below) and "freshly true, needs a new
+            # open row" (inserted below) in the SAME run; still_true_pairs and the
+            # exception_rows population above are complementary by construction,
+            # not just sequenced this way for convenience.
+            closed_count = close_resolved_exceptions(
+                cur, DETECTOR_KEY_ZONING_UNRESOLVABLE, DETECTOR_VERSION_ZONING_UNRESOLVABLE, still_true_pairs
+            )
+            print(f"  exceptions closed (condition_cleared): {closed_count:,}")
+
             if exception_rows:
                 insert_exceptions(cur, exception_rows)
                 print(f"  parcel_exception rows submitted: {len(exception_rows):,}")
+                relinked_count = relink_reopened_exceptions(
+                    cur, DETECTOR_KEY_ZONING_UNRESOLVABLE, DETECTOR_VERSION_ZONING_UNRESOLVABLE
+                )
+                print(f"  exceptions relinked (reopened_from_id): {relinked_count:,}")
 
         rows_in = len(all_parcel_ids)
         rows_out = len(matched)

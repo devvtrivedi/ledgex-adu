@@ -115,7 +115,8 @@ CREATE TYPE public.exception_outcome AS ENUM (
     'open',
     'confirmed',
     'false_positive',
-    'unresolved'
+    'unresolved',
+    'condition_cleared'
 );
 
 
@@ -973,6 +974,7 @@ CREATE TABLE public.parcel_exception (
     resolved_at timestamp with time zone,
     resolved_by text,
     resolution_notes text,
+    reopened_from_id uuid,
     CONSTRAINT parcel_exception_outcome_resolution_biconditional CHECK ((((outcome = 'open'::public.exception_outcome) AND (resolved_at IS NULL) AND (resolved_by IS NULL)) OR ((outcome <> 'open'::public.exception_outcome) AND (resolved_at IS NOT NULL) AND (resolved_by IS NOT NULL)))),
     CONSTRAINT parcel_exception_resolved_after_detected CHECK (((resolved_at IS NULL) OR (resolved_at >= detected_at)))
 );
@@ -1828,6 +1830,14 @@ ALTER TABLE ONLY public.parcel_exception
 
 ALTER TABLE ONLY public.parcel_exception
     ADD CONSTRAINT parcel_exception_parcel_jurisdiction_fk FOREIGN KEY (parcel_id, jurisdiction_id) REFERENCES public.parcel(id, jurisdiction_id);
+
+
+--
+-- Name: parcel_exception parcel_exception_reopened_from_fk; Type: FK CONSTRAINT; Schema: public; Owner: -
+--
+
+ALTER TABLE ONLY public.parcel_exception
+    ADD CONSTRAINT parcel_exception_reopened_from_fk FOREIGN KEY (reopened_from_id) REFERENCES public.parcel_exception(id);
 
 
 --

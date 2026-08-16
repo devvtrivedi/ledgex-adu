@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.31
+ Engineering Reference Spec v1.32
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.31                                       Machine-executed build contract.
+   1        This Spec v1.32                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -612,7 +612,13 @@ jurisdiction, the same denormalize-and-composite-FK pattern as the parcel checks
 db/migrations/0045_parcel_exception_one_open_per_detector_reason.sql (a partial unique index, parcel_id/
 detector_key/detector_version/detail->>'reason' WHERE outcome='open': a detector may not write a second open
 exception for a condition it already reported open, closing a gap insert_exceptions() left purely to application
-code before this).
+code before this) and db/migrations/0047_parcel_exception_condition_cleared_reopened.sql (adds the
+'condition_cleared' exception_outcome value -- a machine-closed exception, distinct from 'superseded', which this
+codebase reserves for a fact replaced by a findable successor; a closed exception has none -- and a nullable
+reopened_from_id uuid REFERENCES parcel_exception(id), one hop back to the most recently resolved row sharing the
+same (parcel_id, detector_key, detector_version, detail->>'reason'), same shape as fact.supersedes_fact_id. No
+change to parcel_exception_outcome_resolution_biconditional (0015) or parcel_exception_resolved_after_detected
+(0020): both are already generic over any non-open outcome and any resolution timestamp.
 db/schema.sql is the generated record of the applied result.
 
 3.11 Support requests — post-delivery, never pre-delivery
@@ -1722,7 +1728,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.31
+                     Engineering Reference Spec v1.32
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1783,7 +1789,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.31
+                   Engineering Reference Spec v1.32
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1812,7 +1818,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.31
+                Engineering Reference Spec v1.32
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -2614,6 +2620,30 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              (proving the P6 migrate-verify gate could fail red), not by running qa_check.py
                                              locally first.
 
+   Aug 2026             1.32                 db/migrations/0047_parcel_exception_condition_cleared_reopened.sql (section    Reported, not built, in P8-exception-resolution-
+                                             3.10): IRREVERSIBLE, following 0031's precedent explicitly -- ALTER TYPE        undefined.md; corrected and built in
+                                             exception_outcome ADD VALUE 'condition_cleared' plus a nullable                  P9-exception-resolution.md. detector_version stays
+                                             parcel_exception.reopened_from_id uuid REFERENCES parcel_exception(id), safe    part of the closure/reopening match key, exact,
+                                             to combine in one migration since neither references the new enum value in a   deliberately: 0045's own header already argues a
+                                             DEFAULT, CHECK, or any DML. core/exceptions.py gains close_resolved_exceptions() version bump opens a fresh finding rather than
+                                             (one set-based UPDATE closing every currently-open row for an EXACT             fighting an old one for the same slot, and
+                                             detector_key/detector_version match whose (parcel_id, reason) the current run  cross-version closure would assert a
+                                             no longer finds true) and relink_reopened_exceptions() (one set-based UPDATE    'condition_cleared' claim the current run never
+                                             pointing a fresh open row's reopened_from_id at the most recently resolved      actually evaluated under its own rule -- confirmed
+                                             prior row sharing its exact key, if one exists) -- wired into load_zoning       live, not hypothetical: ledgex_schema_check carries
+                                             only, the one detector that recomputes a full, current classification every    10,150 real open zoning_spatial_join_unresolvable
+                                             run and can therefore tell "still true" from "no longer true"; not              rows at detector_version 1.0 that this package's
+                                             parcel_apn_unresolvable (own open-findings row, no full-recompute pass) or      closure mechanism will ever reach -- the same gap
+                                             load_permits (writes no parcel_exception rows at all, confirmed by grep).       0045's own migration comment already named and
+                                             flag_invalid_geometry.py's two detectors get a parcel_id-keyed existing_open    deferred, not a new one this package created.
+                                             dedup guard, stopping the reproduced UniqueViolation crash on rerun -- not
+                                             closure, a scope limit stated up front. Keyed on parcel_id alone, deliberately
+                                             NOT the (parcel_id, reason) shape load_zoning uses: zoning_source_geometry_
+                                             invalid's detail carries no 'reason' key at all, so detail->>'reason'
+                                             evaluates SQL NULL for every one of its rows and 0045's unique index silently
+                                             never fires for it -- confirmed directly: a second real run against unchanged
+                                             data did not raise UniqueViolation the way flag_parcel_geometry's does, it
+                                             silently doubled 157 rows to 314.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

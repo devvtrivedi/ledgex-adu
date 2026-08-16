@@ -134,6 +134,31 @@ def fail_job_run(conn, job_run_id, error):
     conn.commit()
 
 
+def existing_open_parcels(cur, detector_key, detector_version):
+    """P9 (prompts/P9-exception-resolution.md), dedup guard only, not
+    closure -- see that file's section 4. Keyed on parcel_id ALONE, not
+    (parcel_id, reason) the way load_zoning's existing_open is: neither
+    detector below ever writes more than one open exception per parcel per
+    run (a parcel's own geometry is valid or it isn't; it is classified via
+    one zoning polygon or none), so parcel_id alone is a correct dedup key
+    for both -- and it is also the ONLY correct key for
+    zoning_source_geometry_invalid specifically, whose detail carries no
+    'reason' key at all (zoning_source_reason/zoning_value_assigned/note
+    instead). detail->>'reason' evaluates SQL NULL for every one of that
+    detector's rows, and NULL never equals NULL in a unique index -- 0045's
+    partial unique index silently never fires for it. Confirmed directly
+    before writing this: a second real run of flag_zoning_source_geometry
+    against unchanged data did not raise UniqueViolation the way
+    flag_parcel_geometry does -- it silently doubled 157 rows to 314. A
+    (parcel_id, reason) key here would not have caught that; parcel_id
+    alone does, for both."""
+    cur.execute(
+        "SELECT parcel_id FROM parcel_exception WHERE detector_key = %s AND detector_version = %s AND outcome = 'open'",
+        (detector_key, detector_version),
+    )
+    return {r[0] for r in cur.fetchall()}
+
+
 def flag_parcel_geometry(conn):
     """Direct case: the parcel's own stored geometry fails ST_IsValid."""
     job_run_id = start_job_run(conn, "flag_invalid_geometry_parcels", SOURCE_ID_PARCELS)
@@ -150,14 +175,18 @@ def flag_parcel_geometry(conn):
             invalid = cur.fetchall()
             print(f"  {len(invalid)} parcels with invalid geometry (of {rows_in:,} checked)")
 
+            existing_open = existing_open_parcels(cur, DETECTOR_KEY_PARCEL_GEOM, DETECTOR_VERSION)
             exception_rows = [
                 (pid, jid, "record_to_ground", "warning", DETECTOR_KEY_PARCEL_GEOM, DETECTOR_VERSION,
                  json.dumps({"reason": reason}))
                 for pid, jid, reason in invalid
+                if pid not in existing_open
             ]
+            exception_skipped = len(invalid) - len(exception_rows)
             if exception_rows:
                 insert_exceptions(cur, exception_rows, page_size=500)
-                print(f"  parcel_exception rows submitted: {len(exception_rows)}")
+            print(f"  parcel_exception rows submitted: {len(exception_rows)}, "
+                  f"{exception_skipped} skipped (already open at this detector_version)")
 
         finish_job_run(conn, job_run_id, "succeeded", rows_in, len(exception_rows))
         print(f"  job_run {job_run_id} -> succeeded (rows_in={rows_in:,}, rows_out={len(exception_rows)})")
@@ -221,6 +250,7 @@ def flag_zoning_source_geometry(conn):
             affected = cur.fetchall()
             print(f"  parcels classified via a repaired invalid zoning polygon: {len(affected):,}")
 
+            existing_open = existing_open_parcels(cur, DETECTOR_KEY_ZONING_SOURCE_GEOM, DETECTOR_VERSION)
             exception_rows = [
                 (parcel_id, jid, "record_to_ground", "info", DETECTOR_KEY_ZONING_SOURCE_GEOM, DETECTOR_VERSION,
                  json.dumps({
@@ -229,10 +259,13 @@ def flag_zoning_source_geometry(conn):
                      "note": "parcel's own geometry is valid; its zoning.district fact was derived using ST_MakeValid's repaired copy of an invalid source polygon, not the polygon as published",
                  }))
                 for zid, parcel_id, jid in affected
+                if parcel_id not in existing_open
             ]
+            exception_skipped = len(affected) - len(exception_rows)
             if exception_rows:
                 insert_exceptions(cur, exception_rows, page_size=500)
-                print(f"  parcel_exception rows submitted: {len(exception_rows)}")
+            print(f"  parcel_exception rows submitted: {len(exception_rows)}, "
+                  f"{exception_skipped} skipped (already open at this detector_version)")
 
         finish_job_run(conn, job_run_id, "succeeded", rows_in, len(exception_rows))
         print(f"  job_run {job_run_id} -> succeeded (rows_in={rows_in:,}, rows_out={len(exception_rows)})")
