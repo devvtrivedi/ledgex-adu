@@ -94,3 +94,15 @@ Named so a prompt can point at one in three words.
 - **Both halves of a data fix.** A guarded migration alone is a permanent no-op on fresh
   installs; a seed fix alone leaves existing databases wrong. Both, every time — and once a
   table is immutable, neither is available and the answer is rebuild.
+- **NULL inside a constraint silently disables it.** A constraint written over an expression
+  that can be NULL is not enforcing what its name says for the rows where it is NULL, and
+  nothing reports that — it just quietly never fires for them. Three instances now: 0038's
+  `refusals_codes_valid()`, where `elem->>'code' NOT IN (...)` evaluates SQL NULL (not true)
+  for every shape missing a `code` key, so `NOT EXISTS` reports clean on exactly the rows
+  that should have failed (README finding #8); 0045's partial unique index on
+  `detail->>'reason'`, which never actually constrained `zoning_source_geometry_invalid` —
+  that detector's `detail` never sets a `reason` key at all, so the expression is NULL for
+  every one of its rows, and NULLs never conflict with each other in a unique index
+  (README finding #19); and the general form this names. Whenever a constraint keys on an
+  expression rather than a plain NOT NULL column, state what it does when that expression
+  evaluates NULL — don't assume "constrained" just because the constraint compiled.
