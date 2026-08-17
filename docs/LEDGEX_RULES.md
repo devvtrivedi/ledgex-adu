@@ -8,7 +8,7 @@
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | Engineering Reference Spec v1.32 | Machine-executed build contract. |
+| 1 | Engineering Reference Spec v1.33 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement of the Spec. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -189,7 +189,7 @@ run.
 > **READ VERBATIM**
 
 Business Plan 2.1.4 - commercial boundary
-Engineering Reference Spec v1.32 - executable contract
+Engineering Reference Spec v1.33 - executable contract
 Implementation Rules v1.4 - operational restatement
 
 PRESERVE

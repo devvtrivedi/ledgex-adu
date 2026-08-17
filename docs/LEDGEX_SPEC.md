@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.32
+# LedgeX / ADU.X — Engineering Reference Spec v1.33
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.32 | Machine-executed build contract. |
+| 1 | This Spec v1.33 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -117,7 +117,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.32 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.33 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -585,6 +585,12 @@ reopened_from_id uuid REFERENCES parcel_exception(id), one hop back to the most 
 same (parcel_id, detector_key, detector_version, detail->>'reason'), same shape as fact.supersedes_fact_id. No
 change to parcel_exception_outcome_resolution_biconditional (0015) or parcel_exception_resolved_after_detected
 (0020): both are already generic over any non-open outcome and any resolution timestamp.
+db/migrations/0049_parcel_exception_reason_coalesced.sql DROPs 0045's index and replaces it with
+parcel_exception_one_open_per_detector_reason_coalesced, keyed on COALESCE(detail->>'reason', '') instead of the
+bare expression: detail->>'reason' evaluates SQL NULL for any detector whose detail shape never sets a 'reason' key
+(zoning_source_geometry_invalid, confirmed live -- two open exceptions for the same parcel from that detector did
+not conflict, the exact silent-doubling gap this migration closes), and a unique index never treats two NULLs as
+conflicting. See §12's 1.33 entry.
 db/schema.sql is the generated record of the applied result.
 
 ### 3.11 Support requests — post-delivery, never pre-delivery
@@ -649,6 +655,14 @@ An enum backing this via enum_range() was considered and rejected: enum_range() 
      at the cost of needing its own drift guard: build/qa_check.py's check_refusal_codes_match_spec diffs this
      function's list against §9's own vocabulary in both directions and fails CI if they diverge. See §12's 1.20
      entry.
+
+     db/migrations/0048_refusals_codes_valid_reject_null_shapes.sql replaces refusals_codes_valid()'s body (same
+     function name, same §9 vocabulary, DROP+ADD on property_file_refusal_codes_known_shape_checked so existing
+     rows are actually re-validated): elem ->> 'code' evaluated SQL NULL, not an error, whenever an element had no
+     'code' key, a JSON-null code value, or was not an object at all, and NULL NOT IN (...) evaluates NULL, not
+     true -- all three shapes were silently accepted by the CHECK that exists to reject an unknown code. A refusals
+     value that is not a JSON array at all previously crashed the INSERT with a raw jsonb_array_elements() error
+     instead of a typed constraint violation; now rejected cleanly by the same CHECK. See §12's 1.33 entry.
 
      v1.6: Property File rows carry delivery outcome and cost telemetry only. Commercial access lives in commerce.access_entitlement and
      commerce.subscription; no accepted price or per-file settlement field exists.
@@ -1710,7 +1724,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.32
+Engineering Reference Spec v1.33
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1771,7 +1785,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.32
+Engineering Reference Spec v1.33
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1802,7 +1816,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.32
+Engineering Reference Spec v1.33
 
 ## 9. Refusal and error codes
 
@@ -2645,6 +2659,34 @@ evaluates SQL NULL for every one of its rows and 0045's unique index silently
 never fires for it -- confirmed directly: a second real run against unchanged
 data did not raise UniqueViolation the way flag_parcel_geometry's does, it
 silently doubled 157 rows to 314.
+
+Aug 2026             1.33                 db/migrations/0048_refusals_codes_valid_reject_null_shapes.sql (section       P10, README findings #8 and #19 -- the same
+3.12) and db/migrations/0049_parcel_exception_reason_coalesced.sql             CONVENTIONS.md "NULL inside a constraint
+(section 3.10), one package: two constraints that compiled, were named        silently disables it" defect, argued twice,
+for what they enforce, and silently did not enforce it wherever their         fixed together. #8: elem ->> 'code' and
+keyed expression evaluated SQL NULL. 0048 CREATE OR REPLACEs                  detail->>'reason' both return NULL rather
+refusals_codes_valid() behind a DROP+ADD of                                   than erroring on the shapes that expose
+property_file_refusal_codes_known (renamed                                    this, and NULL NOT IN (...) / a NULL-keyed
+property_file_refusal_codes_known_shape_checked, forcing existing rows        unique index both silently pass rather than
+to be re-validated, not silently left under the old, already-validated        rejecting or conflicting. Considered and
+constraint name) so a non-object refusals element, one missing 'code',        rejected for #19: giving
+one with code:null, and a non-array refusals value are all rejected           zoning_source_geometry_invalid a real
+cleanly -- confirmed against every reachable database first that no           'reason' key going forward, which would
+existing row would be rejected. 0049 DROPs 0045's index and replaces it       leave already-stored duplicates unfixed and
+with parcel_exception_one_open_per_detector_reason_coalesced, keyed on        manufacture a distinction this detector's
+COALESCE(detail->>'reason', '') -- the same COALESCE technique               single condition does not actually have.
+0006's fact_one_current_per_source already uses for source_id/                CONVENTIONS.md's own recurring-shapes list
+method_version, for a different reason (there, NULL is a legitimate,         gained a new sentence: any constraint keyed
+permanent domain state for a derived fact; here, it is simply that one        on an expression, not a plain NOT NULL
+detector's detail shape never had a 'reason' key at all) -- confirmed         column, must state in its own migration
+against every reachable database first that no existing open-exception        header what it does when that expression
+duplicate would block the index's creation. Both RED-first against real       evaluates NULL.
+reproductions on real databases, not cited from an earlier report: refusals
+= [{}], [{"code": null}] and ["not-an-object"] all confirmed ACCEPTED before
+0048; a live re-run of flag_zoning_source_geometry with P9's application
+guard bypassed confirmed a real doubling (1 -> 2) before 0049. db/tests/
+invariants.sql gained T79-T85 (floor 95 -> 102), RED against the pre-0048/
+0049 schema, GREEN after.
 
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
