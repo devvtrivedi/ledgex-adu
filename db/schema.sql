@@ -116,7 +116,8 @@ CREATE TYPE public.exception_outcome AS ENUM (
     'confirmed',
     'false_positive',
     'unresolved',
-    'condition_cleared'
+    'condition_cleared',
+    'version_retired'
 );
 
 

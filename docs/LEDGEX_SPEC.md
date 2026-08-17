@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.33
+# LedgeX / ADU.X — Engineering Reference Spec v1.34
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.33 | Machine-executed build contract. |
+| 1 | This Spec v1.34 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -117,7 +117,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.33 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.34 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -591,6 +591,20 @@ bare expression: detail->>'reason' evaluates SQL NULL for any detector whose det
 (zoning_source_geometry_invalid, confirmed live -- two open exceptions for the same parcel from that detector did
 not conflict, the exact silent-doubling gap this migration closes), and a unique index never treats two NULLs as
 conflicting. See §12's 1.33 entry.
+db/migrations/0050_exception_outcome_version_retired.sql adds a further exception_outcome value,
+'version_retired': the exact-version closure match close_resolved_exceptions()/close_exceptions_for_parcels()/
+relink_reopened_exceptions() all use (0047, deliberate) strands every open exception whose detector_version is no
+longer evaluated by anything once that detector_key's version is bumped -- confirmed live, 10,150 real open
+zoning_spatial_join_unresolvable rows at detector_version 1.0, unreachable by any existing closure path after the
+1.0 -> 2.0 bump. 'version_retired' asserts only that the raising rule is retired and this row was never
+re-evaluated under the current one -- distinct from 'condition_cleared' (a positive re-check found the condition
+false) and deliberately not named with 'superseded' (reserved for fact.supersedes_fact_id-shaped lineage this
+table has no equivalent of). core/exceptions.retire_stranded_exceptions(cur, detector_key, retired_version) is the
+one set-based UPDATE that writes it -- resolved_by='system:detector_version_retired' (the retirement pass itself
+is the actor; the original detector never re-evaluated these rows), resolution_notes names the retired version,
+detail/exception_evidence/reopened_from_id untouched. Not wired into any ingest call site -- run once, by hand, at
+a version bump, not by any regular run. No change to parcel_exception_outcome_resolution_biconditional (0015) or
+parcel_exception_resolved_after_detected (0020), same reasoning 0047 already gave. See §12's 1.34 entry.
 db/schema.sql is the generated record of the applied result.
 
 ### 3.11 Support requests — post-delivery, never pre-delivery
@@ -1724,7 +1738,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.33
+Engineering Reference Spec v1.34
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1785,7 +1799,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.33
+Engineering Reference Spec v1.34
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1816,7 +1830,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.33
+Engineering Reference Spec v1.34
 
 ## 9. Refusal and error codes
 
@@ -2688,6 +2702,25 @@ guard bypassed confirmed a real doubling (1 -> 2) before 0049. db/tests/
 invariants.sql gained T79-T85 (floor 95 -> 102), RED against the pre-0048/
 0049 schema, GREEN after.
 
+Aug 2026             1.34                 db/migrations/0050_exception_outcome_version_retired.sql (section 3.10) adds   P16, README finding #18. 0045's own header already
+exception_outcome value 'version_retired' and                                  named and deferred this: a detector_version bump
+core/exceptions.retire_stranded_exceptions() (one set-based UPDATE, mirroring  strands every older-version open exception, since
+close_resolved_exceptions()'s shape) to close it. No change to                 exact-version closure matching (deliberate, 0047)
+close_resolved_exceptions(), close_exceptions_for_parcels() or                 never touches them again. Widening the match was
+relink_reopened_exceptions() -- all three stay exact-version-scoped,           rejected -- would write condition_cleared for a
+unchanged, per 0047's own argument against widening that match.                condition the current rule never evaluated, the
+resolved_by='system:detector_version_retired' (the retirement pass is the      exact fabrication 0047 already refused elsewhere.
+actor, not the original detector); resolution_notes names the retired          Leaving rows open forever was also rejected, argued
+version; detail/exception_evidence/reopened_from_id untouched. Not wired into  not assumed: outcome='open' asserts "still tracked,
+any ingest call site -- run once, by hand, at a version bump. Run once for     could still resolve," which is false once the
+real against ledgex_schema_check, scoped to                                    raising rule is retired -- CONVENTIONS.md's "do not
+(zoning_spatial_join_unresolvable, 1.0): exactly 10,150 open rows retired,     invent values to fill a silence," landing on the
+every other detector_key and detector_version's row count unchanged,           open value instead of a new one. reopened_from_id is
+confirmed before and after. db/tests/invariants.sql gained T86-T89 (floor 102  deliberately NOT used to link a newer-version row
+-> 106), RED against the pre-0050 schema, GREEN after.                         back to a stranded older one -- a rule change is not
+a reopening, already true of the existing code,
+confirmed by reading relink_reopened_exceptions().
+
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
 Review” → “Composition &                review stage.
@@ -3345,4 +3378,4 @@ These checks are required and not asserted complete by this PDF. Record CI outpu
 
 ---
 
-*Generated 2026-08-16 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*
+*Generated 2026-08-17 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*

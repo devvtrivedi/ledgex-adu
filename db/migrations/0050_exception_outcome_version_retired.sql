@@ -1,0 +1,98 @@
+-- 0050_exception_outcome_version_retired.sql
+-- Fixes: parcel_exception (0010, 0045, 0047). Serves: I12. README finding #18.
+--
+-- THE GAP. close_resolved_exceptions()/close_exceptions_for_parcels()/
+-- relink_reopened_exceptions() (0047, core/exceptions.py) all match the
+-- EXACT (detector_key, detector_version) that raised a row, deliberately --
+-- 0047's own header already argues why widening that match would fabricate
+-- a condition_cleared claim the current rule never evaluated. Confirmed
+-- live: zoning_spatial_join_unresolvable bumped detector_version 1.0 ->
+-- 2.0 (ingest_zoning_permits.py) and left 10,150 real, open v1.0 rows that
+-- nothing in the codebase can ever touch again -- not because they were
+-- checked and found still true, but because no code path evaluates v1.0
+-- rules anymore. See prompts/P16-*.md's report for the full argument
+-- against widening the match instead (rejected, for the same reason 0047
+-- already rejected it) and against leaving them open forever (rejected:
+-- outcome = 'open' asserts "still being tracked, could still resolve,"
+-- which is false the moment the raising detector_version is retired --
+-- CONVENTIONS.md's "do not invent values to fill a silence," just landing
+-- on the open value instead of a new one).
+--
+-- version_retired: a new exception_outcome meaning "the detector_version
+-- that raised this row is retired; this row was never re-evaluated under
+-- the CURRENT rule for this detector_key, and never will be by any
+-- existing closure path." Distinct from condition_cleared on purpose --
+-- condition_cleared asserts the running detector positively re-checked
+-- and found the condition no longer true; version_retired asserts nothing
+-- about the condition at all, only that nothing will ever check it again
+-- under this raising rule. Writing condition_cleared here would be exactly
+-- the fabrication 0047 already refused elsewhere.
+--
+-- Not named "superseded_*": 0047's own header reserves "superseded" for
+-- fact.supersedes_fact_id-shaped lineage (a corrected fact whose successor
+-- is a stored, findable row). parcel_exception has no such pointer for
+-- this case -- reopened_from_id is a different, weaker link (P16's report
+-- settles that a version_retired row's parcel must NOT be retroactively
+-- linked to any newer-version row via reopened_from_id: a rule change is
+-- not a reopening, the newer-version row has no prior judgment under ITS
+-- OWN rule to be reopening). Using "superseded" in the outcome name would
+-- imply a link this schema does not and should not have.
+--
+-- 'unresolved' NOT reused -- pre-empting the obvious suggestion. 0015's
+-- biconditional treats every non-open outcome uniformly (resolved_at/
+-- resolved_by both required), but 'unresolved' specifically already has
+-- an established meaning in this codebase (0015's own header): the
+-- detector looked and could not determine an answer -- a positive
+-- determination performed and recorded. A version_retired row was never
+-- looked at by anything under its own rule; there is no determination to
+-- report. Reusing 'unresolved' would claim an evaluation happened when it
+-- did not, the same species of fabrication as reusing condition_cleared.
+--
+-- This is an ENUM VALUE addition, not an expression-keyed constraint or
+-- index -- CONVENTIONS.md's "NULL inside a constraint silently disables
+-- it" requirement (added P10) applies to a constraint/index keyed on an
+-- expression that can evaluate NULL, which this is not. Noted explicitly
+-- so a future reader does not go looking for a NULL-handling clause that
+-- has no reason to exist here.
+--
+-- resolved_by for a row nothing evaluated: 'system:detector_version_retired',
+-- a fixed literal identifying the RETIREMENT PASS as the actor, not the
+-- original detector_key (which never touched this row) and not a person
+-- (I14). Same shape 0015's own header already anticipates -- "most
+-- closures are automated and record something like
+-- 'system:staleness_detector@1.2.0'" -- applied to a genuinely different
+-- actor. resolution_notes (already a nullable column on parcel_exception,
+-- unused by every existing closure path) carries which detector_version
+-- was retired -- no new column needed. detail (the original v1.0
+-- evidence) and exception_evidence (the fact rows that produced it) are
+-- untouched by this migration and by the retirement pass it enables --
+-- I12's evidence requirement does not depend on outcome value.
+--
+-- ALTER TYPE ... ADD VALUE, following 0047's precedent exactly. PostgreSQL
+-- 12+ allows this inside a transaction but forbids USING the new value
+-- (any DML referencing it) within that SAME transaction -- so this
+-- migration does nothing else. Anything that would reference the literal
+-- 'version_retired' in DDL evaluated within make schema's per-file
+-- --single-transaction wrap (a CHECK constraint, a DEFAULT, a seed row)
+-- must go in a separate, later migration. This restriction is about DDL
+-- sharing THIS migration's own transaction specifically -- it does not
+-- reach forward to an ordinary application-level UPDATE run afterward,
+-- in its own separate transaction, once make schema has already
+-- committed this one. core/exceptions.retire_stranded_exceptions()'s own
+-- UPDATE ... SET outcome = 'version_retired' (introduced alongside this
+-- migration, run later, never inside make schema's transaction) needs no
+-- migration of its own for that reason -- recorded here so this line does
+-- not get re-litigated the next time someone reaches for this pattern.
+--
+-- IRREVERSIBLE, same as 0047: ALTER TYPE ... ADD VALUE cannot be undone by
+-- a later migration (PostgreSQL has no DROP VALUE). See §12 for the
+-- change-record note this requires under §3.13, same obligation 0047
+-- already carried.
+--
+-- No change to parcel_exception_outcome_resolution_biconditional (0015)
+-- or parcel_exception_resolved_after_detected (0020): both are already
+-- generic over any non-open outcome and any resolution timestamp, exactly
+-- as 0047's header already noted for condition_cleared -- neither
+-- constraint needs to know about version_retired specifically.
+
+ALTER TYPE exception_outcome ADD VALUE 'version_retired';

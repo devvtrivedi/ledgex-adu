@@ -30,6 +30,18 @@ does not have one; see that function's own docstring for the full
 argument -- and relink_reopened_exceptions() unchanged (general-purpose
 by construction, needs no recompute). flag_invalid_geometry.py's two
 detectors call insert_exceptions() exactly as before, untouched.
+
+retire_stranded_exceptions() (P16, prompts/P16-*.md, README finding #18)
+is a THIRD, separate closure shape -- not a change to either of the two
+above, which the P16 report argued and this module keeps exempt. Both
+existing closures answer "did the current run positively determine this
+condition changed" (condition_cleared, requires either a full recompute
+or a caller-known resolved set). retire_stranded_exceptions() answers a
+different question that has nothing to do with any run's findings: "does
+this row's detector_version still exist as a rule anything evaluates."
+Triggered once, by whoever bumps a DETECTOR_VERSION_* constant, not by
+any regular ingest run -- no call site wires this in automatically,
+deliberately, unlike every function above it in this file.
 """
 import psycopg2.extras
 
@@ -184,5 +196,51 @@ def relink_reopened_exceptions(cur, detector_key, detector_version):
            AND (new_pe.detail ->> 'reason') = prior.reason
         """,
         {"detector_key": detector_key, "detector_version": detector_version},
+    )
+    return cur.rowcount
+
+
+def retire_stranded_exceptions(cur, detector_key, retired_version):
+    """P16 (prompts/P16-*.md, README finding #18): the disposition for an
+    open exception whose raising detector_version is no longer evaluated by
+    anything -- a detector_version bump (e.g. zoning_spatial_join_
+    unresolvable 1.0 -> 2.0) strands every older-version open row, since
+    close_resolved_exceptions()/close_exceptions_for_parcels()/
+    relink_reopened_exceptions() all match detector_version exactly, on
+    purpose (0047's header; widening that match would fabricate a
+    condition_cleared claim the current rule never evaluated).
+
+    NOT one of those three functions and NOT wired into any ingest call
+    site -- a version bump is a one-time code change, not a regular run's
+    output. Call this once, by hand, for (detector_key, retired_version)
+    immediately after retiring a DETECTOR_VERSION_* constant in a script.
+
+    Sets outcome='version_retired' (0050), resolved_at=clock_timestamp(),
+    resolved_by='system:detector_version_retired' -- the retirement pass
+    itself is the actor, not the original detector_key (which never
+    re-evaluated these rows) and not a person (I14). resolution_notes
+    records which version was retired. detail (the original evidence),
+    exception_evidence and reopened_from_id are untouched -- this asserts
+    nothing about the condition these rows describe, only that nothing
+    will ever re-evaluate them under the retired rule.
+
+    Scoped to outcome='open' rows at the EXACT (detector_key,
+    retired_version) given -- every other version, and every already-
+    resolved row, is untouched by construction (WHERE clause, not
+    filtered in application code). Idempotent: a second call with the same
+    arguments matches zero rows (outcome is no longer 'open') and returns
+    0. Returns the number of rows retired."""
+    cur.execute(
+        """
+        UPDATE parcel_exception
+           SET outcome = 'version_retired',
+               resolved_at = clock_timestamp(),
+               resolved_by = 'system:detector_version_retired',
+               resolution_notes = 'detector_version ' || %(retired_version)s || ' retired'
+         WHERE detector_key = %(detector_key)s
+           AND detector_version = %(retired_version)s
+           AND outcome = 'open'
+        """,
+        {"detector_key": detector_key, "retired_version": retired_version},
     )
     return cur.rowcount

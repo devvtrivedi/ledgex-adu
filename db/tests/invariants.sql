@@ -4539,6 +4539,153 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T86: outcome='version_retired' (0050, P16, README finding #18) with
+-- resolved_at/resolved_by both set satisfies parcel_exception_outcome_
+-- resolution_biconditional (0015) with NO change to that constraint --
+-- 0050's own header, following 0047's precedent, notes the biconditional is
+-- already generic over any non-open outcome. Negative control below (T87)
+-- proves the SAME constraint still rejects version_retired without a
+-- resolution -- the new enum value doesn't get a free pass either.
+-- ============================================================================
+
+\echo '### TEST T86: version_retired with resolution set satisfies 0015 (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, outcome, resolved_at, resolved_by, resolution_notes)
+    VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t86_detector', '1.0', '{"reason":"t86_probe"}'::jsonb,
+            'version_retired', clock_timestamp(), 'system:detector_version_retired', 'detector_version 1.0 retired');
+
+    RAISE NOTICE 'PASS T86: version_retired with resolved_at/resolved_by accepted';
+    INSERT INTO test_pass VALUES ('T86');
+END $$;
+
+-- ============================================================================
+-- TEST T87: outcome='version_retired' with resolved_at/resolved_by NULL is
+-- rejected by the SAME pre-existing 0015 biconditional, unchanged by 0050
+-- (0047/T78's shape, repeated for the new value).
+-- ============================================================================
+
+\echo '### TEST T87: version_retired without a resolution is rejected (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, outcome)
+        VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t87_detector', '1.0', '{"reason":"t87_probe"}'::jsonb,
+                'version_retired');
+        RAISE EXCEPTION 'FAIL T87: version_retired with no resolved_at/resolved_by was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'parcel_exception_outcome_resolution_biconditional' THEN
+                RAISE NOTICE 'PASS T87: unresolved version_retired rejected by the pre-existing 0015 biconditional';
+                INSERT INTO test_pass VALUES ('T87');
+            ELSE
+                RAISE EXCEPTION 'FAIL T87: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T88: core/exceptions.retire_stranded_exceptions()'s UPDATE, run
+-- inline (identical SQL text, checked by direct comparison against
+-- core/exceptions.py at the time this test was written -- not merely
+-- assumed to match), retires ONLY open rows at the exact (detector_key,
+-- retired_version) targeted -- a same-detector, different-version open row
+-- is untouched, and an already-resolved row is untouched. Three rows: two
+-- open at '1.0' (the stranded population's shape), one open at '2.0' (the
+-- current rule's shape) for the SAME detector_key and parcel.
+-- ============================================================================
+
+\echo '### TEST T88: retirement UPDATE targets only the exact stranded version (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_retired_count int;
+    v_still_open_v2 int;
+    v_resolved_by_check text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, outcome)
+    VALUES
+        (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t88_detector', '1.0', '{"reason":"t88_a"}'::jsonb, 'open'),
+        (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t88_detector', '1.0', '{"reason":"t88_b"}'::jsonb, 'open'),
+        (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t88_detector', '2.0', '{"reason":"t88_c"}'::jsonb, 'open');
+
+    UPDATE parcel_exception
+       SET outcome = 'version_retired',
+           resolved_at = clock_timestamp(),
+           resolved_by = 'system:detector_version_retired',
+           resolution_notes = 'detector_version ' || '1.0' || ' retired'
+     WHERE detector_key = 'test_t88_detector'
+       AND detector_version = '1.0'
+       AND outcome = 'open';
+    GET DIAGNOSTICS v_retired_count = ROW_COUNT;
+
+    IF v_retired_count <> 2 THEN
+        RAISE EXCEPTION 'FAIL T88: expected exactly 2 rows retired, got %', v_retired_count;
+    END IF;
+
+    SELECT count(*) INTO v_still_open_v2 FROM parcel_exception
+     WHERE detector_key = 'test_t88_detector' AND detector_version = '2.0' AND outcome = 'open';
+    IF v_still_open_v2 <> 1 THEN
+        RAISE EXCEPTION 'FAIL T88: v2.0 open row was touched -- expected 1 still open, got %', v_still_open_v2;
+    END IF;
+
+    SELECT resolved_by INTO v_resolved_by_check FROM parcel_exception
+     WHERE detector_key = 'test_t88_detector' AND detector_version = '1.0' AND detail->>'reason' = 't88_a';
+    IF v_resolved_by_check <> 'system:detector_version_retired' THEN
+        RAISE EXCEPTION 'FAIL T88: resolved_by mismatch, got %', v_resolved_by_check;
+    END IF;
+
+    RAISE NOTICE 'PASS T88: retirement UPDATE retired exactly the 2 targeted v1.0 rows, left the v2.0 row open';
+    INSERT INTO test_pass VALUES ('T88');
+END $$;
+
+-- ============================================================================
+-- TEST T89: a second run of the SAME retirement UPDATE, same (detector_key,
+-- retired_version), is a no-op -- every previously-open row at that key is
+-- now version_retired (outcome <> 'open'), so the WHERE clause matches
+-- nothing. Runs against T88's own rows, immediately after it.
+-- ============================================================================
+
+\echo '### TEST T89: a second retirement run is a no-op (should succeed)'
+
+DO $$
+DECLARE
+    v_second_run_count int;
+BEGIN
+    UPDATE parcel_exception
+       SET outcome = 'version_retired',
+           resolved_at = clock_timestamp(),
+           resolved_by = 'system:detector_version_retired',
+           resolution_notes = 'detector_version ' || '1.0' || ' retired'
+     WHERE detector_key = 'test_t88_detector'
+       AND detector_version = '1.0'
+       AND outcome = 'open';
+    GET DIAGNOSTICS v_second_run_count = ROW_COUNT;
+
+    IF v_second_run_count <> 0 THEN
+        RAISE EXCEPTION 'FAIL T89: second retirement run was not a no-op, retired % rows', v_second_run_count;
+    END IF;
+
+    RAISE NOTICE 'PASS T89: second retirement run touched 0 rows';
+    INSERT INTO test_pass VALUES ('T89');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -4582,13 +4729,17 @@ END $$;
 -- biconditional). Raised 95 -> 102 by 0048/0049 (P10, findings #8/#19:
 -- T79-T82 refusals shape negatives + T83 positive control;
 -- T84 duplicate no-reason-key exception negative + T85 positive control).
+-- Raised 102 -> 106 by 0050 (P16, finding #18: T86-T87 version_retired
+-- satisfies/violates the pre-existing 0015 biconditional; T88 the
+-- retirement UPDATE targets only the exact stranded version; T89 a second
+-- run of it is a no-op).
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 102 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 102 passing tests, got %', v_pass_count;
+    IF v_pass_count < 106 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 106 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 
