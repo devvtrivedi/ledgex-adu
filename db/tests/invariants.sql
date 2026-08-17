@@ -19,14 +19,17 @@
 -- and its facts are permanent on every database this file ever runs
 -- against, by construction, and there is no flag or teardown step that
 -- changes that without weakening 0017/I4 itself. `make db-test` with no
--- arguments
--- runs against the Makefile's own DATABASE_URL default,
--- postgresql://localhost/ledgex_schema_check -- see that target's own
--- comment, and db/README.md's "which of make schema / migrate /
--- migrate-baseline" section, before running this against a database you
--- did not create specifically to throw away. CI never has this problem:
--- db.yml's `schema` job creates a fresh, disposable `ledgex_ci` every
--- run and discards the whole runner afterward.
+-- arguments runs against DB_TEST_DATABASE_URL's own default (P18,
+-- README finding #25 -- closed), postgresql://localhost/ledgex_test, a
+-- database that does not exist on a fresh clone -- see that target's own
+-- comment. Running this file directly via plain `psql -f`, bypassing
+-- `make db-test`, still connects to whatever DATABASE_URL/connection
+-- string you give it, same as always -- see db/README.md's "which of
+-- make schema / migrate / migrate-baseline" section before pointing
+-- either invocation at a database you did not create specifically to
+-- throw away. CI never has this problem: db.yml's `schema` job creates a
+-- fresh, disposable `ledgex_ci` every run and discards the whole runner
+-- afterward.
 --
 -- Every test is a self-asserting DO block. A should-fail test catches the
 -- ONE specific expected condition (SQLSTATE condition name, and for custom

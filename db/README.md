@@ -44,29 +44,40 @@ Once a database's schema is up to date (via whichever of the three targets
 above applied), `make db-test` (`db/tests/invariants.sql`) is very likely
 the next thing run against it — and unlike the three targets above, it is
 not idempotent in the way a database-drift decision needs. Every run writes
-one new parcel plus every fact any test writes against it, and both are
-permanent by construction: `fact_no_delete` (0017) blocks deleting a fact
-directly (I4 — "facts are immutable; corrections supersede, never delete" —
-working as designed), and `fact_parcel_id_fkey` (no `ON DELETE` cascade)
-then blocks deleting the parcel too, the instant any fact cites it. P14
-added teardown for everything else the suite writes
-(`parcel_exception`/`property_file`/`property_file_fact`/`job_run`/
-`exception_evidence`/`source_feature_identity`), but the parcel-and-its-
-facts class has no teardown path that doesn't mean weakening 0017/I4
-itself — see `db/tests/invariants.sql`'s own precondition comment at the
-top for the full argument.
+one or more new parcels plus every fact any test writes against them, and
+both are permanent by construction: `fact_no_delete` (0017) blocks deleting
+a fact directly (I4 — "facts are immutable; corrections supersede, never
+delete" — working as designed), and `fact_parcel_id_fkey` (no `ON DELETE`
+cascade) then blocks deleting the parcel too, the instant any fact cites
+it. P17 added `db/tests/teardown.sql`, run unconditionally by `make
+db-test` itself (pass or fail — see that target's own comment), for
+everything else the suite writes (`parcel_exception`/`property_file`/
+`property_file_fact`/`job_run`/`exception_evidence`/
+`source_feature_identity`, plus any parcel that ends up with zero facts
+against it), but the fact-bearing-parcel class has no teardown path that
+doesn't mean weakening 0017/I4 itself — see `db/tests/invariants.sql`'s own
+precondition comment at the top for the full argument.
 
-`make db-test` with no `DATABASE_URL` override runs against the Makefile's
-own default, `postgresql://localhost/ledgex_schema_check` — this project's
-shared local dev database, not a scratch one. That default invocation is
-exactly how `ledgex_schema_check` ended up carrying 40 orphaned parcels and
-324 permanently-locked facts (found and reported in P14, not remediated —
-those specific rows are not the kind a migration or a `DELETE` can reach).
-Override `DATABASE_URL` to a database you created specifically to throw
-away before running this target against anything else. CI never has this
-problem — `db.yml`'s `schema` job creates a fresh, disposable `ledgex_ci`
-every run and discards the whole runner afterward; the risk is entirely in
-local, manual invocation.
+`make db-test` reads its own variable, `DB_TEST_DATABASE_URL` — NOT
+`DATABASE_URL` — defaulting to `postgresql://localhost/ledgex_test` (P18,
+README finding #25, closed). That database does not exist on a fresh
+clone, so the default invocation now fails loud (`database "ledgex_test"
+does not exist`) instead of silently succeeding against
+`ledgex_schema_check`, this project's shared local dev database — which is
+exactly how that database ended up carrying orphaned parcels and
+permanently-locked facts, twice (P14, then again by the time P17 re-queried
+it — neither incident is the kind of row a migration or a `DELETE` can
+reach). Create `ledgex_test` yourself first (`make schema
+DATABASE_URL=postgresql://localhost/ledgex_test`) or override
+`DB_TEST_DATABASE_URL` explicitly to whatever scratch database you already
+have. This default is deliberately independent of `DATABASE_URL` and the
+three targets above — none of `schema`/`schema-dump`/`migrate`/
+`migrate-verify` read `DB_TEST_DATABASE_URL`, and `db-test` does not read
+`DATABASE_URL` — so overriding one never silently affects the other. CI
+never has this problem — `db.yml`'s `schema` job creates a fresh,
+disposable `ledgex_ci` every run, passes it to `db-test` explicitly via
+`DB_TEST_DATABASE_URL`, and discards the whole runner afterward; the risk
+was entirely in local, manual invocation with no override at all.
 
 ## Refreshing `current_fact`: the first refresh must NOT be CONCURRENTLY
 

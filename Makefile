@@ -31,6 +31,22 @@ MIGRATIONS_DIR := db/migrations
 SCHEMA_DUMP    := db/schema.sql
 DATABASE_URL   ?= postgresql://localhost/ledgex_schema_check
 
+# P18, README finding #25: db-test's own default, independent of
+# DATABASE_URL above -- schema/schema-dump/migrate/migrate-verify are
+# UNCHANGED by this, still read DATABASE_URL exactly as before. P14
+# argued a scoped default "affects every other target"; P17 tested that
+# reasoning and it does not hold mechanically -- this variable is the
+# proof, read by db-test's own recipe only. postgresql://localhost/
+# ledgex_test does not exist on a fresh clone -- db-test now fails LOUD
+# ("database does not exist") on a first run rather than succeeding
+# silently against ledgex_schema_check, which is how that database was
+# contaminated twice (findings #9, #24). Explicit override still works
+# exactly like every other target's DATABASE_URL override: `make db-test
+# DB_TEST_DATABASE_URL=postgresql://...` (or, from CI, see db.yml's own
+# comment at its db-test step for why it passes this instead of
+# DATABASE_URL).
+DB_TEST_DATABASE_URL ?= postgresql://localhost/ledgex_test
+
 # pg_dump >=16.10 wraps every dump in a \restrict/\unrestrict pair keyed by a
 # fresh random token each run (a psql safety marker, unrelated to schema
 # content). Left random, schema-dump would show a diff every single run even
@@ -243,16 +259,26 @@ schema-dump:
 # self-asserting DO block; ON_ERROR_STOP makes a failed assertion abort the
 # script with a nonzero exit code rather than print a misleading pass.
 #
-# POINT THIS AT A DISPOSABLE DATABASE (P14, README finding #9). This target
-# has no argument, so with none given it runs against DATABASE_URL's own
-# default above -- postgresql://localhost/ledgex_schema_check, the shared
-# local dev database CLAUDE.md names. Every run of db/tests/invariants.sql
-# writes one or more permanent parcels plus every fact any test writes
-# against them (0017/I4 make both undeletable by design -- see that
-# file's own precondition comment at the top). That is exactly how the
-# default invocation put 40 orphaned parcels and 324 locked facts into
-# ledgex_schema_check. Override DATABASE_URL to a scratch database before
-# running this against anything you intend to keep clean.
+# POINT THIS AT A DISPOSABLE DATABASE. This target reads
+# DB_TEST_DATABASE_URL, NOT DATABASE_URL (P18, README finding #25 --
+# closed) -- with no argument, it runs against DB_TEST_DATABASE_URL's own
+# default above, postgresql://localhost/ledgex_test, a database that does
+# not exist on a fresh clone (create it with `make schema
+# DATABASE_URL=postgresql://localhost/ledgex_test` first, or point
+# DB_TEST_DATABASE_URL at whatever scratch database you already have).
+# This is a DIFFERENT default than schema/schema-dump/migrate/
+# migrate-verify use, deliberately -- P17 confirmed a scoped default is
+# mechanically independent of those four, and this variable is that
+# independence: none of them read DB_TEST_DATABASE_URL, and this target
+# does not read DATABASE_URL. Every run of db/tests/invariants.sql writes
+# one or more permanent parcels plus every fact any test writes against
+# them (0017/I4 make both undeletable by design -- see that file's own
+# precondition comment at the top) -- that is exactly how
+# ledgex_schema_check (the OLD default) was contaminated twice (findings
+# #9, #24). A developer who explicitly still wants to run this against
+# ledgex_schema_check can: `make db-test
+# DB_TEST_DATABASE_URL=postgresql://localhost/ledgex_schema_check` --
+# explicit, not a silent default.
 #
 # P17, finding #26: db/tests/teardown.sql now runs UNCONDITIONALLY, as its
 # own separate psql invocation, after the suite -- pass or fail. The
@@ -266,11 +292,11 @@ schema-dump:
 # (qa_check, conformance, golden): a green `make db-test` on a red suite.
 db-test:
 	@command -v $(PSQL) >/dev/null 2>&1 || { echo "$(PSQL) not found"; exit 1; }
-	@$(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f db/tests/invariants.sql; \
+	@$(PSQL) "$(DB_TEST_DATABASE_URL)" -v ON_ERROR_STOP=1 -f db/tests/invariants.sql; \
 	 suite_exit=$$?; \
 	 echo ""; \
 	 echo "db-test: suite exited $$suite_exit -- running db/tests/teardown.sql unconditionally (P17, finding #26)"; \
-	 $(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f db/tests/teardown.sql; \
+	 $(PSQL) "$(DB_TEST_DATABASE_URL)" -v ON_ERROR_STOP=1 -f db/tests/teardown.sql; \
 	 teardown_exit=$$?; \
 	 if [ "$$teardown_exit" -ne 0 ]; then \
 		echo "db-test: WARNING -- teardown itself exited $$teardown_exit (see output above)."; \

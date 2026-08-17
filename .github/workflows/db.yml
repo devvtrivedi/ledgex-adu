@@ -96,15 +96,21 @@ jobs:
       - name: make migrate-verify
         run: make migrate-verify DATABASE_URL="$DATABASE_URL" PG_DUMP="$PG_DUMP"
 
-      # The 34-test self-asserting invariant suite (I2-I5, I13, I18, the
+      # The self-asserting invariant suite (I2-I5, I13, I18, the
       # parcel_exception biconditional, S1's source-access-method check, and
-      # Tier 2's T1-T16 provenance/lifecycle constraint tests) plus a
+      # Tier 2's provenance/lifecycle constraint tests) plus a
       # separately-reported known_gaps table (I5c) that does not count
       # toward the enforced-coverage floor. Every test aborts the script
       # with a nonzero exit on any wrong outcome under ON_ERROR_STOP --
       # there is no soft-pass path.
+      #
+      # P18, README finding #25: db-test reads DB_TEST_DATABASE_URL, not
+      # DATABASE_URL (its own default, postgresql://localhost/ledgex_test,
+      # would not exist here either) -- pass this job's own already-fresh,
+      # already-disposable ledgex_ci explicitly, same database every other
+      # step in this job already uses.
       - name: make db-test
-        run: make db-test DATABASE_URL="$DATABASE_URL" PSQL="$PSQL"
+        run: make db-test DB_TEST_DATABASE_URL="$DATABASE_URL" PSQL="$PSQL"
 
       # Spec §1.2 make schema-dump: "No diff; missing or stale generated DDL
       # fails." Regenerates db/schema.sql from the now-migrated (and
