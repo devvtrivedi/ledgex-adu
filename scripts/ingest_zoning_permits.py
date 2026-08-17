@@ -924,7 +924,20 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                     continue
 
                 live_fact_id, live_value = live_entry
-                if fresh_value == live_value:
+                # Absence (fresh_value is None) on a retire_with_false_successor
+                # field is not a claim on its own -- it only becomes "this is
+                # now false" the first time it's observed (live_value True,
+                # handled below). Once that false is already live, continued
+                # absence is the SAME silence, not a new world_change: compare
+                # it as False here so the comparison agrees with what the live
+                # row already asserts. permits.series_earliest
+                # (retire_with_false_successor=False) is untouched -- its
+                # absence has no false-successor claim to collapse into.
+                effective_fresh_value = (
+                    False if fresh_value is None and retire_with_false_successor
+                    else fresh_value
+                )
+                if effective_fresh_value == live_value:
                     counts["same"] += 1
                     continue
 
