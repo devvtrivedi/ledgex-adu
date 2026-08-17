@@ -14,6 +14,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P7 | [`0044`'s derived-fact exemption is unbounded](P7-derived-fact-supersession-unbounded.md) | confirmed finding, not fixed | — |
 | P8 | [Nothing resolves a `parcel_exception` when its condition changes](P8-exception-resolution-undefined.md) | design reported, folded into P9 | — |
 | P9 | [Closing a `parcel_exception` when its condition clears](P9-exception-resolution.md) | done, pushed | `7c88d15` |
+| P11 | [Two fabricated-fact bugs the acceptance suites cannot see](P11-permits-active-churn-and-apn-degradation.md) | steps 1/2/4/6 built, pushed; steps 3/5 reported, not built | `66d80a8`, `0317e02`, `7df58db`, `62fee5f` |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
@@ -115,6 +116,91 @@ database with no seed -- satisfied directly, since every local run in this
 package used a fresh migrations-only scratch database, none seeded.
 Full design and reasoning in `P9-exception-resolution.md`.
 
+**P11 — steps 1/2/4/6 built and verified; steps 3/5 reported, not built; working tree,
+not committed.** Started from `de61f53` — checked on the real GitHub Actions runs, not a
+local re-run (`db.yml` run `31966379316`, `docs.yml` run `31966379242`, both `success`).
+
+Step 1: `scripts/check_p5_acceptance.py` gained a `total_fact_rows()` assertion (counting
+every fact row, live or superseded, for `23712112`/`permits.active` across the suite's
+existing same-snapshot re-run) rather than an unchanged-live-id check — the id-unchanged
+form would need state carried across the two separate CLI invocations that bracket the
+re-run, which nothing in the harness provides; a row-count against the fixture-determined
+expected total (2) needs no new plumbing. RED against real `de61f53` code, real suite,
+real database (`got 3`) before any ingest code changed.
+
+Step 2: `scripts/ingest_zoning_permits.py`'s `load_permits` normalizes the equality
+comparison (not what gets written) for `retire_with_false_successor` fields only, so
+continued absence compares equal to an already-`false` live value instead of `None`
+literally. `permits.series_earliest` (not a `retire_with_false_successor` field) confirmed
+untouched and idempotent, not assumed. Step 1's assertion GREEN afterward; full suite run
+three times as required (twice seeded, once fresh migrations-only, no seed) — `facts
+superseded: 0` on the redundant re-run each time, versus 1 before the fix.
+
+Found while running the suite, not in the original plan: `run_p5_acceptance.sh` cannot
+complete end-to-end on any database today, for a reason unrelated to this package — see
+finding #20 below.
+
+Step 3 (report-only, not built): both APN-degradation cases confirmed against a real
+database, not by inspection — a placeholder degrade (`23712112`-shaped) lands the literal
+placeholder string as a live `parcel.apn` fact value and cache column; a blank degrade
+lands JSON `null` as the fact value (satisfies `jsonb NOT NULL`) and `NULL` in the cache
+column. The INNER JOIN half confirmed separately: a feature unresolvable from its first
+appearance (no `parcel.apn` fact ever) had its geometry moved in a later snapshot and
+`changed_rows` reported zero changes — the live geometry fact still held the pre-move
+centroid. Recommended fix: retire-no-successor + a `parcel_apn_unresolvable` exception
+(cache column `NULL`), closed via the same `condition_cleared` mechanism P9 built for
+zoning if the APN later resolves again — rejected the alternative of writing a sentinel
+fact value as exactly the non-value-as-value violation `db/README.md` already forbids.
+Argued this is one package with finding #17 (the reverse direction), not two: the
+resolve-again half of the fix cannot see its own trigger condition without the INNER
+JOIN also being fixed, so the two do not split cleanly. Not built — carries a design
+decision on a shared reconciliation path, report-first per the package's own instruction.
+
+Step 4: fixed at the source in all five scripts (`_p5_setup.py`, `_phaseb_setup.py`,
+`test_refresh_failure_invariant.py`, `test_apn_canonicalization_invariant.py`,
+`test_zoning_ambiguity_invariant.py`) — decided against a jurisdiction-free loader
+parameter (the `test.*`-namespacing route `db/tests/invariants.sql` used, unavailable
+here without that shared-primitive change, reported not absorbed) and instead corrected
+the fabricated `observed_at`/`cleared_by`/`cleared_at` to match `db/seeds/day4_sources.sql`'s
+own honest values exactly, so the real ingest loaders' hardcoded `LICENCE_ID*` constants
+keep resolving unchanged. Verified against a fresh migrations-only database: the fix
+inserts the honest, unfabricated row and the loader still runs end to end. Second half —
+which databases carry the old contamination — checked directly: `ledgex_schema_check`
+(the database CLAUDE.md names) and every locally reachable scratch database queried clean
+(`cleared_by`/`cleared_at` both `NULL` everywhere checked). One database could not be
+checked — the Supabase instance named in `.env`'s `DATABASE_URL` — no network reachability
+from this environment; marked unverified, not clean, own row (#23 below) rather than left
+only in narrative. No rebuild performed; nothing found warranted one, and the one
+unverified database was not touched.
+
+Step 5 (report-only, not built): confirmed "one source per field" directly against
+`ledgex_schema_check`'s full real dataset (1.1M facts) for all four fields the three
+un-scoped queries touch — exactly one distinct `source_id` each. Proved `AND source_id =
+%s` is a behavior-preserving no-op on current data by direct count comparison
+(`permits.active`+`permits.series_earliest`: 6,984 both ways; `parcel.apn`+`parcel.geometry`
+join: 225,010 both ways; zoning fields: 886 both ways). Recommended against applying it
+under P11 anyway: P4 (already done, pushed) was the package scoped to close this class of
+bug and did not cover these three specific read-side queries (it fixed the DISAPPEARED-
+branch cross-source *write* cascade and added `0044`'s constraint, a different code path)
+— this is a new, still-latent gap for a future package to pick up, not scope to fold into
+an unrelated fabricated-fact-bugs pass. See finding #21 below.
+
+Step 6: batched into the working tree in one pass — `SCRATCHPAD` in all three loaders is
+now a portable `/tmp/ledgex_ingest_scratch` (both acceptance scripts' `grep`
+confirmed still resolving it correctly, unmodified); `core/store.py`'s "14-tuple" →
+"17-tuple" (`build/check_jurisdiction_names.py` re-run against the real tree afterward,
+3 files, clean); `.importlinter`'s stale `check_boundary_grep.py` reference corrected to
+`check_jurisdiction_names.py`; the corrupted "sufinvariant" comment and the unused
+`have_prior_identities` in `scripts/ingest_parcels.py` fixed/removed; both `rsplit`-built
+reference-database URLs in `scripts/migrate_baseline.py`/`migrate_verify.py` replaced with
+the already-available `parsed_url()`, verified against a genuine pre-ledger database via
+`make migrate-baseline` then `make migrate-verify` (both `MATCH`).
+
+Landed in five commits, in order (RED-first test, then fix, then licence fix, then the
+low-severity sweep, then this file): `66d80a8`, `0317e02`, `7df58db`, `62fee5f`, and this
+reconciliation commit. Full design and reasoning in
+[P11-permits-active-churn-and-apn-degradation.md](P11-permits-active-churn-and-apn-degradation.md).
+
 **Both CI gates confirmed green simultaneously, on the real runner, at `4c66d2d`
 (2026-08-15).** `db.yml` (`make schema`, `make migrate-verify`, `make db-test`, `make
 schema-dump`) and `docs.yml` (`make qa`, then separately `make check-boundary`) both
@@ -144,6 +230,16 @@ One assertion needed correcting mid-run, not the code: a parcel found genuinely 
 under a live-data drift retained a stale, still-open exception from an earlier zero-match
 classification that nothing auto-resolves — direct, empirical confirmation of the
 stale-exception gap already flagged in P5's own investigation, not a new bug.
+
+**Correction (P11, 2026-08-16): that "proven in the acceptance suite itself" claim was
+false for `permits.active`.** The suite asserted the live value and a non-null
+`supersedes_fact_id` — both stay true through unbounded same-snapshot churn, so a bug
+that superseded a fact and wrote an identical successor every single run was invisible
+to it. Real bug, not a suite gap alone: `load_permits`' `fresh_active = True if fresh is
+not None else None` compared against a live jsonb value decoded to Python `False` (`None
+== False` is `False`), so a parcel with no active permits and a live `permits.active =
+false` fact was superseded and rewritten as `false` on every re-run, `supersession_reason
+= 'world_change'`, forever. See [P11](P11-permits-active-churn-and-apn-degradation.md).
 
 **P5 gate — resolved.** Three items:
 
@@ -213,9 +309,13 @@ should not be re-read.
 | 14 | Seeded `stale_after_days`/`required_for_file` "contradict §8 of the spec" | **No longer meaningful as stated** | §8 was already established (P5 gate, this README's own §5 note above) to have never existed in any tracked version of the spec — the citation was always a stale pointer, most likely meant for §3.3. `stale_after_days` isn't even set in the seed (`db/seeds/day4_sources.sql` never assigns it — always NULL); nothing there to check against a section with no content. If this needs re-litigating, it has to be re-posed against §3.3, not §8 — not done here, out of scope for a reconciliation pass. |
 | 15 | `core/` a near-empty scaffold, so the jurisdiction-name blocklist grep scans almost nothing | **No longer accurate as stated, not independently fixed** | `core/` now holds `store.py` (`insert_facts`) and `exceptions.py` (`insert_exceptions`), real shared logic both ingest scripts call — grew organically during P3-P5, not from a targeted fix for this finding. Still small (126 lines total); whether it's *enough* coverage for the blocklist to mean something was never re-asked. |
 | 16 | Deferred deliberately (`parcel_lineage` split/merge, matching-key decision, `job_run` metrics column, `pipelines/` split) | **Unchanged, still deferred** | `job_run` metrics column is the same fact as #12 above. `pipelines/` split's stated precondition ("Phase B is the thing that justifies it") is now met (#4, closed) but the split itself hasn't been done — worth a conscious decision, not a rediscovery, next time it comes up. `parcel_lineage` and the matching-key question still await the trigger event (an observed split, an observed source change) neither of which has happened. |
-| 17 | `parcel_apn_unresolvable`'s resolvability flip between snapshots is undetected — a feature whose APN goes from resolvable to unresolvable (or back) between two `ingest_parcels.py` runs isn't covered by that reconciliation pass at all | **New, still open** — surfaced while scoping P9, not part of the original handoff list | `scripts/ingest_parcels.py:1094-1107`, the loader's own comment: "a feature whose resolvability itself flips... between snapshots is a real, distinct case this pass does not handle; flagged here as a known gap, not silently absorbed." Explicitly out of scope for P9 ([P9-exception-resolution.md](P9-exception-resolution.md)) — that's an exception-*resolution* gap (once a detector recomputes correctly, does its exception close); this is a *reconciliation* gap one layer below (the detector doesn't recompute this case correctly in the first place). Own package, later. |
+| 17 | `parcel_apn_unresolvable`'s resolvability flip between snapshots is undetected — a feature whose APN goes from resolvable to unresolvable (or back) between two `ingest_parcels.py` runs isn't covered by that reconciliation pass at all | **New, still open** — surfaced while scoping P9, not part of the original handoff list | `scripts/ingest_parcels.py:1094-1107`, the loader's own comment: "a feature whose resolvability itself flips... between snapshots is a real, distinct case this pass does not handle; flagged here as a known gap, not silently absorbed." Explicitly out of scope for P9 ([P9-exception-resolution.md](P9-exception-resolution.md)) — that's an exception-*resolution* gap (once a detector recomputes correctly, does its exception close); this is a *reconciliation* gap one layer below (the detector doesn't recompute this case correctly in the first place). Own package, later — see #22 below (P11): confirmed to be the same package as the reverse direction, not a separate one. |
 | 18 | A `detector_version` bump leaves every OLDER-version open exception permanently unclosable by P9's own closure mechanism | **New, still open** — surfaced while settling P9's own design question, not part of the original handoff list | P9's close helper matches exact `(detector_key, detector_version)`, same shape `existing_open` already used (`scripts/ingest_zoning_permits.py:638-639`) — deliberately, not an oversight: cross-version closing would assert `condition_cleared` (the current run determined this is false) for a condition the running detector's CURRENT rule never actually evaluated, since the old row was classified under a different rule. Confirmed live, not hypothetical: `ledgex_schema_check` carries 10,150 real open `zoning_spatial_join_unresolvable` rows at `detector_version='1.0'` that `db/migrations/0047`'s closure mechanism will never touch. Not a new gap P9 created — `0045`'s own migration comment already named and explicitly deferred this exact consequence of scoping its unique index by `detector_version`. Own package, later: would need a decision on how (or whether) to migrate/reconcile the specific stale rows a version bump leaves behind, which P9 was never scoped to make. |
 | 19 | `0045`'s partial unique index does not constrain what it appears to — it has never actually applied to `zoning_source_geometry_invalid` | **New, still open** — surfaced while building P9, database constraint confirmed inert for one of four detectors it was believed to cover | `flag_zoning_source_geometry` (`scripts/flag_invalid_geometry.py`) writes `detail` with keys `zoning_source_reason`/`zoning_value_assigned`/`note` — never `reason`. `detail->>'reason'` therefore evaluates SQL `NULL` for every row this detector produces, and a unique index never treats `NULL` as conflicting with `NULL` (confirmed directly: a second real run against unchanged data silently doubled 157 rows to 314, no `UniqueViolation`). `0045`'s index has silently never constrained this detector, since the migration that added it, and nothing reported that. P9's `parcel_id`-keyed application guard (`scripts/flag_invalid_geometry.py`'s `existing_open_parcels`) restores the missing dedup behavior at the application layer — the right scope for P9 — but that is a compensation, not a fix to the constraint itself: a database constraint silently covering 3 of 4 detectors, with the 4th actually enforced only by application code, is exactly the weaker half of this repo's own stated pattern (`0045`'s own header: "application logic that a constraint could enforce is the weaker half of this repo's own pattern"), the thing P8 and P9 exist to strengthen, not repeat. Two candidate fixes exist, not chosen between here: (a) give `zoning_source_geometry_invalid` a real `reason` key, a data-shape change to what that detector writes going forward; (b) key `0045`'s index on `coalesce(detail->>'reason','')` instead of the bare expression, a new index applied over the 157 existing rows. These are not equivalent (one changes future application output, the other changes what the constraint matches against rows that already exist) and the choice needs its own report-before-writing, not a default. Own package (P10), later. |
+| 20 | `run_p5_acceptance.sh` cannot complete end-to-end on any database | **New, still open** — surfaced while running P11's step 1/2 verification, not caused by P11 | P9's own `condition_cleared` fix (`db/migrations/0047`, `core/exceptions.py`) intentionally changed `23707070`'s behavior — its `multiple_containing_districts` exception now auto-closes when superseded by a `no_containing_district` classification, verified and confirmed as the intended new behavior in P9's own narrative above. `scripts/check_p5_acceptance.py`'s `after-b`/`after-a2` assertions for that parcel (lines documenting "confirmed unresolved, not a regression") still assert the pre-P9 behavior and were never updated. Confirmed directly: `bash scripts/run_p5_acceptance.sh` aborts (`set -e`) at this exact assertion on a completely fresh migrations-only database, before ever reaching the same-snapshot re-run step P11 needed — P11's own verification had to bypass the wrapper script and issue its A2/re-run commands manually to reach `permits.active`'s checkpoints. Never caught before now because nothing ran the suite against a live database between P9 landing and this pass (P11's own audit had none available). Own package: rewrite the two stale assertions for `23707070` to match P9's actual, intended, already-shipped behavior. |
+| 21 | Reconciliation reads in three call sites are not source-scoped (`ingest_zoning_permits.py:564-571`, `:884-891`; `ingest_parcels.py:1108-1120`) | **Still open, confirmed latent, not P4's remaining scope** | `fact_one_current_per_source` (`0006`) is unique per source; none of these three queries filter by `source_id`, so a second source holding a live fact for the same `(parcel, field)` makes the comparison an arbitrary pick and can make a source skip a write it owed. `0044` (P4) catches the cross-source *supersession*; it does not catch this silent wrong-comparison, a different code path than the DISAPPEARED-branch cross-source write P4 actually fixed. Confirmed safe as a no-op on today's data by direct count (identical before/after `AND source_id = %s` on the real 1.1M-fact dataset), and confirmed latent (exactly one `source_id` per field today) — not applied under P11 per CONVENTIONS' scope-creep rule; a future package's job. |
+| 22 | `phase_e`'s CHANGED branch writes an APN degradation (resolvable → placeholder/blank) as a live `parcel.apn` fact instead of routing it through `is_unresolvable_apn` | **Confirmed against a real database, not built — same package as #17, not two** | `scripts/ingest_parcels.py:1176-1215` never calls `is_unresolvable_apn` on the CHANGED branch. Confirmed directly: a placeholder degrade landed the literal `"23712???"` as the live `parcel.apn` fact value and cache column; a blank degrade landed JSON `null` as the fact value (`fact.value jsonb NOT NULL` does not stop it) and `NULL` in the cache column — both violate `db/README.md`'s explicit rule, and `0017` makes either permanent. The same query's INNER JOIN on a live `parcel.apn` fact also confirmed to drop a feature's GEOMETRY changes silently when that feature has no `parcel.apn` fact at all (the unresolvable-since-first-appearance case) — a real database test moved such a feature's geometry and `changed_rows` reported zero changes. Argued as one package with #17 (the reverse direction, unresolvable → resolvable): the resolve-again half of this fix needs the INNER JOIN repaired to see its own trigger condition, so the two do not split cleanly, and fixing the JOIN alone (without also fixing the value-write bug here) would only multiply this finding's blast radius. Recommended fix: retire-no-successor + a `parcel_apn_unresolvable` exception on degrade, closed via P9's `condition_cleared` mechanism on re-resolve — rejected writing a sentinel fact value as the non-value-as-value violation `db/README.md` already forbids. Report-first per the package's own instruction; not built. |
+| 23 | The Supabase database named in `.env`'s `DATABASE_URL` could not be checked for the licence contamination finding #4/step-4 fixed at the source | **Unverified — genuinely unknown, not assumed clean** | No network reachability to `db.ckzvekwzyackwaimvazg.supabase.co` from the environment this pass ran in (`psql`: "could not translate host name"). If any of the five scripts fixed in this pass's licence-contamination commit was ever run against it before the fix landed, it now carries `cc0`/`cc_by_4_0` rows with `cleared_by='test'`, a fabricated `cleared_at`, and `observed_at` set to whatever moment that run happened — asserting counsel/owner clearance that `STANDING-BLOCKER.md` and `db/seeds/day4_sources.sql` both state does not exist. `0027` makes `licence` immutable, so if this is the case, no migration can correct it — rebuild (drop, re-migrate, reseed) is the only remedy, and this is explicitly the *least* rebuildable database in the project (not local scratch state). To settle it: from an environment with network access, `SELECT id, observed_at, cleared_by, cleared_at FROM licence WHERE id IN ('cc0','cc_by_4_0');` against that `DATABASE_URL` — `cleared_by`/`cleared_at` both `NULL` and `observed_at = '2026-07-31'` (matching `db/seeds/day4_sources.sql`) means clean; anything else means contaminated and rebuild-only. Not touched, per instruction — do not act on this row without that query run first, and without asking before any rebuild. |
 
 Standing context that does not belong to any package:
 
