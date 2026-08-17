@@ -1198,12 +1198,7 @@ def phase_e(snapshot_id):
                 # Python value (apn_current_value is a plain str, not a
                 # '"..."'-quoted JSON string) -- compare decoded-to-decoded,
                 # not string forms.
-                # DELIBERATE BREAK for P13's CI-gate RED-proof -- not a real
-                # change, reverted in the very next commit. Forces apn_changed
-                # False unconditionally so the phaseb-acceptance suite's
-                # "source_feature_id 568: current parcel.apn = '23712199'"
-                # assertion fails on the real runner.
-                apn_changed = False
+                apn_changed = (apn_current_value != apn_incoming)
                 geom_changed = (geom_current_value != geom_incoming)
 
                 if apn_changed:
