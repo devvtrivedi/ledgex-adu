@@ -14,6 +14,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# .venv-ingest/ is gitignored -- a developer's local virtualenv, not
+# something a CI runner has. Same override pattern as run_p5_acceptance.sh
+# (P12) and the Makefile's own PYTHON/PSQL/PG_DUMP.
+PYTHON="${PYTHON:-.venv-ingest/bin/python3}"
+
 export OBJECT_STORE_URL="${OBJECT_STORE_URL:-http://localhost:19000}"
 export OBJECT_STORE_ACCESS_KEY="${OBJECT_STORE_ACCESS_KEY:-scratchkey}"
 export OBJECT_STORE_SECRET_KEY="${OBJECT_STORE_SECRET_KEY:-scratchsecret}"
@@ -22,7 +27,7 @@ export OBJECT_STORE_BUCKET="${OBJECT_STORE_BUCKET:-ledgex-snapshots-locked}"
 FIXTURES="db/fixtures/phaseb"
 
 echo "############################ SETUP (self-contained) ############################"
-read -r A_SID B_SID <<< "$(.venv-ingest/bin/python3 scripts/_phaseb_setup.py "$FIXTURES")"
+read -r A_SID B_SID <<< "$($PYTHON scripts/_phaseb_setup.py "$FIXTURES")"
 
 # ingest_zoning_permits.py's phase_zoning_load/phase_permits_load read from
 # its own hardcoded SCRATCHPAD constant (a pre-existing limitation of that
@@ -38,28 +43,28 @@ echo "B snapshot: $B_SID"
 
 echo ""
 echo "############################ LOAD A (first time) ############################"
-.venv-ingest/bin/python3 scripts/ingest_parcels.py --phase e --snapshot-id "$A_SID"
+$PYTHON scripts/ingest_parcels.py --phase e --snapshot-id "$A_SID"
 
 echo ""
 echo "############################ SEED ZONING (once) ############################"
-.venv-ingest/bin/python3 scripts/ingest_zoning_permits.py --source zoning --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load
 
 echo ""
 echo "############################ SEED PERMITS (once) ############################"
-.venv-ingest/bin/python3 scripts/ingest_zoning_permits.py --source permits --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load
 
 echo ""
 echo "############################ LOAD B (reconcile) ############################"
-.venv-ingest/bin/python3 scripts/ingest_parcels.py --phase e --snapshot-id "$B_SID"
+$PYTHON scripts/ingest_parcels.py --phase e --snapshot-id "$B_SID"
 
 echo ""
 echo "############################ ASSERTIONS -- after B ############################"
-A_SID="$A_SID" B_SID="$B_SID" .venv-ingest/bin/python3 scripts/check_phaseb_acceptance.py after-b
+A_SID="$A_SID" B_SID="$B_SID" $PYTHON scripts/check_phaseb_acceptance.py after-b
 
 echo ""
 echo "############################ LOAD A AGAIN (reconcile back) ############################"
-.venv-ingest/bin/python3 scripts/ingest_parcels.py --phase e --snapshot-id "$A_SID"
+$PYTHON scripts/ingest_parcels.py --phase e --snapshot-id "$A_SID"
 
 echo ""
 echo "############################ ASSERTIONS -- after second A ############################"
-A_SID="$A_SID" B_SID="$B_SID" .venv-ingest/bin/python3 scripts/check_phaseb_acceptance.py after-a2
+A_SID="$A_SID" B_SID="$B_SID" $PYTHON scripts/check_phaseb_acceptance.py after-a2

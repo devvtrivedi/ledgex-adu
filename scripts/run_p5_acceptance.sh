@@ -12,6 +12,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
+# .venv-ingest/ is gitignored -- a developer's local virtualenv, not
+# something a CI runner has. Same shape as the Makefile's PYTHON/PSQL/
+# PG_DUMP overrides: default to the local convention, let the caller
+# override it (P12: CI sets PYTHON=python3, whatever setup-python put on
+# PATH after `pip install -r scripts/requirements.txt`).
+PYTHON="${PYTHON:-.venv-ingest/bin/python3}"
+
 export OBJECT_STORE_URL="${OBJECT_STORE_URL:-http://localhost:19000}"
 export OBJECT_STORE_ACCESS_KEY="${OBJECT_STORE_ACCESS_KEY:-scratchkey}"
 export OBJECT_STORE_SECRET_KEY="${OBJECT_STORE_SECRET_KEY:-scratchsecret}"
@@ -22,7 +29,7 @@ PHASEB_FIXTURES="db/fixtures/phaseb"
 
 echo "############################ SETUP (self-contained) ############################"
 read -r PARCELS_SID ZONING_A_SID ZONING_B_SID PERMITS_A_SID PERMITS_B_SID <<< \
-    "$(.venv-ingest/bin/python3 scripts/_p5_setup.py "$FIXTURES" "$PHASEB_FIXTURES")"
+    "$($PYTHON scripts/_p5_setup.py "$FIXTURES" "$PHASEB_FIXTURES")"
 
 # ingest_zoning_permits.py's phase_zoning_load/phase_permits_load read from
 # its own hardcoded SCRATCHPAD constant -- copy fixtures there under the
@@ -36,42 +43,42 @@ echo "permits A: $PERMITS_A_SID   permits B: $PERMITS_B_SID"
 
 echo ""
 echo "############################ LOAD PARCELS (once, constant throughout) ############################"
-.venv-ingest/bin/python3 scripts/ingest_parcels.py --phase e --snapshot-id "$PARCELS_SID"
+$PYTHON scripts/ingest_parcels.py --phase e --snapshot-id "$PARCELS_SID"
 
 echo ""
 echo "############################ ZONING A / PERMITS A (baseline) ############################"
 cp "$FIXTURES/p5_zoning_A.geojson" "$SCRATCHPAD_REAL/zoning_districts_fetch_1.geojson"
 cp "$FIXTURES/p5_permits_A.csv" "$SCRATCHPAD_REAL/permits_fetch_1.csv"
-.venv-ingest/bin/python3 scripts/ingest_zoning_permits.py --source zoning --phase load
-.venv-ingest/bin/python3 scripts/ingest_zoning_permits.py --source permits --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load
 
 echo ""
 echo "############################ ZONING B / PERMITS B (reconcile) ############################"
 cp "$FIXTURES/p5_zoning_B.geojson" "$SCRATCHPAD_REAL/zoning_districts_fetch_1.geojson"
 cp "$FIXTURES/p5_permits_B.csv" "$SCRATCHPAD_REAL/permits_fetch_1.csv"
-.venv-ingest/bin/python3 scripts/ingest_zoning_permits.py --source zoning --phase load
-.venv-ingest/bin/python3 scripts/ingest_zoning_permits.py --source permits --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load
 
 echo ""
 echo "############################ ASSERTIONS -- after B ############################"
-.venv-ingest/bin/python3 scripts/check_p5_acceptance.py after-b
+$PYTHON scripts/check_p5_acceptance.py after-b
 
 echo ""
 echo "############################ ZONING A2 / PERMITS A2 (reconcile back) ############################"
 cp "$FIXTURES/p5_zoning_A.geojson" "$SCRATCHPAD_REAL/zoning_districts_fetch_1.geojson"
 cp "$FIXTURES/p5_permits_A.csv" "$SCRATCHPAD_REAL/permits_fetch_1.csv"
-.venv-ingest/bin/python3 scripts/ingest_zoning_permits.py --source zoning --phase load
-.venv-ingest/bin/python3 scripts/ingest_zoning_permits.py --source permits --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load
 
 echo ""
 echo "############################ ASSERTIONS -- after second A ############################"
-.venv-ingest/bin/python3 scripts/check_p5_acceptance.py after-a2
+$PYTHON scripts/check_p5_acceptance.py after-a2
 
 echo ""
 echo "############################ SAME-SNAPSHOT RE-RUN (core safety property) ############################"
-.venv-ingest/bin/python3 scripts/ingest_zoning_permits.py --source zoning --phase load
-.venv-ingest/bin/python3 scripts/ingest_zoning_permits.py --source permits --phase load
-.venv-ingest/bin/python3 scripts/check_p5_acceptance.py after-a2
+$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load
+$PYTHON scripts/check_p5_acceptance.py after-a2
 
 echo ""
 echo "P5 ACCEPTANCE: ALL CHECKPOINTS PASSED"

@@ -116,3 +116,138 @@ jobs:
       # dump.
       - name: make schema-dump
         run: make schema-dump DATABASE_URL="$DATABASE_URL" PG_DUMP="$PG_DUMP"
+
+  # P12: scripts/run_p5_acceptance.sh (permits.active/zoning.district
+  # reconciliation, including the same-snapshot-churn and stale-exception
+  # regressions P11/P12 fixed) was never run by any CI gate -- "both CI
+  # gates green" was true and said nothing about it the entire time P9
+  # broke it. See prompts/P12-p5-suite-blind-to-p9-and-ci-gap.md 1(b).
+  # docs/LEDGEX_SPEC.md §11 already lists "Object store: S3-compatible
+  # (R2 preferred)" as an allowed dependency -- this job exercises that
+  # already-listed dependency via a throwaway MinIO, the same swap-for-R2
+  # relationship .env's own comment already describes for local dev, not
+  # a new one requiring a spec amendment.
+  #
+  # A separate job, not appended to `schema` above: its own fresh
+  # postgres + object-store services, so it can never interact with
+  # `schema`'s db-test/schema-dump steps or their data.
+  p5-acceptance:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ledgex_ci_p5
+      PSQL: /usr/lib/postgresql/16/bin/psql
+      OBJECT_STORE_URL: http://localhost:9000
+      OBJECT_STORE_ACCESS_KEY: ledgex_ci
+      OBJECT_STORE_SECRET_KEY: ledgex_ci_throwaway_key
+      OBJECT_STORE_BUCKET: ledgex-snapshots-ci
+      # scripts/run_p5_acceptance.sh's own PYTHON="${PYTHON:-.venv-ingest/bin/python3}"
+      # default is a developer's local, gitignored virtualenv -- this runner
+      # has no such thing. Same override the Makefile's PYTHON/PSQL/PG_DUMP
+      # already use; setup-python below puts the right interpreter (with
+      # scripts/requirements.txt installed into it) on PATH as plain
+      # `python3`.
+      PYTHON: python3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install postgresql-client-16
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          "$PSQL" --version
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r scripts/requirements.txt
+
+      # No `command:` override exists for GitHub Actions service containers
+      # (the `services:` block's `options:` maps to `docker create` flags,
+      # not CMD/ENTRYPOINT) -- and the official minio/minio image's
+      # entrypoint requires `server <path>` as an argument, so it cannot run
+      # as a bare `services:` entry the way postgres above does. Started as
+      # a plain background container instead, where the command is under
+      # full control. Not version-pinned to a specific minio RELEASE tag
+      # the way postgis/postgis above is pinned to 16-3.4 -- this
+      # environment had no way to confirm a specific tag still resolves at
+      # write time (no outbound network). `latest` is guaranteed to exist;
+      # pinning is the more correct long-term choice and worth doing in a
+      # follow-up once a tag can actually be verified.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER="$OBJECT_STORE_ACCESS_KEY" \
+            -e MINIO_ROOT_PASSWORD="$OBJECT_STORE_SECRET_KEY" \
+            minio/minio server /data
+
+      - name: Wait for MinIO
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && exit 0
+            sleep 1
+          done
+          echo "MinIO never became ready" >&2
+          docker logs minio >&2 || true
+          exit 1
+
+      # No `mc` (minio client) install -- boto3 is already an installed
+      # dependency (scripts/requirements.txt) and every ingest script
+      # already talks to the object store through it, so bucket creation
+      # uses the same library the suite itself uses rather than a second
+      # tool.
+      - name: Create the object store bucket
+        run: |
+          python3 -c "
+          import boto3, os
+          s3 = boto3.client(
+              's3',
+              endpoint_url=os.environ['OBJECT_STORE_URL'],
+              aws_access_key_id=os.environ['OBJECT_STORE_ACCESS_KEY'],
+              aws_secret_access_key=os.environ['OBJECT_STORE_SECRET_KEY'],
+          )
+          s3.create_bucket(Bucket=os.environ['OBJECT_STORE_BUCKET'])
+          print('bucket created:', os.environ['OBJECT_STORE_BUCKET'])
+          "
+
+      - name: Create clean database (not the service's TIGER-inited default)
+        run: |
+          "$PSQL" "postgresql://postgres:postgres@localhost:5432/postgres" \
+            -v ON_ERROR_STOP=1 -c "CREATE DATABASE ledgex_ci_p5;"
+
+      # Fresh migrations-only, no seed -- the strictest of the three
+      # contexts CONVENTIONS.md names, and the one db/seeds/ is never
+      # exercised under in CI (db.yml's own `schema` job never runs
+      # db/seeds/day4_sources.sql either). Run once per push here, not
+      # three times: CONVENTIONS.md's "run every suite twice, once fresh"
+      # is authorial-verification discipline for whoever is proving a fix,
+      # same as `schema` above only runs `make schema` once per push rather
+      # than repeating it -- a CI gate's job is to catch a regression on
+      # this push, not to re-derive the discipline every push already
+      # satisfied when the fix was authored.
+      - name: make schema
+        run: make schema DATABASE_URL="$DATABASE_URL" PSQL="$PSQL"
+
+      # scripts/run_p5_acceptance.sh is self-contained (own snapshot rows,
+      # own minimal licence/jurisdiction/source/field_definition reference
+      # data, ON CONFLICT DO NOTHING) -- no db/seeds/day4_sources.sql step
+      # needed here, same as it needs none locally against a fresh
+      # migrations-only database.
+      - name: P5 acceptance suite (zoning + permits reconciliation)
+        run: bash scripts/run_p5_acceptance.sh
