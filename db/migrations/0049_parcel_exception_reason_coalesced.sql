@@ -1,0 +1,93 @@
+-- 0049_parcel_exception_reason_coalesced.sql
+-- Serves: I12. P10, README finding #19.
+--
+-- THE GAP. 0045's parcel_exception_one_open_per_detector_reason is
+--   ON parcel_exception (parcel_id, detector_key, detector_version, (detail->>'reason'))
+--   WHERE outcome = 'open'
+-- zoning_source_geometry_invalid's detail never sets a 'reason' key (its
+-- keys are zoning_source_reason/zoning_value_assigned/note instead), so
+-- detail->>'reason' evaluates SQL NULL for every row that detector writes,
+-- and a unique index never treats NULL as conflicting with NULL -- two open
+-- rows for the same parcel from the same detector do not violate the index,
+-- because the index does not see them as sharing a key at all. Confirmed
+-- directly before writing this, not cited from an earlier report: a real,
+-- minimal repro (one deliberately self-intersecting zoning polygon,
+-- P9's parcel_id-keyed application guard bypassed) ran
+-- flag_zoning_source_geometry twice against unchanged data and produced 2
+-- open rows for the same parcel where 1 is correct -- the doubling, on this
+-- migration's own evidence, not README finding #19's cited 157 -> 314 (a
+-- different database, a different count, the same mechanism). Same defect
+-- class as 0038's (README finding #8, fixed alongside this one in 0048) --
+-- CONVENTIONS.md's "NULL inside a constraint silently disables it".
+--
+-- TWO CANDIDATE FIXES, ARGUED, NOT BOTH TAKEN:
+--   (a) Give zoning_source_geometry_invalid a real 'reason' key going
+--       forward. Rejected. This detector has exactly one condition -- a
+--       parcel was classified using a repaired copy of an invalid source
+--       zoning polygon -- with no natural sub-classification the way
+--       zoning_spatial_join_unresolvable genuinely has two (no_containing_
+--       district vs multiple_containing_districts, which legitimately can
+--       be open simultaneously for the same parcel, 0045's own point in
+--       existing). Inventing a 'reason' value here would either duplicate
+--       zoning_source_reason under a second key name for no dedup benefit,
+--       or use one constant literal for every row this detector will ever
+--       write -- at which point it is not a real distinguishing key, only
+--       a COALESCE sentinel by another name, done in application code
+--       instead of the constraint. It also does nothing for rows already
+--       stored: existing duplicates would still carry no 'reason' key and
+--       would still evade any index keyed on the literal expression.
+--   (b) Key the index on COALESCE(detail->>'reason', ''), chosen. Requires
+--       no change to what any detector writes -- flag_invalid_geometry.py
+--       is untouched by this migration -- and, being an index rebuild
+--       rather than an application-level convention, applies retroactively:
+--       CREATE UNIQUE INDEX validates existing rows the same way ALTER
+--       TABLE ... ADD CONSTRAINT does, so any database already carrying the
+--       silent-doubling duplicates this migration exists to prevent would
+--       fail to apply it until remediated -- checked directly before
+--       writing this (see below), not assumed either way.
+--
+-- 0006's fact_one_current_per_source already uses exactly (b)'s COALESCE
+-- pattern -- COALESCE(source_id, '~derived'), COALESCE(method_version, '~')
+-- -- a real precedent in this schema, not a novel technique. It is not,
+-- however, the same JUSTIFICATION applied twice, and that difference is
+-- part of the argument, not a shortcut past it: fact_one_current_per_source's
+-- NULL source_id is a legitimate, permanent, recurring domain state (I2's
+-- two-path model -- a derived fact has no source_id at all, by design, on
+-- every derived fact that will ever exist) that COALESCE lets still
+-- participate correctly in uniqueness against ITSELF. detail->>'reason'
+-- being NULL for zoning_source_geometry_invalid is not a parallel
+-- legitimate state -- it is simply that this one detector's detail shape
+-- never had a 'reason' key, uniform across 100% of its own rows, with no
+-- other detector's key expression affected: parcel_geometry_invalid,
+-- zoning_spatial_join_unresolvable, parcel_apn_unresolvable (P13) and
+-- parcel_disappeared_from_source (record_to_ground) all set a real,
+-- non-null 'reason' key already -- COALESCE has no effect on any of their
+-- rows (COALESCE(x, '') = x whenever x is not null), confirmed by reading
+-- every exception_rows call site in scripts/*.py, not assumed. The
+-- technique transfers; the reason it is correct here does not need to
+-- match 0006's reason to still be correct on its own terms.
+--
+-- Existing rows checked before writing this migration, not assumed clean:
+-- queried every database reachable from this session
+-- (ledgex_schema_check plus seven tier-2 scratch databases) for
+-- (parcel_id, detector_key, detector_version, COALESCE(detail->>'reason',''))
+-- groups with count > 1 among currently-open rows -- zero, everywhere. This
+-- migration's own RED-proof repro (above) was built and torn down in a
+-- disposable scratch database, not left in any of these. Had a duplicate
+-- existed anywhere reachable, remediation (closing the extra open row(s),
+-- itself a legal supersession-shaped UPDATE, not a delete -- 0017 does not
+-- apply to parcel_exception) would have been its own step, reported
+-- separately, not silently absorbed here.
+--
+-- DROP + CREATE, not ALTER: a unique index has no ALTER-in-place form for
+-- changing its key expression. Old index dropped by name, new one created
+-- with a new explicit name (the DROP+ADD/DROP+CREATE discipline
+-- 0020_lifecycle_constraints.sql and 0048 both already use for the same
+-- reason -- forces the real validation-on-existing-data pass rather than
+-- silently swapping definitions underneath an unchanged name).
+
+DROP INDEX parcel_exception_one_open_per_detector_reason;
+
+CREATE UNIQUE INDEX parcel_exception_one_open_per_detector_reason_coalesced
+    ON parcel_exception (parcel_id, detector_key, detector_version, COALESCE(detail->>'reason', ''))
+    WHERE outcome = 'open';

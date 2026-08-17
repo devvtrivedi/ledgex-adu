@@ -2166,11 +2166,23 @@ BEGIN
     SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
 
     BEGIN
+        -- detector_key is test_t30_detector, not the shared 'test_detector'
+        -- other fixtures above use (T5 leaves an open 'test_detector'/'v1'
+        -- exception on this same v_parcel_id that persists past its own
+        -- test) -- 0049's now-correctly-enforcing unique index would
+        -- otherwise reject this INSERT on a duplicate-key unique_violation
+        -- before it ever reaches the jurisdiction FK this test exists to
+        -- probe, since the OLD index (bare detail->>'reason', no COALESCE)
+        -- never treated two NULL-reason rows as conflicting -- exactly
+        -- README finding #19's bug, silently relied upon by this fixture
+        -- until 0049 closed it. A distinct detector_key is the fix, not a
+        -- weaker constraint: this test has nothing to do with detector
+        -- dedup, it only needs its own INSERT to reach the FK check.
         INSERT INTO parcel_exception (
             parcel_id, jurisdiction_id, type, severity, detector_key,
             detector_version, detail, outcome
         ) VALUES (
-            v_parcel_id, 'test_other_jurisdiction', 'staleness', 'warning', 'test_detector',
+            v_parcel_id, 'test_other_jurisdiction', 'staleness', 'warning', 'test_t30_detector',
             'v1', '{}'::jsonb, 'open'
         );
         RAISE EXCEPTION 'FAIL T30: parcel_exception jurisdiction_id disagreeing with its own parcel''s jurisdiction was accepted';
@@ -3283,11 +3295,15 @@ END $$;
 
 -- ============================================================================
 -- TEST T60: property_file.refusals rejects a code outside §9's vocabulary
--- (0038, property_file_refusal_codes_known). Proves the CHECK is actually
--- wired to refusals_codes_valid() and actually fires, not just that the
--- function returns false in isolation (already confirmed directly against
--- a scratch database while writing 0038 -- this is the permanent,
--- rerun-safe regression guard).
+-- (0038's vocabulary, enforced since P10 by 0048's
+-- property_file_refusal_codes_known_shape_checked -- 0038's own original
+-- constraint name, property_file_refusal_codes_known, was DROPped and
+-- replaced in 0048, same DROP+ADD-with-a-new-name discipline
+-- 0020_lifecycle_constraints.sql established; see 0048's own header).
+-- Proves the CHECK is actually wired to refusals_codes_valid() and
+-- actually fires, not just that the function returns false in isolation
+-- (already confirmed directly against a scratch database while writing
+-- 0038 -- this is the permanent, rerun-safe regression guard).
 -- ============================================================================
 
 \echo '### TEST T60: property_file.refusals with an unknown code (should fail)'
@@ -3314,7 +3330,7 @@ BEGIN
     EXCEPTION
         WHEN check_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'property_file_refusal_codes_known' THEN
+            IF v_constraint = 'property_file_refusal_codes_known_shape_checked' THEN
                 RAISE NOTICE 'PASS T60: unknown refusal code rejected';
                 INSERT INTO test_pass VALUES ('T60');
             ELSE
@@ -4069,11 +4085,17 @@ END $$;
 
 -- ============================================================================
 -- TEST T73: a second OPEN exception for the same (parcel_id, detector_key,
--- detector_version, reason) is rejected (0045). P5 finding: insert_exceptions()
--- is a bare INSERT with no dedup, and parcel_exception had no uniqueness of
--- any kind -- a second reconcile of an unchanged snapshot would double every
--- open exception it produced. Positive control below (T74) proves a
--- DIFFERENT reason for the same parcel/detector/version is NOT blocked.
+-- detector_version, reason) is rejected. Originally 0045's index
+-- (parcel_exception_one_open_per_detector_reason); DROPped and replaced by
+-- 0049's parcel_exception_one_open_per_detector_reason_coalesced (P10,
+-- README finding #19) -- COALESCE has no effect on this test's own probe
+-- (a real, non-null 'reason' value), so the behavior T73 checks is
+-- unchanged, only the constraint name enforcing it. P5 finding:
+-- insert_exceptions() is a bare INSERT with no dedup, and parcel_exception
+-- had no uniqueness of any kind -- a second reconcile of an unchanged
+-- snapshot would double every open exception it produced. Positive control
+-- below (T74) proves a DIFFERENT reason for the same parcel/detector/version
+-- is NOT blocked.
 -- ============================================================================
 
 \echo '### TEST T73: duplicate open exception, same parcel/detector/version/reason (should fail)'
@@ -4095,7 +4117,7 @@ BEGIN
     EXCEPTION
         WHEN unique_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'parcel_exception_one_open_per_detector_reason' THEN
+            IF v_constraint = 'parcel_exception_one_open_per_detector_reason_coalesced' THEN
                 RAISE NOTICE 'PASS T73: duplicate open exception rejected';
                 INSERT INTO test_pass VALUES ('T73');
             ELSE
@@ -4245,6 +4267,257 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T79: refusals containing an element with no 'code' key at all is
+-- rejected (0048, P10, README finding #8). Before 0048, elem ->> 'code'
+-- evaluated SQL NULL and NULL NOT IN (...) evaluated NULL, not true -- the
+-- CHECK silently accepted this. Positive control below (T83) proves a
+-- genuinely valid refusals array is still accepted.
+-- ============================================================================
+
+\echo '### TEST T79: refusals element with no code key (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, refusals, payload,
+            payload_hash, compose_ms
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            'v1.0', 'v1.0', false, '[{}]'::jsonb, '{}'::jsonb, 'testhash_t79', 100
+        );
+        RAISE EXCEPTION 'FAIL T79: refusals element with no code key was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_refusal_codes_known_shape_checked' THEN
+                RAISE NOTICE 'PASS T79: refusals element with no code key rejected';
+                INSERT INTO test_pass VALUES ('T79');
+            ELSE
+                RAISE EXCEPTION 'FAIL T79: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T80: refusals containing {"code": null} (key present, value JSON
+-- null) is rejected -- the SAME NULL-producing mechanism as T79 (elem ->>
+-- 'code' returns NULL whether the key is absent or its value is null), a
+-- separate test because they are two different JSON shapes a real caller
+-- could produce.
+-- ============================================================================
+
+\echo '### TEST T80: refusals element with code: null (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, refusals, payload,
+            payload_hash, compose_ms
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            'v1.0', 'v1.0', false, '[{"code": null}]'::jsonb, '{}'::jsonb, 'testhash_t80', 100
+        );
+        RAISE EXCEPTION 'FAIL T80: refusals element with code: null was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_refusal_codes_known_shape_checked' THEN
+                RAISE NOTICE 'PASS T80: refusals element with code: null rejected';
+                INSERT INTO test_pass VALUES ('T80');
+            ELSE
+                RAISE EXCEPTION 'FAIL T80: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T81: a refusals array element that is not a JSON object at all (a
+-- bare string) is rejected. elem ->> 'code' on a non-object also evaluates
+-- NULL, not an error -- confirmed directly before 0048 was written, not
+-- assumed; this test pins that specific shape down permanently.
+-- ============================================================================
+
+\echo '### TEST T81: refusals element is not an object (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, refusals, payload,
+            payload_hash, compose_ms
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            'v1.0', 'v1.0', false, '["not-an-object"]'::jsonb, '{}'::jsonb, 'testhash_t81', 100
+        );
+        RAISE EXCEPTION 'FAIL T81: non-object refusals element was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_refusal_codes_known_shape_checked' THEN
+                RAISE NOTICE 'PASS T81: non-object refusals element rejected';
+                INSERT INTO test_pass VALUES ('T81');
+            ELSE
+                RAISE EXCEPTION 'FAIL T81: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T82: refusals itself not an array at all (a JSON object) is rejected
+-- by a clean constraint violation, not a raw jsonb_array_elements() runtime
+-- error. Before 0048, this shape crashed the INSERT outright ("cannot
+-- extract elements from an object") -- confirmed directly -- a worse
+-- failure mode than a typed CHECK violation a caller can distinguish from
+-- any other bug. 0048's CASE guard (jsonb_typeof(refusals) IS DISTINCT FROM
+-- 'array' THEN false) is what turns this into a normal rejection.
+-- ============================================================================
+
+\echo '### TEST T82: refusals is not an array (should fail cleanly, not error)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, refusals, payload,
+            payload_hash, compose_ms
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            'v1.0', 'v1.0', false, '{}'::jsonb, '{}'::jsonb, 'testhash_t82', 100
+        );
+        RAISE EXCEPTION 'FAIL T82: non-array refusals was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_refusal_codes_known_shape_checked' THEN
+                RAISE NOTICE 'PASS T82: non-array refusals rejected cleanly (no raw jsonb error)';
+                INSERT INTO test_pass VALUES ('T82');
+            ELSE
+                RAISE EXCEPTION 'FAIL T82: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T83: a genuinely valid refusals array (0048 positive control) --
+-- proves T79-T82 reject the specific broken shapes, not every refusals
+-- array.
+-- ============================================================================
+
+\echo '### TEST T83: valid refusals array (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO property_file (
+        parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+        ruleset_version, composer_version, geometry_tier_used, refusals, payload,
+        payload_hash, compose_ms
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        'v1.0', 'v1.0', false,
+        '[{"code": "RIGHTS_BLOCKED", "stage": "L8", "message": "test"}]'::jsonb,
+        '{}'::jsonb, 'testhash_t83', 100
+    );
+
+    RAISE NOTICE 'PASS T83: valid refusals array accepted';
+    INSERT INTO test_pass VALUES ('T83');
+END $$;
+
+-- ============================================================================
+-- TEST T84: a second OPEN zoning_source_geometry_invalid-shaped exception
+-- (no 'reason' key in detail -- that detector's real shape) for the same
+-- parcel is rejected (0049, P10, README finding #19). Before 0049,
+-- detail->>'reason' evaluated SQL NULL for every row this shape produces,
+-- and a unique index never treats NULL as conflicting with NULL -- 0045's
+-- original index silently never fired for it. Positive control below (T85)
+-- proves a DIFFERENT detector_key with the same no-reason shape is not
+-- blocked -- detector_key is still part of the key, not swallowed by the
+-- COALESCE.
+-- ============================================================================
+
+\echo '### TEST T84: duplicate open exception with no reason key (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
+    VALUES (v_parcel_id, 'ca_san_jose', 'record_to_ground', 'info', 'test_t84_detector', '1.0',
+            '{"zoning_source_reason":"t84_probe","zoning_value_assigned":"R-1","note":"no reason key"}'::jsonb);
+
+    BEGIN
+        INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
+        VALUES (v_parcel_id, 'ca_san_jose', 'record_to_ground', 'info', 'test_t84_detector', '1.0',
+                '{"zoning_source_reason":"t84_probe_again","zoning_value_assigned":"R-2","note":"still no reason key"}'::jsonb);
+        RAISE EXCEPTION 'FAIL T84: duplicate no-reason-key exception was accepted';
+    EXCEPTION
+        WHEN unique_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'parcel_exception_one_open_per_detector_reason_coalesced' THEN
+                RAISE NOTICE 'PASS T84: duplicate no-reason-key exception rejected';
+                INSERT INTO test_pass VALUES ('T84');
+            ELSE
+                RAISE EXCEPTION 'FAIL T84: unique_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T85: a DIFFERENT detector_key, same parcel, same no-reason-key shape,
+-- still succeeds (0049 positive control -- proves T84 rejects the exact
+-- (parcel, detector, version) duplicate, not every no-reason-key exception
+-- for the parcel regardless of detector).
+-- ============================================================================
+
+\echo '### TEST T85: different detector, same no-reason shape (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
+    VALUES (v_parcel_id, 'ca_san_jose', 'record_to_ground', 'info', 'test_t85_other_detector', '1.0',
+            '{"zoning_source_reason":"t85_probe","zoning_value_assigned":"R-1","note":"different detector"}'::jsonb);
+
+    RAISE NOTICE 'PASS T85: different detector_key with the same no-reason shape accepted';
+    INSERT INTO test_pass VALUES ('T85');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -4285,14 +4558,16 @@ END $$;
 -- passing on every single run without its assertion ever executing.
 -- Raised 91 -> 95 by 0047/P9 (T75-T78: reopened_from_id FK negative/
 -- positive, condition_cleared satisfies/violates the pre-existing 0015
--- biconditional).
+-- biconditional). Raised 95 -> 102 by 0048/0049 (P10, findings #8/#19:
+-- T79-T82 refusals shape negatives + T83 positive control;
+-- T84 duplicate no-reason-key exception negative + T85 positive control).
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 95 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 95 passing tests, got %', v_pass_count;
+    IF v_pass_count < 102 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 102 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 
