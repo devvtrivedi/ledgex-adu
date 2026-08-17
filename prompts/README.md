@@ -22,7 +22,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P15 | [Bookkeeping, then finding #21: source-scope the three reconciliation reads](P15-source-scope-reconciliation-reads.md) | done, pushed | `721a138`, `90dc9df` |
 | P16 | [Finding #18: exceptions stranded by a detector_version bump](P16-detector-version-retirement.md) | done, pushed | `c3fdc81` |
 | P17 | [Invariant-suite hygiene: findings #26, #24 and #25](P17-invariant-suite-hygiene.md) | done, pushed | `843294a` |
-| P18 | [job_run gets a real metrics column: findings #12 and #16's metrics half](P18-job-run-metrics.md) | done, pushed | TBD |
+| P18 | [job_run gets a real metrics column: findings #12 and #16's metrics half](P18-job-run-metrics.md) | done, pushed | `e42a45d`, `7005813` |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
