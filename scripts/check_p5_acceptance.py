@@ -19,8 +19,8 @@ sys.path.insert(0, REPO_ROOT)
 from infra.env import get_db  # noqa: E402
 
 CHECKPOINT = sys.argv[1] if len(sys.argv) > 1 else None
-if CHECKPOINT not in ("after-b", "after-a2"):
-    raise SystemExit("usage: check_p5_acceptance.py <after-b|after-a2>")
+if CHECKPOINT not in ("after-b", "after-a2", "after-source-scope"):
+    raise SystemExit("usage: check_p5_acceptance.py <after-b|after-a2|after-source-scope>")
 
 failures = []
 
@@ -38,6 +38,20 @@ def live_fact(cur, apn, field_key):
         FROM fact f JOIN parcel p ON p.id = f.parcel_id
         WHERE p.apn = %s AND f.field_key = %s AND f.superseded_at IS NULL
     """, (apn, field_key))
+    return cur.fetchone()
+
+
+def fact_by_source(cur, apn, field_key, source_id):
+    """Like live_fact(), but scoped to one source_id -- for asserting what
+    finding #21's fix must hold: a run reconciling one source's own facts must
+    neither miss its own supersession nor touch a different source's live
+    fact for the same (parcel, field), even when both are live at once."""
+    cur.execute("""
+        SELECT f.id, f.value, f.superseded_at IS NOT NULL
+        FROM fact f JOIN parcel p ON p.id = f.parcel_id
+        WHERE p.apn = %s AND f.field_key = %s AND f.source_id = %s
+        ORDER BY f.recorded_at DESC LIMIT 1
+    """, (apn, field_key, source_id))
     return cur.fetchone()
 
 
@@ -259,12 +273,52 @@ def check_permits_after_a2(cur):
           n == 2, f"got {n}")
 
 
+SOURCE_ID_ZONING = "ca_san_jose.zoning_districts"
+SOURCE_ID_PERMITS = "ca_san_jose.building_permits_active"
+
+
+def check_source_scope_conflict(cur):
+    """Finding #21: load_zoning's live-fact reconciliation map was built
+    without a source_id filter. run_p5_acceptance.sh's SOURCE-SCOPE CONFLICT
+    stage plants a second, foreign-source live fact for 58705049's
+    zoning.district (same field, different source_id) before reloading
+    fixture B -- proven RED against pre-fix code (see
+    prompts/P15-source-scope-reconciliation-reads.md): the foreign row won
+    the plain dict-comprehension overwrite, the real zoning source's own
+    'R-2' fact was wrongly read back as already 'R-3' and never superseded.
+    """
+    real = fact_by_source(cur, "58705049", "zoning.district", SOURCE_ID_ZONING)
+    check("after source-scope conflict: 58705049 zoning.district (real source) "
+          "= 'R-3', live -- reconciled against its OWN prior fact, not left "
+          "stale at 'R-2' by a foreign-source arbitrary pick",
+          real is not None and real[1] == "R-3" and real[2] is False, f"got {real}")
+
+    foreign = fact_by_source(cur, "58705049", "zoning.district", SOURCE_ID_PERMITS)
+    check("after source-scope conflict: 58705049 zoning.district (planted "
+          "foreign-source row) untouched -- still live, still 'R-3'",
+          foreign is not None and foreign[1] == "R-3" and foreign[2] is False, f"got {foreign}")
+
+    cur.execute("""
+        SELECT f.value FROM fact f JOIN parcel p ON p.id = f.parcel_id
+        WHERE p.apn = %s AND f.field_key = 'zoning.district' AND f.source_id = %s
+              AND f.superseded_at IS NOT NULL
+        ORDER BY f.recorded_at DESC LIMIT 1
+    """, ("58705049", SOURCE_ID_ZONING))
+    prior = cur.fetchone()
+    check("after source-scope conflict: 58705049 zoning.district (real source) "
+          "prior fact = 'R-2', now superseded -- a real supersession happened, "
+          "not a coincidence of 'R-3' already being live",
+          prior is not None and prior[0] == "R-2", f"got {prior}")
+
+
 def main():
     conn = get_db()
     cur = conn.cursor()
     if CHECKPOINT == "after-b":
         check_zoning_after_b(cur)
         check_permits_after_b(cur)
+    elif CHECKPOINT == "after-source-scope":
+        check_source_scope_conflict(cur)
     else:
         check_zoning_after_a2(cur)
         check_permits_after_a2(cur)

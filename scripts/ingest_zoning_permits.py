@@ -567,7 +567,8 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                 FROM fact
                 WHERE field_key IN ('zoning.district','zoning.district_verbatim')
                   AND superseded_at IS NULL
-            """)
+                  AND source_id = %s
+            """, (SOURCE_ID_ZONING,))
             live = {(pid, fk): (fid, val) for pid, fk, fid, val in cur.fetchall()}
 
         fact_ids_to_supersede = []
@@ -887,7 +888,8 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                 FROM fact
                 WHERE field_key IN ('permits.active','permits.series_earliest')
                   AND superseded_at IS NULL
-            """)
+                  AND source_id = %s
+            """, (SOURCE_ID_PERMITS,))
             live = {(pid, fk): (fid, val) for pid, fk, fid, val in cur.fetchall()}
 
         candidate_parcels = set(fresh_by_parcel) | {pid for (pid, fk) in live}

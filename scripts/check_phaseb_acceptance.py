@@ -237,11 +237,18 @@ def check_after_a2(conn):
         check(cur, "all three job_runs succeeded", all(s == "succeeded" for s, _ in runs),
               f"statuses={[s for s, _ in runs]}")
 
+    # Scoped to f.source_id = 'ca_san_jose.parcels' (not just field_key) --
+    # this chain is documented as single-source ("A -> B successor -> A2
+    # successor"); finding #21's SOURCE-SCOPE CONFLICT stage below plants a
+    # second, live parcel.apn fact from a different source for this same
+    # parcel before the final reload, so an unscoped join here would count
+    # or fetch that foreign row too.
     cur.execute("""
         SELECT f.id, f.value, f.supersedes_fact_id, f.supersession_reason
         FROM source_feature_identity sfi
         JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'parcel.apn' AND f.superseded_at IS NULL
         WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = '568'
+              AND f.source_id = 'ca_san_jose.parcels'
     """)
     current_apn_row = cur.fetchone()
     check(cur, "after A2: source_feature_id 568's current parcel.apn is '23712112' again (A value)",
@@ -251,6 +258,7 @@ def check_after_a2(conn):
         SELECT count(*) FROM source_feature_identity sfi
         JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'parcel.apn'
         WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = '568'
+              AND f.source_id = 'ca_san_jose.parcels'
     """)
     total_apn_facts_568 = cur.fetchone()[0]
     check(cur, "after A2: source_feature_id 568 has THREE parcel.apn fact rows (A -> B successor -> A2 successor)",
@@ -261,6 +269,7 @@ def check_after_a2(conn):
             SELECT f.id FROM source_feature_identity sfi
             JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'parcel.apn'
             WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = '568'
+              AND f.source_id = 'ca_san_jose.parcels'
               AND f.supersedes_fact_id IS NULL
         """)
         orig_row = cur.fetchone()
@@ -356,11 +365,63 @@ def check_after_a2(conn):
               f"reopened_from_id={reopened_link} original_id={original_id}")
 
 
+def check_after_source_scope(conn):
+    """Finding #21: ingest_parcels.py's changed_rows query joined `fact` for
+    parcel.apn/parcel.geometry without a source_id filter. run_phaseb_
+    acceptance.sh's SOURCE-SCOPE CONFLICT stage plants a second, live
+    parcel.apn fact for source_feature_id 568 from a different real source
+    (ca_san_jose.zoning_districts), holding a value that differs from BOTH
+    the real source's current live value ('23712199') and the value it's
+    about to reconcile back to ('23712112', A's value) -- '99999999FOREIGN'
+    -- right before LOAD A AGAIN runs. Proven RED against pre-fix code (see
+    prompts/P15-source-scope-reconciliation-reads.md): unlike load_zoning/
+    load_permits' live-map dict comprehension (silent arbitrary-pick
+    overwrite), changed_rows' unfiltered LEFT JOIN kept BOTH fa rows --
+    with both satisfying "differs from incoming", pre-fix code yielded two
+    changed_rows entries for one feature, and the processing loop attempted
+    to supersede the foreign row's fact too. I4's
+    fact_supersession_target_validate() trigger rejected it outright (a fact
+    may only supersede a prior fact from its OWN source_id) -- pre-fix code
+    crashed the whole job_run rather than silently misreconciling.
+    """
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT f.value, f.superseded_at IS NOT NULL
+        FROM source_feature_identity sfi
+        JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'parcel.apn'
+        WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = '568'
+              AND f.source_id = 'ca_san_jose.parcels'
+        ORDER BY f.recorded_at DESC LIMIT 1
+    """)
+    real = cur.fetchone()
+    check(cur, "after source-scope conflict: source_feature_id 568's parcel.apn "
+               "(real source) = '23712112' (A's value), live -- reconciled "
+               "against its OWN prior fact, not crashed or corrupted by a "
+               "foreign-source row in changed_rows",
+          real is not None and real[0] == "23712112" and real[1] is False, f"got {real}")
+
+    cur.execute("""
+        SELECT f.value, f.superseded_at IS NOT NULL
+        FROM source_feature_identity sfi
+        JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'parcel.apn'
+        WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = '568'
+              AND f.source_id = 'ca_san_jose.zoning_districts'
+    """)
+    foreign = cur.fetchone()
+    check(cur, "after source-scope conflict: source_feature_id 568's planted "
+               "foreign-source parcel.apn fact untouched -- still live, still "
+               "'99999999FOREIGN'",
+          foreign is not None and foreign[0] == "99999999FOREIGN" and foreign[1] is False,
+          f"got {foreign}")
+
+
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "after-a2"
     conn = get_db()
     if mode == "after-b":
         check_after_b(conn)
+    elif mode == "after-source-scope":
+        check_after_source_scope(conn)
     else:
         check_after_a2(conn)
     conn.close()

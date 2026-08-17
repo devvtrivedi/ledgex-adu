@@ -81,4 +81,44 @@ $PYTHON scripts/ingest_zoning_permits.py --source permits --phase load
 $PYTHON scripts/check_p5_acceptance.py after-a2
 
 echo ""
+echo "############################ SOURCE-SCOPE CONFLICT (finding #21) ############################"
+# 58705049 is back at zoning.district = 'R-2' from ca_san_jose.zoning_districts
+# (the A2/re-run state just checked above). Plant a second, live fact for the
+# SAME (parcel, field) from a different real source (ca_san_jose.building_
+# permits_active, already has a snapshot row from the PERMITS A/B loads above)
+# -- then reload fixture B again and prove load_zoning's own source reconciles
+# correctly even with a foreign source's live fact sitting on the same field.
+$PYTHON - <<'PYEOF'
+import os, sys
+sys.path.insert(0, os.getcwd())
+from infra.env import get_db
+
+conn = get_db()
+cur = conn.cursor()
+cur.execute("""
+    INSERT INTO fact (id, parcel_id, field_key, value, unit, local_verbatim, source_id,
+                       source_url, layer_item_id, snapshot_id, method, retrieved_at,
+                       source_published_at, source_cadence_stated, effective_from, effective_to,
+                       recorded_at, superseded_at, licence_id, confidence, confidence_rule_id,
+                       conflict, method_version, ruleset_version, pack_version, jurisdiction_id,
+                       supersedes_fact_id, supersession_reason, source_asserted_as_of)
+    SELECT gen_random_uuid(), f.parcel_id, f.field_key, '"R-3"'::jsonb, f.unit, f.local_verbatim,
+           'ca_san_jose.building_permits_active', f.source_url, f.layer_item_id,
+           (SELECT id FROM snapshot WHERE source_id = 'ca_san_jose.building_permits_active'
+            ORDER BY fetched_at DESC LIMIT 1),
+           f.method, f.retrieved_at, f.source_published_at, f.source_cadence_stated,
+           f.effective_from, f.effective_to, now(), f.superseded_at, 'cc0', f.confidence,
+           f.confidence_rule_id, f.conflict, f.method_version, f.ruleset_version, f.pack_version,
+           f.jurisdiction_id, NULL, NULL, f.source_asserted_as_of
+    FROM fact f JOIN parcel p ON p.id = f.parcel_id
+    WHERE p.apn = '58705049' AND f.field_key = 'zoning.district' AND f.superseded_at IS NULL
+""")
+conn.commit()
+conn.close()
+PYEOF
+cp "$FIXTURES/p5_zoning_B.geojson" "$SCRATCHPAD_REAL/zoning_districts_fetch_1.geojson"
+$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load
+$PYTHON scripts/check_p5_acceptance.py after-source-scope
+
+echo ""
 echo "P5 ACCEPTANCE: ALL CHECKPOINTS PASSED"

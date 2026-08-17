@@ -1136,15 +1136,15 @@ def phase_e(snapshot_id):
                     FROM parcels_incoming_staging s
                     JOIN source_feature_identity sfi
                       ON sfi.source_id = %s AND sfi.source_feature_id = s.source_feature_id
-                    LEFT JOIN fact fa ON fa.parcel_id = sfi.parcel_id AND fa.field_key = 'parcel.apn' AND fa.superseded_at IS NULL
-                    JOIN fact fg ON fg.parcel_id = sfi.parcel_id AND fg.field_key = 'parcel.geometry' AND fg.superseded_at IS NULL
+                    LEFT JOIN fact fa ON fa.parcel_id = sfi.parcel_id AND fa.field_key = 'parcel.apn' AND fa.superseded_at IS NULL AND fa.source_id = %s
+                    JOIN fact fg ON fg.parcel_id = sfi.parcel_id AND fg.field_key = 'parcel.geometry' AND fg.superseded_at IS NULL AND fg.source_id = %s
                     WHERE sfi.retired_at IS NOT NULL
                        OR (CASE WHEN fa.id IS NOT NULL
                                 THEN fa.value IS DISTINCT FROM to_jsonb(s.apn_canonical)
                                 ELSE s.apn_canonical IS NOT NULL AND s.apn_canonical NOT LIKE '%%?%%'
                            END)
                        OR fg.value IS DISTINCT FROM s.geometry_json
-                """, (SOURCE_ID,))
+                """, (SOURCE_ID, SOURCE_ID, SOURCE_ID))
                 changed_rows = cur.fetchall()
 
             reappeared_count_query = sum(1 for r in changed_rows if r[2] is not None)
