@@ -149,4 +149,7 @@ needed, the new stages are additional steps inside scripts CI already runs end-t
 
 Finding #21 closed in `prompts/README.md` with this evidence. All four CI jobs (`schema`,
 `p5-acceptance`, `phaseb-acceptance`, `docs`) confirmed green on the real GitHub Actions
-runner after push — run IDs in the README row.
+runner after push — `db.yml` run
+[32060738433](https://github.com/devvtrivedi/ledgex-adu/actions/runs/32060738433)
+(`schema`/`p5-acceptance`/`phaseb-acceptance`, all `success`), `docs` run `32060738449`
+(`success`).
