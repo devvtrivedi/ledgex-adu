@@ -49,6 +49,22 @@ def open_exceptions(cur, apn, detector_key):
     return {r[0] for r in cur.fetchall()}
 
 
+def exception_history(cur, apn, detector_key):
+    """Every parcel_exception row (any outcome) for (apn, detector_key), oldest
+    first -- id, reason, outcome, resolved_by, reopened_from_id, detected_at.
+    Used where open_exceptions()'s "just the open reasons" isn't enough: whether
+    a since-closed row was closed for the right reason, and what a reopened
+    row's reopened_from_id actually points at."""
+    cur.execute("""
+        SELECT pe.id, pe.detail->>'reason', pe.outcome, pe.resolved_by,
+               pe.reopened_from_id, pe.detected_at
+        FROM parcel_exception pe JOIN parcel p ON p.id = pe.parcel_id
+        WHERE p.apn = %s AND pe.detector_key = %s
+        ORDER BY pe.detected_at
+    """, (apn, detector_key))
+    return cur.fetchall()
+
+
 def total_fact_rows(cur, apn, field_key):
     # Total row count (live + superseded), not just the live row -- a
     # same-snapshot re-run that supersedes a fact and writes an identical
@@ -92,20 +108,34 @@ def check_zoning_after_b(cur):
 
     d = live_fact(cur, AMBIGUOUS_APN, "zoning.district")
     check(f"after B: {AMBIGUOUS_APN} zoning.district absent (ambiguous)", d is None, f"got {d}")
-    reasons = open_exceptions(cur, AMBIGUOUS_APN, ZONING_DETECTOR)
-    # This parcel was zero-match under snapshot A (uncovered by any A
-    # polygon) and got a no_containing_district exception then; B makes it
-    # ambiguous instead, a DIFFERENT reason. Confirmed finding, not a bug:
-    # nothing auto-resolves the now-stale A-era exception when the
-    # underlying condition changes (P5 item 5 -- no outcome value cleanly
-    # means "closed because new data superseded it", reported not fixed).
-    # Both stay open simultaneously; this assertion documents that
-    # deliberately, rather than assuming the stale one vanished.
+    # This parcel was zero-match under snapshot A (uncovered by any A polygon)
+    # and got a no_containing_district exception then; B makes it ambiguous
+    # instead, a DIFFERENT reason. P5 (this file, originally) asserted BOTH
+    # reasons stayed open simultaneously -- true then: nothing closed a stale
+    # exception when the underlying condition changed. P9
+    # (db/migrations/0047, core/exceptions.close_resolved_exceptions,
+    # 7c88d15) closed exactly that gap, on purpose, and load_zoning wires it
+    # in. Updated here to match, not to make something pass: confirmed
+    # against a live A1->B trace before this edit, not assumed from reading
+    # the code -- see prompts/P12-p5-suite-blind-to-p9-and-ci-gap.md 1(a).
+    # The A-era no_containing_district exception is no longer true this run
+    # (this run's own classification is a DIFFERENT reason) so
+    # close_resolved_exceptions closes it, condition_cleared, resolved_by
+    # the detector itself; multiple_containing_districts is THIS run's own
+    # finding and stays open.
+    history = exception_history(cur, AMBIGUOUS_APN, ZONING_DETECTOR)
+    by_reason = {row[1]: row for row in history}  # last occurrence per reason
+    multiple = by_reason.get("multiple_containing_districts")
+    no_containing = by_reason.get("no_containing_district")
     check(f"after B: {AMBIGUOUS_APN} has open multiple_containing_districts exception "
-          "(NOT the same reason as zero-match), AND still carries its stale A-era "
-          "no_containing_district exception -- confirmed unresolved, not a regression",
-          {"multiple_containing_districts", "no_containing_district"} <= reasons,
-          f"got {reasons}")
+          "(this run's own finding, NOT the same reason as the A-era zero-match)",
+          multiple is not None and multiple[2] == "open", f"got {multiple}")
+    check(f"after B: {AMBIGUOUS_APN}'s A-era no_containing_district exception is closed "
+          "(condition_cleared, resolved_by the detector itself) -- P9 closes a stale "
+          "exception when the condition genuinely changed, it does not leave it open",
+          no_containing is not None and no_containing[2] == "condition_cleared"
+          and no_containing[3] == ZONING_DETECTOR,
+          f"got {no_containing}")
 
 
 def check_zoning_after_a2(cur):
@@ -127,13 +157,34 @@ def check_zoning_after_a2(cur):
               "no_containing_district" in reasons, f"got {reasons}")
 
     # The ambiguous APN's B-era exception (multiple_containing_districts) is a
-    # DIFFERENT reason from A2's (no_containing_district) -- both should now
-    # be open simultaneously for the same parcel/detector, proving 0045's
-    # index is scoped by reason, not just (parcel, detector).
-    reasons = open_exceptions(cur, AMBIGUOUS_APN, ZONING_DETECTOR)
-    check(f"after A2: {AMBIGUOUS_APN} still carries its B-era multiple_containing_districts "
-          "exception, unresolved, alongside the new no_containing_district one",
-          {"multiple_containing_districts", "no_containing_district"} <= reasons, f"got {reasons}")
+    # DIFFERENT reason from A2's (no_containing_district). P9's
+    # close_resolved_exceptions closes multiple_containing_districts here --
+    # it is no longer true this run -- and the loop above already confirmed
+    # a fresh no_containing_district exception is open. What's left to check,
+    # confirmed against a live A1->B->A2 trace before this edit (see
+    # prompts/P12-p5-suite-blind-to-p9-and-ci-gap.md 1(a)): the fresh
+    # no_containing_district row's reopened_from_id links back to the
+    # ORIGINAL A1 exception with that same reason -- proving
+    # relink_reopened_exceptions matches on (parcel_id, reason), not just
+    # "whatever closed most recently for this parcel" (which would have
+    # wrongly linked to the B-era multiple_containing_districts row instead).
+    history = exception_history(cur, AMBIGUOUS_APN, ZONING_DETECTOR)
+    by_reason = {row[1]: row for row in history}  # last occurrence per reason
+    multiple = by_reason.get("multiple_containing_districts")
+    no_containing_latest = by_reason.get("no_containing_district")
+    original_no_containing = next(row for row in history if row[1] == "no_containing_district")
+    check(f"after A2: {AMBIGUOUS_APN}'s B-era multiple_containing_districts exception is "
+          "now closed (condition_cleared) -- no longer true this run",
+          multiple is not None and multiple[2] == "condition_cleared"
+          and multiple[3] == ZONING_DETECTOR,
+          f"got {multiple}")
+    check(f"after A2: {AMBIGUOUS_APN}'s fresh open no_containing_district exception's "
+          "reopened_from_id links back to the ORIGINAL A1 exception with that reason "
+          "(not the B-era row, not NULL)",
+          no_containing_latest is not None and no_containing_latest[2] == "open"
+          and no_containing_latest[4] == original_no_containing[0]
+          and no_containing_latest[0] != original_no_containing[0],
+          f"got {no_containing_latest}, original A1 row={original_no_containing}")
 
 
 def check_permits_after_b(cur):
