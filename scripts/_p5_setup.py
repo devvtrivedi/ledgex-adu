@@ -48,11 +48,21 @@ def main():
     conn = get_db()
     with conn.cursor() as cur:
         cur.execute("""
+            -- observed_at/cleared_by/cleared_at match db/seeds/day4_sources.sql's own
+            -- values exactly (not now()/'test'/now()) -- counsel/owner sign-off is
+            -- genuinely still Pending (STANDING-BLOCKER.md), and this insert only ever
+            -- fires (ON CONFLICT DO NOTHING) on a database the real seed hasn't reached
+            -- yet, so it must assert the same honest position the seed does, not a
+            -- fabricated clearance. See CLAUDE.md: an earlier, unnamespaced version of
+            -- db/tests/invariants.sql did exactly this and permanently poisoned
+            -- ledgex_schema_check.
             INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution,
                                   attribution_text, observed_at, cleared_by, cleared_at)
             VALUES
-              ('cc_by_4_0', 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose', now(), 'test', now()),
-              ('cc0', 'CC0', 'open', 'allowed', 'allowed', NULL, now(), 'test', now())
+              ('cc_by_4_0', 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose',
+               '2026-07-31'::timestamptz, NULL, NULL),
+              ('cc0', 'CC0', 'open', 'allowed', 'allowed', NULL,
+               '2026-07-31'::timestamptz, NULL, NULL)
             ON CONFLICT (id) DO NOTHING
         """)
         cur.execute("""

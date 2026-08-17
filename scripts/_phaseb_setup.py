@@ -50,11 +50,17 @@ def main():
     conn = get_db()
     with conn.cursor() as cur:
         cur.execute("""
+            -- observed_at/cleared_by/cleared_at match db/seeds/day4_sources.sql's own
+            -- values exactly (not now()/'test'/now()) -- see _p5_setup.py's identical
+            -- comment for why: counsel/owner sign-off is genuinely still Pending, and
+            -- this insert must not fabricate it on whatever database it first reaches.
             INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution,
                                   attribution_text, observed_at, cleared_by, cleared_at)
             VALUES
-              ('cc_by_4_0', 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose', now(), 'test', now()),
-              ('cc0', 'CC0', 'open', 'allowed', 'allowed', NULL, now(), 'test', now())
+              ('cc_by_4_0', 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose',
+               '2026-07-31'::timestamptz, NULL, NULL),
+              ('cc0', 'CC0', 'open', 'allowed', 'allowed', NULL,
+               '2026-07-31'::timestamptz, NULL, NULL)
             ON CONFLICT (id) DO NOTHING
         """)
         cur.execute("""

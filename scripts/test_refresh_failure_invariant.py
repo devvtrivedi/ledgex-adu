@@ -56,10 +56,15 @@ def seed_reference_rows(conn):
     database, the same way db-test's suite is, not against shared data."""
     with conn.cursor() as cur:
         cur.execute(
+            # observed_at/cleared_by/cleared_at match db/seeds/day4_sources.sql's own
+            # values exactly (not now()/'test'/now()) -- see _p5_setup.py's identical
+            # comment: counsel/owner sign-off is genuinely still Pending, and this
+            # insert must not fabricate it on whatever database it first reaches.
             """
             INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution,
                                   attribution_text, observed_at, cleared_by, cleared_at)
-            VALUES (%s, 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose', now(), 'test', now())
+            VALUES (%s, 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose',
+                    '2026-07-31'::timestamptz, NULL, NULL)
             ON CONFLICT (id) DO NOTHING
             """,
             (ip.LICENCE_ID,),
