@@ -124,8 +124,11 @@ def main():
                 return
         target_conn.close()
 
-        ref_url = env("DATABASE_URL").rsplit("/", 1)[0] + f"/{ref}"
-        ref_conn = psycopg2.connect(ref_url)
+        u = parsed_url()
+        ref_conn = psycopg2.connect(
+            host=u.hostname, port=u.port or 5432, user=u.username, password=u.password,
+            dbname=ref,
+        )
         ref_conn.autocommit = False
         print("applying every migration to the reference database, from empty")
         migrations = all_migrations()

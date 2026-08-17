@@ -91,7 +91,7 @@ ENDPOINT_URL = (
 )
 JOB_KEY = "ingest_parcels"
 
-SCRATCHPAD = "/private/tmp/claude-501/-Users-dev-Desktop-ledgex-adu/59865388-e258-4aba-b756-014d02490b5a/scratchpad"
+SCRATCHPAD = "/tmp/ledgex_ingest_scratch"
 
 CHUNK_SIZE = 8 * 1024 * 1024  # 8 MiB -- streamed, never buffered whole in memory
 
@@ -995,13 +995,12 @@ def phase_e(snapshot_id):
                 (SOURCE_ID,),
             )
             identity_by_feature_id = {source_feature_id: str(parcel_id) for source_feature_id, parcel_id in cur.fetchall()}
-        have_prior_identities = bool(identity_by_feature_id)
 
         if same_as_previous:
             # Identical bytes to the last successfully-reconciled snapshot
             # (previous_successful_snapshot() confirmed it, per the P1 fix,
             # durably and correctly). Same bytes in can only mean the same
-            # facts out -- verifying identity presence is sufinvariant to
+            # facts out -- verifying identity presence is sufficient to
             # prove that without paying for a full value-by-value database
             # diff. This is the ONLY case that still skips the Phase B
             # reconciliation pass below; any genuine snapshot change goes

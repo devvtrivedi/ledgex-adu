@@ -27,7 +27,7 @@ one alone. Same shared-primitive reasoning as local_verbatim: every
 caller's tuples grow two columns whether or not that particular call site
 currently writes any successors.
 
-Callers still build the 14-tuple list themselves, according to their
+Callers still build the 17-tuple list themselves, according to their
 own source-specific mapping from a raw source property to a canonical
 field_key. That mapping is jurisdiction-specific and deliberately
 does not move here (I1) -- this function knows the tuple's shape and
@@ -36,7 +36,7 @@ between this file and scripts/*.py's mapping code is the actual boundary
 I1 draws; splitting it here is the point of this slice, not a detail of
 it.
 
-Positional 14-tuples, not a Fact type: core/model doesn't exist, and
+Positional 17-tuples, not a Fact type: core/model doesn't exist, and
 this function is exactly the kind of code that wants one -- a caller
 that gets the tuple's column order wrong fails at INSERT time with a
 type-mismatch error naming a position, not a field name, and nothing

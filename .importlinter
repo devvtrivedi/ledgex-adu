@@ -13,7 +13,7 @@
 ;
 ; import-linter is the import-graph half only. Neither contract below
 ; can see a bare jurisdiction-id string literal with no import attached
-; (I1's other half -- see build/check_boundary_grep.py) or a database
+; (I1's other half -- see build/check_jurisdiction_names.py) or a database
 ; grant/schema-separation fact (I15's other half -- the "catalogue query"
 ; named in the invariant table, not yet built).
 ;

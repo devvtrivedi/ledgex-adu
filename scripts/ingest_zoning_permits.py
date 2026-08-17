@@ -136,7 +136,7 @@ ENDPOINT_URL_PERMITS = (
     "resource/761b7ae8-3be1-4ad6-923d-c7af6404a904/download/buildingpermitsactive.csv"
 )
 
-SCRATCHPAD = "/private/tmp/claude-501/-Users-dev-Desktop-ledgex-adu/59865388-e258-4aba-b756-014d02490b5a/scratchpad"
+SCRATCHPAD = "/tmp/ledgex_ingest_scratch"
 
 CHUNK_SIZE = 8 * 1024 * 1024
 

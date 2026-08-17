@@ -96,7 +96,7 @@ JURISDICTION_ID = "ca_san_jose"
 SOURCE_ID_PARCELS = "ca_san_jose.parcels"
 SOURCE_ID_ZONING = "ca_san_jose.zoning_districts"
 
-SCRATCHPAD = "/private/tmp/claude-501/-Users-dev-Desktop-ledgex-adu/59865388-e258-4aba-b756-014d02490b5a/scratchpad"
+SCRATCHPAD = "/tmp/ledgex_ingest_scratch"
 
 DETECTOR_KEY_PARCEL_GEOM = "parcel_geometry_invalid"
 DETECTOR_KEY_ZONING_SOURCE_GEOM = "zoning_source_geometry_invalid"
