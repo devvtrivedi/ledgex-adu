@@ -96,13 +96,24 @@ Named so a prompt can point at one in three words.
   table is immutable, neither is available and the answer is rebuild.
 - **NULL inside a constraint silently disables it.** A constraint written over an expression
   that can be NULL is not enforcing what its name says for the rows where it is NULL, and
-  nothing reports that — it just quietly never fires for them. Three instances now: 0038's
-  `refusals_codes_valid()`, where `elem->>'code' NOT IN (...)` evaluates SQL NULL (not true)
-  for every shape missing a `code` key, so `NOT EXISTS` reports clean on exactly the rows
-  that should have failed (README finding #8); 0045's partial unique index on
-  `detail->>'reason'`, which never actually constrained `zoning_source_geometry_invalid` —
-  that detector's `detail` never sets a `reason` key at all, so the expression is NULL for
-  every one of its rows, and NULLs never conflict with each other in a unique index
-  (README finding #19); and the general form this names. Whenever a constraint keys on an
-  expression rather than a plain NOT NULL column, state what it does when that expression
-  evaluates NULL — don't assume "constrained" just because the constraint compiled.
+  nothing reports that — it just quietly never fires for them. Two live instances, argued
+  together and fixed together in one package (P10): 0038's `refusals_codes_valid()`, where
+  `elem->>'code' NOT IN (...)` evaluated SQL NULL (not true) for every shape missing a
+  `code` key, so `NOT EXISTS` reported clean on exactly the rows that should have failed
+  (README finding #8, closed by 0048 — DROP+ADD on a CASE-guarded rewrite, not a same-named
+  `CREATE OR REPLACE` left under the old constraint, so existing rows actually get
+  re-validated); 0045's partial unique index on `detail->>'reason'`, which never actually
+  constrained `zoning_source_geometry_invalid` — that detector's `detail` never sets a
+  `reason` key at all, so the expression was NULL for every one of its rows, and NULLs
+  never conflict with each other in a unique index (README finding #19, closed by
+  0049 — `COALESCE(detail->>'reason', '')`, the same technique 0006's
+  `fact_one_current_per_source` already uses for `source_id`/`method_version`, though not
+  always for the same underlying reason — check whether the NULL is a legitimate, recurring
+  domain state or simply an omission before assuming the precedent transfers unchanged).
+  **Requirement, not just a pattern to recognize:** any constraint or index keyed on an
+  expression rather than a plain `NOT NULL` column must state, in its own migration's
+  header comment, what that expression does when it evaluates NULL — whether that's genuinely
+  impossible for the column it reads (say why), or possible and handled (say how, e.g. a
+  `COALESCE` sentinel), or possible and NOT handled (say so as a known gap, not a silent
+  omission). "The constraint compiled" is not evidence it constrains anything on the rows
+  where its key expression is NULL — say what happens there, explicitly, every time.
