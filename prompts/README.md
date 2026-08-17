@@ -19,7 +19,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P13 | [The APN resolvability flip: findings #17 and #22, one package](P13-apn-resolvability-flip.md) | done, pushed | `105e2e7`, `c115888`, `4bda739` (`6c41103`/`c460792`: deliberate CI-gate break + revert, evidence not work) |
 | P10 | [The NULL-inside-a-constraint class: findings #8 and #19, one package](P10-null-inside-a-constraint.md) | done, pushed | `576ce9e`, `686ce14` |
 | P14 | [Finding #9: `db/tests/invariants.sql` commits fixtures and never cleans up](P14-invariants-sql-teardown.md) | done, pushed | `3817030` |
-| P15 | [Bookkeeping, then finding #21: source-scope the three reconciliation reads](P15-source-scope-reconciliation-reads.md) | done, pushed | `721a138`, TBD |
+| P15 | [Bookkeeping, then finding #21: source-scope the three reconciliation reads](P15-source-scope-reconciliation-reads.md) | done, pushed | `721a138`, `90dc9df` |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
