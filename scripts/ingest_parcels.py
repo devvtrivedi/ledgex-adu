@@ -267,6 +267,17 @@ def fetch_and_hash(dest_path, url=None):
 
 
 def snapshot_exists(conn, sid):
+    """OPTIMIZATION ONLY (README finding #10) -- lets the caller skip a
+    redundant upload_and_verify() round-trip when this content is already
+    stored. NOT the authority on whether snapshot.id = sid is actually
+    live right now: two concurrent fetches of identical new content both
+    call this before either has inserted, so both see False here. The
+    authoritative answer -- whether THIS run is the one that durably
+    wrote the row -- comes from insert_snapshot()'s own INSERT rowcount,
+    not this SELECT. Do not "simplify" run_one_fetch() by reading
+    already_had_snapshot for both the upload-skip AND the job_run status
+    decision again -- that reintroduces the race this comment exists to
+    prevent."""
     with conn.cursor() as cur:
         cur.execute("SELECT 1 FROM snapshot WHERE id = %s", (sid,))
         return cur.fetchone() is not None
@@ -297,6 +308,26 @@ def upload_and_verify(s3, bucket, path, digest, byte_size):
 
 
 def insert_snapshot(conn, digest, byte_size, media_type, http_status, fetched_at, bucket, url=None):
+    """README finding #10: ON CONFLICT (id) DO NOTHING, not a bare INSERT --
+    id = snapshot_id_for(digest) is deterministic from content alone, so two
+    concurrent fetches of identical new content compute the identical id and
+    would otherwise race a bare INSERT into a raw PK violation (an
+    unhandled exception, not a clean no-op). ON CONFLICT (id) alone is
+    sufficient: id and the table's other uniqueness constraint,
+    UNIQUE (content_hash, source_id), are both fully determined by the same
+    (source_id, digest) pair in this script, so a conflict on one always
+    means a conflict on the other for a row this code ever writes -- never
+    two different code paths to satisfy.
+
+    Returns (sid, inserted) -- inserted is True only when THIS call's own
+    INSERT actually added the row (cur.rowcount == 1, read before commit()
+    per this function's own docstring elsewhere in this codebase's
+    convention -- rowcount does not depend on commit having happened, but
+    reading it first keeps the ordering unambiguous). False means another
+    writer's INSERT (or an earlier already-committed run) got there first
+    -- this call is a no-op, not a failure. The caller must use THIS
+    return value, not snapshot_exists()'s earlier SELECT, to decide
+    job_run's terminal status -- see snapshot_exists()'s own docstring."""
     sid = snapshot_id_for(digest)
     uri = object_uri(bucket, digest)
     request_payload = json.dumps({"url": url or ENDPOINT_URL, "method": "GET", "params": {}})
@@ -307,14 +338,16 @@ def insert_snapshot(conn, digest, byte_size, media_type, http_status, fetched_at
                 id, source_id, object_uri, content_hash, media_type, byte_size,
                 request, http_status, fetched_at, licence_observed_id
             ) VALUES (%s, %s, %s, %s, %s, %s, %s::jsonb, %s, %s, %s)
+            ON CONFLICT (id) DO NOTHING
             """,
             (
                 sid, SOURCE_ID, uri, digest, media_type, byte_size,
                 request_payload, http_status, fetched_at, LICENCE_ID,
             ),
         )
+        inserted = cur.rowcount == 1
     conn.commit()
-    return sid
+    return sid, inserted
 
 
 def finish_job_run(conn, job_run_id, status, snapshot_id):
@@ -366,21 +399,30 @@ def run_one_fetch(conn, s3, bucket, dest_path, label, url=None):
         print(f"  sha256: {digest}")
 
         sid = snapshot_id_for(digest)
+        # already_had_snapshot is an upload-skipping OPTIMIZATION only
+        # (README finding #10, see snapshot_exists()'s own docstring) --
+        # job_run's terminal status below is decided from insert_snapshot()'s
+        # own INSERT rowcount (`inserted`), never from this earlier SELECT.
         already_had_snapshot = snapshot_exists(conn, sid)
         if already_had_snapshot:
             print(f"  snapshot {sid} already exists -- content unchanged, skipping upload")
+            inserted = False
         else:
             key = upload_and_verify(s3, bucket, dest_path, digest, byte_size)
             print(f"  uploaded and verified at key: {key}")
-            sid = insert_snapshot(conn, digest, byte_size, media_type, http_status, fetched_at, bucket, url=url)
-            print(f"  snapshot inserted: {sid}")
+            sid, inserted = insert_snapshot(conn, digest, byte_size, media_type, http_status, fetched_at, bucket, url=url)
+            if inserted:
+                print(f"  snapshot inserted: {sid}")
+            else:
+                print(f"  snapshot {sid} already existed by the time of INSERT "
+                      f"(lost a concurrent race) -- no-op, not re-inserted")
 
         if not ok:
             status = "failed"
-        elif already_had_snapshot:
-            status = "skipped_unchanged"
-        else:
+        elif inserted:
             status = "succeeded"
+        else:
+            status = "skipped_unchanged"
         finish_job_run(conn, job_run_id, status, sid)
         print(f"  job_run {job_run_id} -> {status}")
         return digest, sid

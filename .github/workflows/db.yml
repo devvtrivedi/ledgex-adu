@@ -112,6 +112,20 @@ jobs:
       - name: make db-test
         run: make db-test DB_TEST_DATABASE_URL="$DATABASE_URL" PSQL="$PSQL"
 
+      # P19, README finding #10: the snapshot-dedup race (two concurrent
+      # fetches of identical new content both pass snapshot_exists()'s
+      # SELECT, then race insert_snapshot()'s INSERT) can't be an
+      # invariants.sql test -- psql can't open two connections. No new job
+      # for it either: this job already has a live, disposable ledgex_ci
+      # (the same one make db-test just used) and psycopg2 (already a
+      # scripts/requirements.txt dependency every sibling
+      # scripts/test_*_invariant.py needs) -- nothing about this test needs
+      # its own job. Runs after make db-test, before schema-dump: it only
+      # adds snapshot/licence/jurisdiction/source rows, which schema-dump's
+      # schema-only diff never sees either way.
+      - name: scripts/test_snapshot_race_invariant.py
+        run: python3 scripts/test_snapshot_race_invariant.py
+
       # Spec §1.2 make schema-dump: "No diff; missing or stale generated DDL
       # fails." Regenerates db/schema.sql from the now-migrated (and
       # db-tested, though schema-only means test data doesn't affect this)
