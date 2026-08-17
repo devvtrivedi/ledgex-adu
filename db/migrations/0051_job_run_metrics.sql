@@ -1,0 +1,124 @@
+-- 0051_job_run_metrics.sql
+-- Fixes: job_run (0012). Serves: I2 (durable provenance of what a job
+-- actually did). README findings #12, #16 (metrics half).
+--
+-- THE GAP, established by query, not assumed. job_run has exactly one
+-- jsonb slot beyond rows_in/rows_out: schema_drift, declared (0012's own
+-- inline comment) as "fields expected but missing" -- a source dropping
+-- an expected COLUMN. Every reachable database (ledgex_schema_check, the
+-- only one reachable this session) queried directly for every job_run
+-- row with a non-null schema_drift, grouped by the actual top-level key
+-- set stored:
+--
+--   ingest_zoning  (load_zoning,  2 rows): {diff, exceptions_written, exceptions_skipped_already_open}
+--   ingest_permits (load_permits, 2 rows): {diff, unmatched_breakdown, _note}
+--
+-- Zero rows carry schema_drift's OWN declared shape (expected_fields/
+-- actual_property_keys/unmatched_expected/notes) anywhere reachable.
+-- ingest_parcels.py's phase_c DOES build that exact shape (its own
+-- schema_drift dict, matching 0012's comment field-for-field) but never
+-- persists it -- phase_c calls neither start_job_run nor finish_job_run
+-- at all, and __main__ discards phase_c()'s return value outright
+-- (`phase_c(path)`, no assignment). It is printed
+-- ("schema_drift (to be recorded on job_run): ...") and nothing more.
+--
+-- So: not "schema_drift has one abuser and needs a second slot." Two
+-- real writers, both admitted stretches (load_permits' own dict even
+-- carries a literal "_note" key saying so), and zero legitimate ones --
+-- the one construction that matches the column's declared meaning has
+-- never reached the database at all. This migration adds the general
+-- slot db/README.md's "job_run has no metrics slot" section already
+-- argued for, and settles what schema_drift is for going forward, since
+-- "add metrics" alone would leave that open.
+--
+-- METRICS CONTRACT -- argued, not left schema-less by default. Three
+-- known consumers want three different shapes (phase_e's blank/
+-- placeholder split, load_zoning's zero-match/multi-match split,
+-- load_permits' blank/not-found/ambiguous split), so a single fixed key
+-- set is wrong -- forcing every job type to populate keys it has no data
+-- for is its own dishonesty. But "any jsonb, no rules" is exactly how
+-- schema_drift got abused, so this is not left there either. The
+-- CHECK below enforces the one thing every consumer can honestly share:
+-- metrics, when present, is a JSON *object* -- never a bare array,
+-- string or scalar -- same shape guarantee 0038/0048 already enforce for
+-- refusals (jsonb_typeof(...) = 'array' there; 'object' here). Beyond
+-- that floor, key sets are deliberately per-job-key, not globally fixed,
+-- documented by convention (COMMENT ON COLUMN below) rather than a
+-- schema registry this package is not scoped to build -- the same
+-- established shape parcel_exception.detail already uses successfully:
+-- one NOT NULL jsonb column, many legitimate per-detector-key shapes,
+-- with COALESCE(detail->>'reason', '') (0049) already handling the one
+-- place a shared key needed cross-detector uniformity.
+--
+-- Why this will not repeat schema_drift's mistake: schema_drift's
+-- problem was never "jsonb with no shape guarantee" -- it was a
+-- NARROWLY-NAMED column whose declared meaning was wrong for what
+-- writers actually needed, forcing a choice between violating that
+-- declared meaning or reaching for `error` (worse: text, no shape
+-- contract, and used on a status='succeeded' row). `metrics` has no
+-- false semantic claim to violate -- its name is the neutral container
+-- every one of these three real shapes already, honestly, is.
+--
+-- ENUM VALUE NOTE (P10's CONVENTIONS rule): the CHECK below is keyed on
+-- an EXPRESSION (jsonb_typeof(metrics)), not a plain NOT NULL column, so
+-- it must state what happens when that expression evaluates NULL --
+-- stated explicitly, not left to CHECK's own implicit NULL-passes
+-- semantics: `metrics IS NULL OR jsonb_typeof(metrics) = 'object'` short-
+-- circuits the NULL case up front, so a NULL metrics value always
+-- satisfies the constraint (metrics is nullable -- most job_run rows,
+-- including every one flag_invalid_geometry.py's two detectors and
+-- ingest_parcels.py's phase_e write today, will have no metrics at all,
+-- and that is not a violation of anything).
+--
+-- SCHEMA_DRIFT'S DISPOSITION -- argued, not defaulted. Not reclaimed to
+-- its declared meaning in this package: doing that for real would mean
+-- wiring phase_c into an actual job_run (start_job_run/finish_job_run),
+-- which phase_c does not do today and this package was not asked to add
+-- -- that is scope creep, reported here rather than absorbed. Not
+-- dropped either: two real historical rows already carry data under it,
+-- and CLAUDE.md's forward-only migration discipline does not extend to
+-- deleting a column two ingest scripts' own code comments still
+-- reference by name (both are being rewritten in this same package,
+-- below, to stop referencing it). Left in place, its declared meaning
+-- unchanged, its actual current state now stated plainly via COMMENT ON
+-- COLUMN: currently has zero legitimate writers -- phase_c's own correct
+-- construction remains unpersisted, a real, separate, un-fixed gap this
+-- migration names but does not close.
+--
+-- EXISTING ROWS -- argued both ways, left as recorded. job_run carries no
+-- immutability trigger (unlike fact/rule/licence/snapshot/
+-- licence_channel), so in-place correction of the 4 existing schema_drift
+-- rows into the new metrics column IS mechanically available, unlike
+-- CLAUDE.md's licence-contamination case where 0027 made rewriting
+-- impossible. Considered and rejected anyway: a job_run row is a record
+-- of what a specific run, under the code that existed AT THE TIME,
+-- actually wrote -- these 4 rows correctly reflect that a pre-0051
+-- load_zoning/load_permits wrote a diff/exception breakdown into
+-- schema_drift, because that is genuinely what happened. Moving that
+-- data into metrics would not correct a wrong VALUE (the counts
+-- themselves are accurate) -- it would rewrite historical provenance to
+-- claim these rows were written under a contract that did not exist yet,
+-- the same species of dishonesty CLAUDE.md's both-halves rule exists to
+-- prevent in the other direction (a fix at the source without a
+-- guarded migration leaves old rows silently wrong; here, a migration
+-- without a source fix would leave old rows silently right, and
+-- rewriting them anyway would make them silently WRONG about their own
+-- history). CLAUDE.md's both-halves rule is answered on the source side
+-- below (both scripts stop writing schema_drift, write metrics instead)
+-- -- the data-correction half is a genuine choice, not a mechanical
+-- requirement, and the choice made here is: leave the 4 rows exactly as
+-- recorded, queryable by anyone who already knows to look in
+-- schema_drift for a pre-0051 job_run, same shape as any other pre-
+-- migration historical record in this schema.
+
+ALTER TABLE job_run ADD COLUMN metrics jsonb;
+
+ALTER TABLE job_run ADD CONSTRAINT job_run_metrics_is_object CHECK (
+    metrics IS NULL OR jsonb_typeof(metrics) = 'object'
+);
+
+COMMENT ON COLUMN job_run.metrics IS
+    'General per-job breakdown, replacing schema_drift for every real use case that column was ever stretched to cover (README findings #12/#16). Nullable -- most jobs write nothing here. When present, always a JSON object (job_run_metrics_is_object) -- never a bare array/string/scalar. No fixed global key set: each writer''s top-level keys should be self-describing for that job (e.g. load_zoning''s {"diff": ..., "exceptions_written": ..., "exceptions_skipped_already_open": ...}), the same one-column-many-per-caller-shapes precedent parcel_exception.detail already uses. See 0051 for the full argument against a fixed schema here.';
+
+COMMENT ON COLUMN job_run.schema_drift IS
+    'Declared meaning (unchanged since 0012): fields expected but missing -- a source dropping an expected column. As of 0051, this has ZERO legitimate writers: querying every reachable database found exactly two real writers (load_zoning, load_permits), both explicit, admitted reaches for a per-row match-outcome breakdown that is not this column''s declared meaning -- both rewritten by 0051 to write job_run.metrics instead. ingest_parcels.py''s phase_c builds a dict that DOES match this column''s declared shape but has never persisted it (phase_c writes no job_run row at all) -- a real, separate, still-open gap, not fixed by this migration. The 4 existing rows written before 0051 are left exactly as recorded, not migrated into metrics -- see 0051''s own header for the argument.';

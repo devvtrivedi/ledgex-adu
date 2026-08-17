@@ -115,11 +115,16 @@ def start_job_run(conn, job_key, source_id):
     return job_run_id
 
 
-def finish_job_run(conn, job_run_id, status, rows_in, rows_out):
+def finish_job_run(conn, job_run_id, status, rows_in, rows_out, metrics=None):
+    # metrics (0051, README findings #12/#16): exception_skipped (already-
+    # open, deduped, at both call sites below) was printed every run but
+    # never persisted.
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE job_run SET status = %s, finished_at = clock_timestamp(), rows_in = %s, rows_out = %s WHERE id = %s",
-            (status, rows_in, rows_out, job_run_id),
+            "UPDATE job_run SET status = %s, finished_at = clock_timestamp(), "
+            "rows_in = %s, rows_out = %s, metrics = %s WHERE id = %s",
+            (status, rows_in, rows_out,
+             json.dumps(metrics) if metrics is not None else None, job_run_id),
         )
     conn.commit()
 
@@ -188,7 +193,11 @@ def flag_parcel_geometry(conn):
             print(f"  parcel_exception rows submitted: {len(exception_rows)}, "
                   f"{exception_skipped} skipped (already open at this detector_version)")
 
-        finish_job_run(conn, job_run_id, "succeeded", rows_in, len(exception_rows))
+        metrics = {
+            "exceptions_written": len(exception_rows),
+            "exceptions_skipped_already_open": exception_skipped,
+        }
+        finish_job_run(conn, job_run_id, "succeeded", rows_in, len(exception_rows), metrics)
         print(f"  job_run {job_run_id} -> succeeded (rows_in={rows_in:,}, rows_out={len(exception_rows)})")
     except Exception as e:
         conn.rollback()
@@ -267,7 +276,11 @@ def flag_zoning_source_geometry(conn):
             print(f"  parcel_exception rows submitted: {len(exception_rows)}, "
                   f"{exception_skipped} skipped (already open at this detector_version)")
 
-        finish_job_run(conn, job_run_id, "succeeded", rows_in, len(exception_rows))
+        metrics = {
+            "exceptions_written": len(exception_rows),
+            "exceptions_skipped_already_open": exception_skipped,
+        }
+        finish_job_run(conn, job_run_id, "succeeded", rows_in, len(exception_rows), metrics)
         print(f"  job_run {job_run_id} -> succeeded (rows_in={rows_in:,}, rows_out={len(exception_rows)})")
     except Exception as e:
         conn.rollback()

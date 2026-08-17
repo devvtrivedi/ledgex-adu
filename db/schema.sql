@@ -870,11 +870,27 @@ CREATE TABLE public.job_run (
     rows_out integer,
     schema_drift jsonb,
     error text,
+    metrics jsonb,
     CONSTRAINT job_run_finished_after_started CHECK (((finished_at IS NULL) OR (finished_at >= started_at))),
+    CONSTRAINT job_run_metrics_is_object CHECK (((metrics IS NULL) OR (jsonb_typeof(metrics) = 'object'::text))),
     CONSTRAINT job_run_rows_in_nonnegative CHECK (((rows_in IS NULL) OR (rows_in >= 0))),
     CONSTRAINT job_run_rows_out_nonnegative CHECK (((rows_out IS NULL) OR (rows_out >= 0))),
     CONSTRAINT job_run_status_finished_at_biconditional CHECK ((((status = 'running'::public.job_status) AND (finished_at IS NULL)) OR ((status <> 'running'::public.job_status) AND (finished_at IS NOT NULL))))
 );
+
+
+--
+-- Name: COLUMN job_run.schema_drift; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.job_run.schema_drift IS 'Declared meaning (unchanged since 0012): fields expected but missing -- a source dropping an expected column. As of 0051, this has ZERO legitimate writers: querying every reachable database found exactly two real writers (load_zoning, load_permits), both explicit, admitted reaches for a per-row match-outcome breakdown that is not this column''s declared meaning -- both rewritten by 0051 to write job_run.metrics instead. ingest_parcels.py''s phase_c builds a dict that DOES match this column''s declared shape but has never persisted it (phase_c writes no job_run row at all) -- a real, separate, still-open gap, not fixed by this migration. The 4 existing rows written before 0051 are left exactly as recorded, not migrated into metrics -- see 0051''s own header for the argument.';
+
+
+--
+-- Name: COLUMN job_run.metrics; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.job_run.metrics IS 'General per-job breakdown, replacing schema_drift for every real use case that column was ever stretched to cover (README findings #12/#16). Nullable -- most jobs write nothing here. When present, always a JSON object (job_run_metrics_is_object) -- never a bare array/string/scalar. No fixed global key set: each writer''s top-level keys should be self-describing for that job (e.g. load_zoning''s {"diff": ..., "exceptions_written": ..., "exceptions_skipped_already_open": ...}), the same one-column-many-per-caller-shapes precedent parcel_exception.detail already uses. See 0051 for the full argument against a fixed schema here.';
 
 
 --

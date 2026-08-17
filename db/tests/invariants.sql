@@ -4692,6 +4692,56 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T90: job_run.metrics accepts a JSON object (0051, P18, README
+-- findings #12/#16). Negative control below (T91) proves the same
+-- constraint rejects a bare array/scalar -- metrics is not a free-for-all
+-- jsonb slot, only the shape floor every real writer (phase_e, load_
+-- zoning, load_permits, flag_invalid_geometry.py's two detectors) already
+-- honestly satisfies.
+-- ============================================================================
+
+\echo '### TEST T90: job_run.metrics accepts a JSON object (should succeed)'
+
+DO $$
+BEGIN
+    INSERT INTO job_run (job_key, status, finished_at, metrics)
+    VALUES ('test.t90_job', 'succeeded', clock_timestamp(), '{"exceptions_written": 3, "exceptions_skipped_already_open": 1}'::jsonb);
+
+    RAISE NOTICE 'PASS T90: job_run.metrics accepted a JSON object';
+    INSERT INTO test_pass VALUES ('T90');
+END $$;
+
+-- ============================================================================
+-- TEST T91: job_run.metrics rejects a bare JSON array (job_run_metrics_is_object,
+-- 0051). Same shape-floor argument 0038/0048 already established for
+-- property_file.refusals (jsonb_typeof(...) = 'array' there; 'object'
+-- here) -- a metrics value that isn't a keyed object can't carry the
+-- self-describing top-level keys every real writer's own shape depends on.
+-- ============================================================================
+
+\echo '### TEST T91: job_run.metrics rejects a bare array (should fail)'
+
+DO $$
+DECLARE
+    v_constraint text;
+BEGIN
+    BEGIN
+        INSERT INTO job_run (job_key, status, finished_at, metrics)
+        VALUES ('test.t91_job', 'succeeded', clock_timestamp(), '[1, 2, 3]'::jsonb);
+        RAISE EXCEPTION 'FAIL T91: a bare JSON array in metrics was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'job_run_metrics_is_object' THEN
+                RAISE NOTICE 'PASS T91: bare array rejected by job_run_metrics_is_object';
+                INSERT INTO test_pass VALUES ('T91');
+            ELSE
+                RAISE EXCEPTION 'FAIL T91: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -4738,14 +4788,15 @@ END $$;
 -- Raised 102 -> 106 by 0050 (P16, finding #18: T86-T87 version_retired
 -- satisfies/violates the pre-existing 0015 biconditional; T88 the
 -- retirement UPDATE targets only the exact stranded version; T89 a second
--- run of it is a no-op).
+-- run of it is a no-op). Raised 106 -> 108 by 0051 (P18, findings #12/#16:
+-- T90 job_run.metrics accepts a JSON object; T91 rejects a bare array).
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 106 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 106 passing tests, got %', v_pass_count;
+    IF v_pass_count < 108 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 108 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

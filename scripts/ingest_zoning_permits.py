@@ -286,27 +286,29 @@ def fail_job_run(conn, job_run_id, error):
     conn.commit()
 
 
-def finish_job_run(conn, job_run_id, status, snapshot_id, rows_in=None, rows_out=None, schema_drift=None):
+def finish_job_run(conn, job_run_id, status, snapshot_id, rows_in=None, rows_out=None, metrics=None):
     # clock_timestamp(), not now() -- see ingest_parcels.py's
     # finish_job_run_full for the full story: now() returns the current
     # TRANSACTION's start time, not the time this statement executes, and
     # is silently wrong whenever meaningful work happens earlier in the
     # same transaction (exactly the load phases below).
     #
-    # schema_drift is stretched by load_permits() to carry the unmatched
-    # breakdown (blank/not-found/ambiguous), not schema drift in its
-    # literal sense (0012: "fields expected but missing"). See that call
-    # site for the reasoning -- recorded there, not assumed obvious here.
+    # metrics (0051, README findings #12/#16): was schema_drift before
+    # this migration, stretched by load_permits()/load_zoning() to carry
+    # per-row match-outcome breakdowns that were never schema drift in
+    # its literal sense (0012: "fields expected but missing") -- see each
+    # call site for the shape it writes. metrics is the real column for
+    # that now; schema_drift is untouched by this function going forward.
     with conn.cursor() as cur:
         cur.execute(
             """
             UPDATE job_run
             SET status = %s, finished_at = clock_timestamp(), snapshot_id = %s,
-                rows_in = %s, rows_out = %s, schema_drift = %s
+                rows_in = %s, rows_out = %s, metrics = %s
             WHERE id = %s
             """,
             (status, snapshot_id, rows_in, rows_out,
-             json.dumps(schema_drift) if schema_drift is not None else None, job_run_id),
+             json.dumps(metrics) if metrics is not None else None, job_run_id),
         )
     conn.commit()
 
@@ -832,44 +834,20 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
         print(f"  TOTAL UNMATCHED ROWS: {total_unmatched_rows:,} / {rows_in:,} "
               f"({100*total_unmatched_rows/rows_in:.1f}%) -- no parcel to attach a "
               f"parcel_exception to; not silently dropped, just not persisted per-row. "
-              f"See rows_in/rows_out AND schema_drift on this job_run for the durable record.")
+              f"See rows_in/rows_out AND metrics on this job_run for the durable record.")
 
         # PERSISTING the breakdown, not just printing it: rows_in/rows_out
         # already give the aggregate gap durably, but not the SHAPE of it
         # (blank vs not-found vs ambiguous), and that shape is what a
         # future reader needs to tell "the source stopped populating APN"
         # from "the parcel dataset doesn't cover these" from "APN reuse
-        # made this one genuinely unresolvable" apart.
-        #
-        # job_run has exactly four candidate slots: rows_in, rows_out
-        # (both used above), schema_drift jsonb, error text. Considered
-        # both remaining options rather than assuming:
-        #   - error: wrong on its face. This run is status='succeeded';
-        #     using the error column to carry a non-error would misreport
-        #     a healthy run as having failed to anyone reading status
-        #     alongside a populated error, and the column has no shape
-        #     contract beyond "text", so it invites exactly this kind of
-        #     misuse for the next thing that wants a slot, too.
-        #   - schema_drift jsonb: declared purpose (0012) is "fields
-        #     expected but missing" -- a source dropping an expected
-        #     COLUMN, not a per-row match outcome. This is a real reach:
-        #     the unmatched breakdown is a distribution over ROWS, not a
-        #     statement about the SOURCE's schema. Used anyway, because
-        #     the hard rule for this pass is no schema changes, and this
-        #     is closer to the real thing than error is -- both describe
-        #     an anomaly discovered while processing the source, jsonb
-        #     with no fixed shape either way. Flagged here, explicitly,
-        #     rather than silently treated as the column's real job.
-        #
-        # The honest long-term answer is job_run needs a general metrics
-        # jsonb column (rows_in/rows_out cover exactly one axis -- total
-        # attempted vs. total succeeded -- and every ingest job so far has
-        # wanted a different SECOND axis: Phase E's blank/placeholder
-        # split, zoning's zero/multi-match split, this one's
-        # blank/not-found/ambiguous split. A metrics column would hold
-        # all of them uniformly instead of each one arguing its way into
-        # a column named for something else.) Not added here -- that is a
-        # schema change, out of scope for this pass -- reported instead.
+        # made this one genuinely unresolvable" apart. Written to
+        # job_run.metrics (0051, README findings #12/#16) -- this used to
+        # be a documented reach into schema_drift, whose declared meaning
+        # (0012: "fields expected but missing") never actually described
+        # a per-row match-outcome distribution; that argument is now
+        # historical, not live -- see 0051 for the full record of why the
+        # reach existed and what replaced it.
         # --- Reconciliation, not blind insert. Same source-set-vs-parcel-set
         # dependency as zoning (P5 finding): the APN join is a function of the
         # CURRENT parcel set, not the permits snapshot alone -- no
@@ -980,7 +958,7 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
             print(f"  {field_key}: same={c['same']:,} different={c['different']:,} "
                   f"new={c['new']:,} retired-no-successor={c['retired']:,}")
 
-        schema_drift = {
+        metrics = {
             "unmatched_breakdown": {
                 "blank_apn_rows": blank_apn,
                 "not_found_apn_rows": not_found_rows,
@@ -989,7 +967,6 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                 "ambiguous_apn_distinct": ambiguous,
             },
             "diff": diff_counts,
-            "_note": "stretched beyond schema_drift's literal 'fields expected but missing' meaning -- see ingest_zoning_permits.py load_permits() for why",
         }
 
         with conn.cursor() as cur:
@@ -1004,7 +981,7 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                 insert_facts(cur, fact_rows)
             print(f"  fact rows submitted: {len(fact_rows):,}")
 
-        finish_job_run(conn, job_run_id, "succeeded", snapshot_id, rows_in, matched_rows, schema_drift)
+        finish_job_run(conn, job_run_id, "succeeded", snapshot_id, rows_in, matched_rows, metrics)
         print(f"\njob_run {job_run_id} -> succeeded (rows_in={rows_in:,}, rows_out={matched_rows:,})")
 
     except Exception as e:

@@ -861,13 +861,18 @@ def is_unresolvable_apn(apn_raw):
     return False, None
 
 
-def finish_job_run_full(conn, job_run_id, status, snapshot_id, rows_in, rows_out):
+def finish_job_run_full(conn, job_run_id, status, snapshot_id, rows_in, rows_out, metrics=None):
     # Does NOT commit -- the caller (phase_e) commits this UPDATE together
     # with the ledger rows it describes, in one transaction, so job_run's
     # terminal status can never be observed (or, after a crash, left stuck
     # at 'running') without the facts it claims. See phase_e's own call
     # site and NEXT_PROMPTS.md P1 for why this changed from an
     # independent commit.
+    #
+    # metrics (0051, README findings #12/#16): phase_e's new/changed/
+    # reappeared/disappeared and resolvable/unresolvable-APN breakdowns
+    # were computed and printed every run but never persisted -- see the
+    # call site below for the exact shape written.
     #
     # clock_timestamp(), not now() -- found for real, not by inspection:
     # the first full-scale run reported job_run duration as 10.08s
@@ -889,10 +894,11 @@ def finish_job_run_full(conn, job_run_id, status, snapshot_id, rows_in, rows_out
             """
             UPDATE job_run
             SET status = %s, finished_at = clock_timestamp(), snapshot_id = %s,
-                rows_in = %s, rows_out = %s
+                rows_in = %s, rows_out = %s, metrics = %s
             WHERE id = %s
             """,
-            (status, snapshot_id, rows_in, rows_out, job_run_id),
+            (status, snapshot_id, rows_in, rows_out,
+             json.dumps(metrics) if metrics is not None else None, job_run_id),
         )
 
 
@@ -1564,7 +1570,17 @@ def phase_e(snapshot_id):
         # previous_successful_snapshot() reflects the ledger the instant it
         # is durable, regardless of what happens to the read-model refresh
         # afterward.
-        finish_job_run_full(conn, job_run_id, "succeeded", snapshot_id, rows_in, len(parcel_rows))
+        metrics = {
+            "new": new_count,
+            "changed": changed_count,
+            "changed_fields": changed_field_counts,
+            "reappeared": reappeared_count,
+            "disappeared": disappeared_count,
+            "apn_resolvable": resolvable_count,
+            "apn_unresolvable": unresolvable_count,
+            "apn_unresolvable_reasons": reason_counts,
+        }
+        finish_job_run_full(conn, job_run_id, "succeeded", snapshot_id, rows_in, len(parcel_rows), metrics)
         conn.commit()
         print(f"\njob_run {job_run_id} -> succeeded (ledger committed)")
 

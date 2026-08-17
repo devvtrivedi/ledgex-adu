@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.34
+# LedgeX / ADU.X — Engineering Reference Spec v1.35
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.34 | Machine-executed build contract. |
+| 1 | This Spec v1.35 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -117,7 +117,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.34 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.35 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -651,7 +651,24 @@ db/migrations/0024_fix_job_run_snapshot_source_fk.sql (job_run_snapshot_source_f
 job_run.source_id against snapshot.id and job_run.snapshot_id against snapshot.source_id -- transposed, and so
 rejected every job_run naming a real snapshot regardless of correctness; corrected to
 FOREIGN KEY (snapshot_id, source_id) REFERENCES snapshot (id, source_id), matching fact_snapshot_source_fk's
-already-correct pattern from 0018).
+already-correct pattern from 0018) and db/migrations/0051_job_run_metrics.sql, adding job_run.metrics: a general,
+nullable jsonb slot for a per-job breakdown beyond the rows_in/rows_out axis (job_run_metrics_is_object: when
+present, metrics must be a JSON object, never a bare array/string/scalar -- same shape floor 0038/0048 already
+enforce for property_file.refusals, 'array' there, 'object' here -- no fixed global key set beyond that, each
+writer's top-level keys self-describing for its own job, the same one-column-many-shapes precedent
+parcel_exception.detail already uses). Added because job_run.schema_drift (declared meaning unchanged since 0012:
+"fields expected but missing" -- a source dropping an expected column) had, by the time 0051 queried every
+reachable database, exactly two real writers (load_zoning, load_permits) and zero legitimate ones: both writers
+were confirmed stretches storing a per-row match-outcome breakdown, not a schema-drift statement, and
+ingest_parcels.py's phase_c builds the one construction that DOES match schema_drift's declared shape but has
+never persisted it (phase_c writes no job_run row at all -- printed only, a real, separate, still-open gap this
+migration names but does not close). Both real writers rewritten to write metrics instead;
+flag_invalid_geometry.py's two detectors (previously printing their already-open-and-skipped exception count with
+no durable record) and ingest_parcels.py's phase_e (previously printing its new/changed/reappeared/disappeared and
+resolvable/unresolvable-APN breakdown with no durable record) now write metrics too. The 4 job_run rows written
+under schema_drift before 0051 are left exactly as recorded, not migrated into metrics -- see 0051's own header for
+the argument (a job_run row records what a specific run, under the code that existed at the time, actually wrote;
+rewriting it would not correct a wrong value, it would rewrite historical provenance). See §12's 1.35 entry.
 db/schema.sql is the generated record of the applied result.
 
 db/migrations/0038_refusals_code_check.sql adds property_file_refusal_codes_known, a CHECK on refusals backed
@@ -1738,7 +1755,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.34
+Engineering Reference Spec v1.35
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1799,7 +1816,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.34
+Engineering Reference Spec v1.35
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1830,7 +1847,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.34
+Engineering Reference Spec v1.35
 
 ## 9. Refusal and error codes
 
@@ -2720,6 +2737,28 @@ confirmed before and after. db/tests/invariants.sql gained T86-T89 (floor 102  d
 -> 106), RED against the pre-0050 schema, GREEN after.                         back to a stranded older one -- a rule change is not
 a reopening, already true of the existing code,
 confirmed by reading relink_reopened_exceptions().
+
+Aug 2026             1.35                 db/migrations/0051_job_run_metrics.sql (section 3.12) adds job_run.metrics: a  P18, README findings #12/#16 (metrics half).
+general, nullable jsonb slot for a per-job breakdown beyond rows_in/rows_out.  db/README.md's own "job_run has no metrics slot"
+job_run_metrics_is_object: when present, metrics must be a JSON object, never  section already argued the need; this closes it.
+a bare array/string/scalar -- same shape floor 0038/0048 already enforce for   Also landed in this same package, its own prior
+property_file.refusals ('array' there, 'object' here) -- no fixed global key   commit: P17's recommended option (a) for finding #25
+set beyond that, each writer's top-level keys self-describing, same one-       -- db-test now reads its own DB_TEST_DATABASE_URL
+column-many-shapes precedent parcel_exception.detail already uses. Queried     (default postgresql://localhost/ledgex_test), not
+every reachable database for every non-null schema_drift job_run row before    DATABASE_URL, leaving schema/schema-
+writing this: two real writers (load_zoning, load_permits), both confirmed     dump/migrate/migrate-verify unchanged, confirmed by
+stretches of schema_drift's declared meaning (0012: fields expected but        grep. Finding #16's remaining scope (parcel_lineage
+missing), zero legitimate ones -- ingest_parcels.py's phase_c builds the one   split/merge, the matching-key decision, the
+construction that DOES match, but has never persisted it (no job_run row at    pipelines/ split) is unchanged by this package --
+all, printed only). Both real writers, plus flag_invalid_geometry.py's two     still deferred, still awaiting its own trigger
+detectors and ingest_parcels.py's phase_e (each already computing and          event.
+printing a real breakdown with no durable record), rewritten to write
+metrics. The 4 existing schema_drift rows left exactly as recorded, not
+migrated -- argued both ways in 0051's own header, landing on: a job_run row
+is what a specific run, under the code that existed then, actually wrote, and
+rewriting the column would rewrite that history, not correct a wrong value.
+db/tests/invariants.sql gained T90-T91 (floor 106 -> 108), RED against the
+pre-0051 schema, GREEN after.
 
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
