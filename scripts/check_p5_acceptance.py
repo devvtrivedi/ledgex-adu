@@ -49,6 +49,20 @@ def open_exceptions(cur, apn, detector_key):
     return {r[0] for r in cur.fetchall()}
 
 
+def total_fact_rows(cur, apn, field_key):
+    # Total row count (live + superseded), not just the live row -- a
+    # same-snapshot re-run that supersedes a fact and writes an identical
+    # successor leaves the live VALUE and the non-null supersedes_fact_id
+    # both unchanged, which is all live_fact()'s callers ever check. A row
+    # count catches the extra row without needing state carried across the
+    # two separate CLI invocations that bracket the re-run (see call site).
+    cur.execute("""
+        SELECT COUNT(*) FROM fact f JOIN parcel p ON p.id = f.parcel_id
+        WHERE p.apn = %s AND f.field_key = %s
+    """, (apn, field_key))
+    return cur.fetchone()[0]
+
+
 CLUSTER1 = ["23712112", "23717101", "23717102", "23717099", "23711059", "23711066", "23711071"]
 CLUSTER3_MINUS_AMBIGUOUS = ["23707063", "23707066", "23707075", "23707039", "23707019", "23707020"]
 AMBIGUOUS_APN = "23707070"
@@ -170,6 +184,28 @@ def check_permits_after_a2(cur):
     d_earliest = live_fact(cur, "23712112", "permits.series_earliest")
     check("after A2: 23712112 permits.series_earliest retired again, no successor",
           d_earliest is None, f"got {d_earliest}")
+
+    # This checkpoint runs twice in run_p5_acceptance.sh: once right after
+    # A2's reconcile, once more after the deliberate same-snapshot re-run at
+    # the end of the script (identical fixture, no new data). By then
+    # 23712112 permits.active has exactly two total fact rows in its
+    # history -- B's NEW true (23712112 has no row in p5_permits_A.csv, so
+    # A1 wrote nothing) and A2's superseded false successor. A same-snapshot
+    # re-run must not add a third: a live permits.active=false compared
+    # against "still absent this run" is not a world change, it is the same
+    # silence the false already recorded. The three PASS checks above
+    # (value/supersession/reason) stay true whether the re-run added a
+    # fabricated third row or not -- they were true after A2 and stay true
+    # after the churn, because the churned row has the same shape as the
+    # real A2 transition. Only a count (or an unchanged live id) sees it;
+    # id-unchanged would need state persisted across the two separate CLI
+    # invocations bracketing the re-run (nothing here provides that
+    # channel), so a self-contained count against the fixture-determined
+    # expected total is the one that doesn't need new plumbing to exist.
+    n = total_fact_rows(cur, "23712112", "permits.active")
+    check("after A2: 23712112 permits.active has exactly 2 total fact rows "
+          "(B's true + A2's false; a same-snapshot re-run must not add a third)",
+          n == 2, f"got {n}")
 
 
 def main():
