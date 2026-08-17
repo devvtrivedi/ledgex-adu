@@ -15,6 +15,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P8 | [Nothing resolves a `parcel_exception` when its condition changes](P8-exception-resolution-undefined.md) | design reported, folded into P9 | — |
 | P9 | [Closing a `parcel_exception` when its condition clears](P9-exception-resolution.md) | done, pushed | `7c88d15` |
 | P11 | [Two fabricated-fact bugs the acceptance suites cannot see](P11-permits-active-churn-and-apn-degradation.md) | steps 1/2/4/6 built, pushed; steps 3/5 reported, not built | `66d80a8`, `0317e02`, `7df58db`, `62fee5f` |
+| P12 | [The P5 acceptance suite asserts a bug P9 already fixed, and nothing would have caught it](P12-p5-suite-blind-to-p9-and-ci-gap.md) | written, not started | — |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
