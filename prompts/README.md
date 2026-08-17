@@ -21,7 +21,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P14 | [Finding #9: `db/tests/invariants.sql` commits fixtures and never cleans up](P14-invariants-sql-teardown.md) | done, pushed | `3817030` |
 | P15 | [Bookkeeping, then finding #21: source-scope the three reconciliation reads](P15-source-scope-reconciliation-reads.md) | done, pushed | `721a138`, `90dc9df` |
 | P16 | [Finding #18: exceptions stranded by a detector_version bump](P16-detector-version-retirement.md) | done, pushed | `c3fdc81` |
-| P17 | [Invariant-suite hygiene: findings #26, #24 and #25](P17-invariant-suite-hygiene.md) | done, pushed | TBD |
+| P17 | [Invariant-suite hygiene: findings #26, #24 and #25](P17-invariant-suite-hygiene.md) | done, pushed | `843294a` |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
