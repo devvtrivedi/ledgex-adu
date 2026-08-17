@@ -80,7 +80,7 @@ sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
 from infra.values import is_blank, decimal_default, canonicalize_identifier  # noqa: E402
 from core.store import insert_facts  # noqa: E402
-from core.exceptions import insert_exceptions  # noqa: E402
+from core.exceptions import insert_exceptions, close_exceptions_for_parcels, relink_reopened_exceptions  # noqa: E402
 
 SOURCE_ID = "ca_san_jose.parcels"
 JURISDICTION_ID = "ca_san_jose"
@@ -977,6 +977,7 @@ def phase_e(snapshot_id):
     parcel_geom_cache_updates = []          # (parcel_id, geometry_json) -- parcel.geom/centroid cache
     identity_retirements = []               # (source_id, source_feature_id, retired_snapshot_id, retired_at, retirement_reason)
     identity_touch_updates = []             # (source_id, source_feature_id, last_seen_snapshot_id, last_seen_at, was_reappearing)
+    apn_resolved_parcel_ids = []            # P13: parcels whose APN just became resolvable -- close their open parcel_apn_unresolvable exception
     changed_count = 0
     changed_field_counts = {"parcel.apn": 0, "parcel.geometry": 0}
     new_count = 0
@@ -1098,12 +1099,36 @@ def phase_e(snapshot_id):
                 # on disappearance (see the DISAPPEARED write section
                 # below), so they're still there, un-superseded, to
                 # compare against even for a currently-retired identity.
-                # Only features with an existing, resolvable parcel.apn
-                # fact are covered by this join -- a feature whose
-                # resolvability itself flips (resolvable <-> '?'/blank)
-                # between snapshots is a real, distinct case this pass
-                # does not handle; flagged here as a known gap, not
-                # silently absorbed into "changed" or "unchanged".
+                #
+                # fa (parcel.apn) is a LEFT JOIN -- P13 (findings #17/#22):
+                # a feature with no live parcel.apn fact (every currently-
+                # unresolvable parcel) used to be dropped by an INNER JOIN
+                # here entirely, silently losing its GEOMETRY changes too
+                # and making a resolvability flip back to a real value
+                # undetectable. fg (parcel.geometry) stays INNER: every
+                # parcel gets a parcel.geometry fact unconditionally (NEW
+                # branch above), resolvable or not, so it is never absent.
+                #
+                # The apn-changed predicate is NOT the same expression as
+                # before for fa IS NULL rows -- worked out for all four
+                # (fact present/absent x incoming resolvable/unresolvable)
+                # combinations, not assumed:
+                #   fact present,  incoming resolvable:   plain value compare (unchanged from before)
+                #   fact present,  incoming unresolvable:  fa.value (a real string) is never NULL nor
+                #                                           equal to a placeholder/blank -- always
+                #                                           IS DISTINCT FROM -- correctly TRUE (degrade
+                #                                           detected, #22)
+                #   fact absent,   incoming resolvable:    apn_canonical NOT NULL and not a '?'-shaped
+                #                                           placeholder -- TRUE (resolve detected, #17)
+                #   fact absent,   incoming unresolvable:  FALSE, explicitly -- a bare `fa.value (NULL)
+                #                                           IS DISTINCT FROM to_jsonb(s.apn_canonical)`
+                #                                           would be TRUE here (NULL is always distinct
+                #                                           from non-NULL) and wrongly flag an unchanged,
+                #                                           still-unresolvable parcel as changed on every
+                #                                           run it merely happens to also match this
+                #                                           query for (e.g. a real geometry change) --
+                #                                           the CASE below exists specifically to make
+                #                                           this fourth combination FALSE.
                 cur.execute("""
                     SELECT s.source_feature_id, sfi.parcel_id, sfi.retired_at,
                            fa.id, fa.value, s.apn_canonical,
@@ -1111,10 +1136,13 @@ def phase_e(snapshot_id):
                     FROM parcels_incoming_staging s
                     JOIN source_feature_identity sfi
                       ON sfi.source_id = %s AND sfi.source_feature_id = s.source_feature_id
-                    JOIN fact fa ON fa.parcel_id = sfi.parcel_id AND fa.field_key = 'parcel.apn' AND fa.superseded_at IS NULL
+                    LEFT JOIN fact fa ON fa.parcel_id = sfi.parcel_id AND fa.field_key = 'parcel.apn' AND fa.superseded_at IS NULL
                     JOIN fact fg ON fg.parcel_id = sfi.parcel_id AND fg.field_key = 'parcel.geometry' AND fg.superseded_at IS NULL
                     WHERE sfi.retired_at IS NOT NULL
-                       OR fa.value IS DISTINCT FROM to_jsonb(s.apn_canonical)
+                       OR (CASE WHEN fa.id IS NOT NULL
+                                THEN fa.value IS DISTINCT FROM to_jsonb(s.apn_canonical)
+                                ELSE s.apn_canonical IS NOT NULL AND s.apn_canonical NOT LIKE '%%?%%'
+                           END)
                        OR fg.value IS DISTINCT FROM s.geometry_json
                 """, (SOURCE_ID,))
                 changed_rows = cur.fetchall()
@@ -1198,20 +1226,79 @@ def phase_e(snapshot_id):
                 # Python value (apn_current_value is a plain str, not a
                 # '"..."'-quoted JSON string) -- compare decoded-to-decoded,
                 # not string forms.
-                apn_changed = (apn_current_value != apn_incoming)
+                #
+                # P13 (findings #17/#22): apn_fact_id is None whenever this
+                # parcel currently has no live parcel.apn fact (LEFT JOIN
+                # above) -- the plain != compare below only makes sense when
+                # a real fa.value exists to compare against. Mirrors the
+                # SQL CASE in the query above exactly, combination for
+                # combination -- see that comment for the four-way
+                # derivation.
+                had_live_apn_fact = apn_fact_id is not None
+                incoming_unresolvable, incoming_unresolvable_reason = is_unresolvable_apn(apn_raw)
+                if had_live_apn_fact:
+                    apn_changed = (apn_current_value != apn_incoming)
+                else:
+                    apn_changed = not incoming_unresolvable
                 geom_changed = (geom_current_value != geom_incoming)
 
                 if apn_changed:
-                    fact_ids_to_supersede.append(apn_fact_id)
-                    fact_rows.append((
-                        parcel_id, JURISDICTION_ID, "parcel.apn", json.dumps(canon_apn), "bulk",
-                        SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
-                        LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                        retrieved_at, FACT_PACK_VERSION, apn_raw,
-                        apn_fact_id, "unknown",
-                    ))
-                    parcel_apn_cache_updates.append((parcel_id, canon_apn))
                     changed_field_counts["parcel.apn"] += 1
+                    if had_live_apn_fact and incoming_unresolvable:
+                        # Degrade: resolvable -> '?'-placeholder or blank
+                        # (#22). Supersede with NO successor -- db/README.md:
+                        # "Ingest code must not write a parcel.apn fact for
+                        # either case." -- and raise the same
+                        # coverage_gap/parcel_apn_unresolvable exception the
+                        # NEW branch already raises for a feature that was
+                        # never resolvable, reusing its detector_key/version
+                        # rather than inventing a second detector for the
+                        # same condition. parcel.apn cache -> NULL (0034: no
+                        # fact means no cache value), via the same
+                        # parcel_apn_cache_updates UPDATE every other cache
+                        # write already goes through -- no second write path.
+                        fact_ids_to_supersede.append(apn_fact_id)
+                        parcel_apn_cache_updates.append((parcel_id, None))
+                        exception_rows.append((
+                            parcel_id, JURISDICTION_ID, "coverage_gap", "info",
+                            DETECTOR_KEY_APN_UNRESOLVABLE, DETECTOR_VERSION_APN_UNRESOLVABLE,
+                            json.dumps({"raw_apn": apn_raw, "reason": incoming_unresolvable_reason}),
+                        ))
+                        unresolvable_count += 1
+                        reason_counts[incoming_unresolvable_reason] += 1
+                    elif had_live_apn_fact:
+                        # Ordinary resolvable -> different resolvable value.
+                        # Unchanged from before P13.
+                        fact_ids_to_supersede.append(apn_fact_id)
+                        fact_rows.append((
+                            parcel_id, JURISDICTION_ID, "parcel.apn", json.dumps(canon_apn), "bulk",
+                            SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
+                            LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
+                            retrieved_at, FACT_PACK_VERSION, apn_raw,
+                            apn_fact_id, "unknown",
+                        ))
+                        parcel_apn_cache_updates.append((parcel_id, canon_apn))
+                        resolvable_count += 1
+                    else:
+                        # Resolve (#17): no live fact to supersede -- this is
+                        # a NEW fact (supersedes_fact_id/supersession_reason
+                        # both NULL), not a successor. The parcel may be
+                        # resolving for the first time ever, or resolving
+                        # again after a prior degrade; either way there is
+                        # nothing live to retire. Collected here, closed in
+                        # one batch after the write loop (targeted close, not
+                        # close_resolved_exceptions' full-recompute sweep --
+                        # see that call site's own comment for why).
+                        fact_rows.append((
+                            parcel_id, JURISDICTION_ID, "parcel.apn", json.dumps(canon_apn), "bulk",
+                            SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
+                            LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
+                            retrieved_at, FACT_PACK_VERSION, apn_raw,
+                            None, None,
+                        ))
+                        parcel_apn_cache_updates.append((parcel_id, canon_apn))
+                        apn_resolved_parcel_ids.append(parcel_id)
+                        resolvable_count += 1
 
                 if geom_changed:
                     fact_ids_to_supersede.append(geom_fact_id)
@@ -1357,9 +1444,31 @@ def phase_e(snapshot_id):
                 insert_facts(cur, fact_rows)
             print(f"  fact rows submitted: {len(fact_rows):,}")
 
+            # P13: close before insert, same reasoning as P9's load_zoning
+            # call site -- a given parcel_id can never be both "just
+            # resolved" (closed here) and "freshly unresolvable, needs a
+            # new open row" (inserted below) in the SAME run, since each
+            # parcel_id appears at most once in changed_rows, but closing
+            # first keeps the write order consistent with how it's reasoned
+            # about regardless.
+            if apn_resolved_parcel_ids:
+                apn_closed_count = close_exceptions_for_parcels(
+                    cur, DETECTOR_KEY_APN_UNRESOLVABLE, DETECTOR_VERSION_APN_UNRESOLVABLE, apn_resolved_parcel_ids
+                )
+                print(f"  parcel_apn_unresolvable exceptions closed (condition_cleared): {apn_closed_count:,}")
+
             if exception_rows:
                 insert_exceptions(cur, exception_rows)
                 print(f"  parcel_exception rows submitted: {len(exception_rows):,}")
+                # Only ever touches rows at DETECTOR_KEY_APN_UNRESOLVABLE
+                # (filtered by detector_key/version internally) -- safe to
+                # call even though exception_rows may also carry
+                # record_to_ground (DISAPPEARED) or NEW-branch coverage_gap
+                # rows for other parcels in the same batch.
+                apn_relinked_count = relink_reopened_exceptions(
+                    cur, DETECTOR_KEY_APN_UNRESOLVABLE, DETECTOR_VERSION_APN_UNRESOLVABLE
+                )
+                print(f"  parcel_apn_unresolvable exceptions relinked (reopened_from_id): {apn_relinked_count:,}")
 
             # parcel.apn / parcel.geom / parcel.centroid are non-authoritative
             # caches of the fact ledger (0034) -- kept in sync here so a

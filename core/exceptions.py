@@ -20,11 +20,16 @@ unchanged.
 close_resolved_exceptions() and relink_reopened_exceptions() (P9,
 prompts/P9-exception-resolution.md) are the closure half of exception
 resolution -- deliberately NOT added to insert_exceptions()'s own shape
-or call sites. Only load_zoning (scripts/ingest_zoning_permits.py) wires
-them in: it is the one detector that recomputes a full, current
-classification every run and can therefore tell "still true" from
-"no longer true". phase_e and flag_invalid_geometry.py's two detectors
-call insert_exceptions() exactly as before, untouched.
+or call sites. load_zoning (scripts/ingest_zoning_permits.py) wires in
+both, unchanged: it is the one detector that recomputes a full, current
+classification every run and can therefore tell "still true" from "no
+longer true" by exclusion. phase_e (scripts/ingest_parcels.py, P13) wires
+in close_exceptions_for_parcels() -- not close_resolved_exceptions(),
+which needs that same full-recompute pass and phase_e's CHANGED branch
+does not have one; see that function's own docstring for the full
+argument -- and relink_reopened_exceptions() unchanged (general-purpose
+by construction, needs no recompute). flag_invalid_geometry.py's two
+detectors call insert_exceptions() exactly as before, untouched.
 """
 import psycopg2.extras
 
@@ -91,6 +96,52 @@ def close_resolved_exceptions(cur, detector_key, detector_version, still_true_pa
             "detector_version": detector_version,
             "parcel_ids": parcel_ids,
             "reasons": reasons,
+        },
+    )
+    return cur.rowcount
+
+
+def close_exceptions_for_parcels(cur, detector_key, detector_version, parcel_ids):
+    """P13 (prompts/P13-apn-resolvability-flip.md): closes every currently
+    open (detector_key, detector_version) exception for the given
+    parcel_ids, unconditionally -- condition_cleared, resolved_at =
+    clock_timestamp(), resolved_by = detector_key.
+
+    Deliberately NOT close_resolved_exceptions() above, despite the
+    identical outcome columns: that function needs still_true_pairs, a
+    FULL recompute of "every parcel this run found still true for this
+    detector," to safely infer what to close by exclusion -- correct for
+    load_zoning, which reclassifies every parcel against the spatial join
+    every single run. Phase E's CHANGED branch has no equivalent
+    full-recompute pass (P9's own scoping note for #17 says so explicitly,
+    and that is why this closure was deferred rather than bolted on as-is)
+    -- it only ever sees the parcels that changed. Passing an incomplete
+    still_true_pairs to close_resolved_exceptions here would close every
+    OTHER currently-open parcel_apn_unresolvable exception in the database,
+    not just the ones this run resolved.
+
+    This function needs no such inference: the caller already knows, for
+    each parcel_id given, that its condition definitely cleared THIS run
+    (it just wrote that parcel a new resolvable parcel.apn fact) -- a
+    direct, targeted close, not an exclusion over a global "still true"
+    set. Returns the number of rows closed."""
+    if not parcel_ids:
+        return 0
+    cur.execute(
+        """
+        UPDATE parcel_exception
+           SET outcome = 'condition_cleared',
+               resolved_at = clock_timestamp(),
+               resolved_by = %(detector_key)s
+         WHERE detector_key = %(detector_key)s
+           AND detector_version = %(detector_version)s
+           AND outcome = 'open'
+           AND parcel_id = ANY(%(parcel_ids)s::uuid[])
+        """,
+        {
+            "detector_key": detector_key,
+            "detector_version": detector_version,
+            "parcel_ids": list(parcel_ids),
         },
     )
     return cur.rowcount
