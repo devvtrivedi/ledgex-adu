@@ -257,3 +257,106 @@ jobs:
       # migrations-only database.
       - name: P5 acceptance suite (zoning + permits reconciliation)
         run: bash scripts/run_p5_acceptance.sh
+
+  # P13: scripts/run_phaseb_acceptance.sh/check_phaseb_acceptance.py (Phase B
+  # reconciliation -- new/changed/disappeared/reappeared, cross-source
+  # retraction) were referenced in neither db.yml nor docs.yml, same gap
+  # P12 closed for the P5 suite. This package changes ingest_parcels.py's
+  # phase_e -- exactly the path this suite covers and exactly the path
+  # nothing gated -- so wired in before any of that package's own code
+  # changed, not after. Run once, RED-first, before writing anything: green
+  # against the pre-P13 tree (see prompts/README.md's P13 entry for the
+  # record of that run). Modeled directly on p5-acceptance (98cbda4/P12):
+  # same postgres service, same pinned minio, same PYTHON override, its own
+  # fresh services so it can never interact with `schema` or
+  # `p5-acceptance`'s data.
+  phaseb-acceptance:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ledgex_ci_phaseb
+      PSQL: /usr/lib/postgresql/16/bin/psql
+      OBJECT_STORE_URL: http://localhost:9000
+      OBJECT_STORE_ACCESS_KEY: ledgex_ci
+      OBJECT_STORE_SECRET_KEY: ledgex_ci_throwaway_key
+      OBJECT_STORE_BUCKET: ledgex-snapshots-ci
+      PYTHON: python3
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install postgresql-client-16
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          "$PSQL" --version
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r scripts/requirements.txt
+
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER="$OBJECT_STORE_ACCESS_KEY" \
+            -e MINIO_ROOT_PASSWORD="$OBJECT_STORE_SECRET_KEY" \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+
+      - name: Wait for MinIO
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && exit 0
+            sleep 1
+          done
+          echo "MinIO never became ready" >&2
+          docker logs minio >&2 || true
+          exit 1
+
+      - name: Create the object store bucket
+        run: |
+          python3 -c "
+          import boto3, os
+          s3 = boto3.client(
+              's3',
+              endpoint_url=os.environ['OBJECT_STORE_URL'],
+              aws_access_key_id=os.environ['OBJECT_STORE_ACCESS_KEY'],
+              aws_secret_access_key=os.environ['OBJECT_STORE_SECRET_KEY'],
+          )
+          s3.create_bucket(Bucket=os.environ['OBJECT_STORE_BUCKET'])
+          print('bucket created:', os.environ['OBJECT_STORE_BUCKET'])
+          "
+
+      - name: Create clean database (not the service's TIGER-inited default)
+        run: |
+          "$PSQL" "postgresql://postgres:postgres@localhost:5432/postgres" \
+            -v ON_ERROR_STOP=1 -c "CREATE DATABASE ledgex_ci_phaseb;"
+
+      # Fresh migrations-only, no seed -- same reasoning as p5-acceptance
+      # above: this is the strictest of CONVENTIONS.md's three contexts,
+      # and a CI gate's job is to catch a regression on this push, not to
+      # re-derive the run-three-times authorial discipline every push.
+      - name: make schema
+        run: make schema DATABASE_URL="$DATABASE_URL" PSQL="$PSQL"
+
+      # scripts/run_phaseb_acceptance.sh is self-contained (own snapshot
+      # rows, own minimal licence/jurisdiction/source/field_definition
+      # reference data, ON CONFLICT DO NOTHING) -- no
+      # db/seeds/day4_sources.sql step needed, same as p5-acceptance.
+      - name: Phase B acceptance suite (new/changed/disappeared/reappeared)
+        run: bash scripts/run_phaseb_acceptance.sh
