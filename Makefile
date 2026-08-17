@@ -242,6 +242,17 @@ schema-dump:
 # outcome/resolution biconditional) against DATABASE_URL. Every test is a
 # self-asserting DO block; ON_ERROR_STOP makes a failed assertion abort the
 # script with a nonzero exit code rather than print a misleading pass.
+#
+# POINT THIS AT A DISPOSABLE DATABASE (P14, README finding #9). This target
+# has no argument, so with none given it runs against DATABASE_URL's own
+# default above -- postgresql://localhost/ledgex_schema_check, the shared
+# local dev database CLAUDE.md names. Every run of db/tests/invariants.sql
+# writes one permanent parcel plus every fact any test writes against it
+# (0017/I4 make both undeletable by design -- see that file's own
+# precondition comment at the top). That is exactly how the default
+# invocation put 40 orphaned parcels and 324 locked facts into
+# ledgex_schema_check. Override DATABASE_URL to a scratch database before
+# running this against anything you intend to keep clean.
 db-test:
 	@command -v $(PSQL) >/dev/null 2>&1 || { echo "$(PSQL) not found"; exit 1; }
 	$(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f db/tests/invariants.sql

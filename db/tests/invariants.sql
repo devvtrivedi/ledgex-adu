@@ -4,6 +4,27 @@
 -- Run with: psql -v ON_ERROR_STOP=1 -f db/tests/invariants.sql DATABASE_URL
 -- (or `make db-test`)
 --
+-- PRECONDITION -- POINT THIS AT A DISPOSABLE DATABASE. This suite writes
+-- permanent, undeletable rows on every single run: one fresh parcel plus
+-- every fact any test writes against it (most tests do). fact_no_delete
+-- (0017) blocks deleting a fact directly -- that is I4 ("facts are
+-- immutable; corrections supersede, never delete") working as designed,
+-- not a bug -- and fact_parcel_id_fkey (no ON DELETE cascade) then blocks
+-- deleting the parcel too, the moment any fact cites it. Teardown at the
+-- end of this file (P14) removes everything else it writes
+-- (parcel_exception, property_file, property_file_fact, job_run,
+-- exception_evidence, source_feature_identity) -- but the one parcel and
+-- its facts are permanent on every database this file ever runs against,
+-- by construction, and there is no flag or teardown step that changes
+-- that without weakening 0017/I4 itself. `make db-test` with no arguments
+-- runs against the Makefile's own DATABASE_URL default,
+-- postgresql://localhost/ledgex_schema_check -- see that target's own
+-- comment, and db/README.md's "which of make schema / migrate /
+-- migrate-baseline" section, before running this against a database you
+-- did not create specifically to throw away. CI never has this problem:
+-- db.yml's `schema` job creates a fresh, disposable `ledgex_ci` every
+-- run and discards the whole runner afterward.
+--
 -- Every test is a self-asserting DO block. A should-fail test catches the
 -- ONE specific expected condition (SQLSTATE condition name, and for custom
 -- RAISE EXCEPTION messages that share SQLSTATE P0001/raise_exception, the
@@ -4608,4 +4629,95 @@ SELECT coalesce(string_agg(name || ' (' || note || ')', E'\n  '), '(none)') AS s
 \echo 'something real when their prerequisite data exists -- they are just'
 \echo 'not counted as having passed when it does not, so a skip can never'
 \echo 'silently read as coverage.'
+\echo ''
+
+-- ============================================================================
+-- TEARDOWN (P14, finding #9) -- class 3 only, never class 2
+-- ============================================================================
+-- Placed AFTER the pass-floor check above, deliberately: if that check
+-- fails, ON_ERROR_STOP aborts the script right there and teardown never
+-- runs, leaving the failing run's data in place to look at. Teardown is
+-- for a run that actually passed, not a substitute for seeing a failure.
+--
+-- THREE FIXTURE CLASSES exist in this file (see
+-- prompts/P14-invariants-sql-teardown.md for the full derivation):
+--   1. Idempotent reference rows (licence, licence_channel, jurisdiction,
+--      source, snapshot, field_definition) -- ON CONFLICT DO NOTHING,
+--      already byte-identical run over run. Not touched here; nothing to
+--      clean.
+--   2. The one fresh-uuid parcel this run created, plus every fact any
+--      test wrote against it. PERMANENT BY DESIGN -- fact_no_delete
+--      (0017) blocks fact directly, and fact_parcel_id_fkey (no cascade)
+--      transitively blocks parcel the moment any fact cites it, which is
+--      true of nearly every real run. NOT touched here, on purpose: I4 is
+--      the invariant this whole file exists to prove, and a constraint
+--      loosened to make a test's cleanup convenient is exactly
+--      CONVENTIONS.md's first hard rule. If a future change ever makes
+--      `parcel` or `fact` deletable from this file, that is itself a
+--      regression, not a feature.
+--   3. Everything else this file writes: parcel_exception, property_file,
+--      property_file_fact, job_run, and (unused by any test today, but
+--      structurally the same class, torn down defensively so a future
+--      test doesn't reintroduce accumulation silently) exception_evidence
+--      and source_feature_identity. No BEFORE DELETE trigger blocks any
+--      of these -- confirmed directly, not assumed, by successfully
+--      deleting real rows of each type before writing this. This section
+--      cleans exactly this class, nothing else.
+--
+-- DELETION ORDER, worked out against the actual FK graph
+-- (db/migrations/*.sql), not discovered at runtime:
+--   exception_evidence.exception_id  REFERENCES parcel_exception(id) ON DELETE CASCADE (0010)
+--   property_file_fact.property_file_id REFERENCES property_file(id) ON DELETE CASCADE (0012)
+--   parcel_exception.reopened_from_id REFERENCES parcel_exception(id), no cascade,
+--     self-referential (0047) -- an arbitrarily long reopen chain, not just one hop,
+--     so NULLing every row's reopened_from_id in this scope before deleting any of
+--     them is what makes the delete order-independent, rather than sorting by
+--     detected_at and hoping the chain is exactly one level deep.
+--   job_run has no incoming FK from anything in this file -- no ordering constraint.
+--   source_feature_identity has no incoming FK from anything in this file either.
+-- ON DELETE CASCADE on the two child tables means explicit child deletes below are
+-- not strictly load-bearing (deleting the parent alone would cascade) -- kept
+-- explicit anyway: this section names every table finding #9 named, rather than
+-- relying on a reader to already know which relationships cascade and which don't.
+--
+-- SCOPE: every DELETE below is WHERE-qualified against either this run's own
+-- v_parcel_id (test_state, still live in this same session) or the test.*
+-- job_key namespace every job_run insert in this file uses exclusively
+-- (confirmed by grep -- 'test.tNN_job' is the only shape used, zero exceptions).
+-- Never a bare DELETE FROM.
+DO $$
+DECLARE
+    v_parcel_id uuid;
+    v_deleted   int;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    DELETE FROM exception_evidence WHERE parcel_id = v_parcel_id;
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RAISE NOTICE 'teardown: exception_evidence % row(s)', v_deleted;
+
+    DELETE FROM property_file_fact WHERE parcel_id = v_parcel_id;
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RAISE NOTICE 'teardown: property_file_fact % row(s)', v_deleted;
+
+    UPDATE parcel_exception SET reopened_from_id = NULL WHERE parcel_id = v_parcel_id;
+
+    DELETE FROM parcel_exception WHERE parcel_id = v_parcel_id;
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RAISE NOTICE 'teardown: parcel_exception % row(s)', v_deleted;
+
+    DELETE FROM property_file WHERE parcel_id = v_parcel_id;
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RAISE NOTICE 'teardown: property_file % row(s)', v_deleted;
+
+    DELETE FROM source_feature_identity WHERE parcel_id = v_parcel_id;
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RAISE NOTICE 'teardown: source_feature_identity % row(s)', v_deleted;
+
+    DELETE FROM job_run WHERE job_key LIKE 'test.%';
+    GET DIAGNOSTICS v_deleted = ROW_COUNT;
+    RAISE NOTICE 'teardown: job_run % row(s)', v_deleted;
+
+    RAISE NOTICE 'Class-3 teardown complete for this run''s parcel_id %. parcel and fact rows against it are untouched -- permanent by design (0017/I4), see this file''s own precondition comment at the top.', v_parcel_id;
+END $$;
 \echo ''

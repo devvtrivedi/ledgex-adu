@@ -38,6 +38,36 @@ existing at all is the point: guessing which of the three to run, the same
 way `ledgex_schema_check` did before P6, is exactly how a database drifts
 six migrations behind without anyone noticing.
 
+## `make db-test` writes permanent rows — point it at a disposable database
+
+Once a database's schema is up to date (via whichever of the three targets
+above applied), `make db-test` (`db/tests/invariants.sql`) is very likely
+the next thing run against it — and unlike the three targets above, it is
+not idempotent in the way a database-drift decision needs. Every run writes
+one new parcel plus every fact any test writes against it, and both are
+permanent by construction: `fact_no_delete` (0017) blocks deleting a fact
+directly (I4 — "facts are immutable; corrections supersede, never delete" —
+working as designed), and `fact_parcel_id_fkey` (no `ON DELETE` cascade)
+then blocks deleting the parcel too, the instant any fact cites it. P14
+added teardown for everything else the suite writes
+(`parcel_exception`/`property_file`/`property_file_fact`/`job_run`/
+`exception_evidence`/`source_feature_identity`), but the parcel-and-its-
+facts class has no teardown path that doesn't mean weakening 0017/I4
+itself — see `db/tests/invariants.sql`'s own precondition comment at the
+top for the full argument.
+
+`make db-test` with no `DATABASE_URL` override runs against the Makefile's
+own default, `postgresql://localhost/ledgex_schema_check` — this project's
+shared local dev database, not a scratch one. That default invocation is
+exactly how `ledgex_schema_check` ended up carrying 40 orphaned parcels and
+324 permanently-locked facts (found and reported in P14, not remediated —
+those specific rows are not the kind a migration or a `DELETE` can reach).
+Override `DATABASE_URL` to a database you created specifically to throw
+away before running this target against anything else. CI never has this
+problem — `db.yml`'s `schema` job creates a fresh, disposable `ledgex_ci`
+every run and discards the whole runner afterward; the risk is entirely in
+local, manual invocation.
+
 ## Refreshing `current_fact`: the first refresh must NOT be CONCURRENTLY
 
 `current_fact` (0008, tiebreak added in 0014) is a materialized view. 0008's
