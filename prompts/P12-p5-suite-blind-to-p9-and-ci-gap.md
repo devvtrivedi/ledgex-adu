@@ -155,6 +155,18 @@ scope for this report, but worth naming so it isn't rediscovered from scratch: w
 wiring decision this package settles on for P5's suite is very likely the same decision
 Phase B's suite needs.
 
+#### 1(c) — Addendum (landing pass): §11 checked before adding the service, as required
+
+`docs/LEDGEX_SPEC.md` §6.1's numbered prohibition list, item 11: "Add a dependency, a
+service, or a datastore not listed in §11 without amending this spec first." Checked
+directly before the MinIO service was added to `db.yml`, not assumed clear: §11's
+environment table already lists `Object store — S3-compatible (R2 preferred)` as an
+allowed dependency. A CI MinIO exercises that already-listed dependency the same way
+`.env`'s own comment already describes local dev doing — a throwaway stand-in swapped for
+real R2 later, not a new dependency. No spec amendment, no §12 row needed. Recorded here so
+this isn't re-litigated by a later session reading `db.yml`'s MinIO step and wondering
+whether it was ever checked against §11 at all.
+
 ---
 
 ### 2. The prompt
