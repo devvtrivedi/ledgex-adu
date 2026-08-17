@@ -26,6 +26,44 @@ def check(cur_or_conn, label, condition, detail=""):
         failures.append(label)
 
 
+APN_DETECTOR = "parcel_apn_unresolvable"
+
+
+def live_apn_fact(cur, source_feature_id):
+    cur.execute("""
+        SELECT f.id, f.value, f.supersedes_fact_id, f.supersession_reason
+        FROM source_feature_identity sfi
+        JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'parcel.apn' AND f.superseded_at IS NULL
+        WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = %s
+    """, (source_feature_id,))
+    return cur.fetchone()
+
+
+def apn_cache_column(cur, source_feature_id):
+    cur.execute("""
+        SELECT p.apn FROM source_feature_identity sfi
+        JOIN parcel p ON p.id = sfi.parcel_id
+        WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = %s
+    """, (source_feature_id,))
+    row = cur.fetchone()
+    return row[0] if row else "<no parcel row>"
+
+
+def apn_exception_history(cur, source_feature_id):
+    """Every parcel_apn_unresolvable exception (any outcome) for this
+    source_feature_id, oldest first -- id, outcome, resolved_by,
+    reopened_from_id, detail."""
+    cur.execute("""
+        SELECT pe.id, pe.outcome, pe.resolved_by, pe.reopened_from_id, pe.detail
+        FROM source_feature_identity sfi
+        JOIN parcel_exception pe ON pe.parcel_id = sfi.parcel_id
+        WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = %s
+          AND pe.detector_key = %s
+        ORDER BY pe.detected_at
+    """, (source_feature_id, APN_DETECTOR))
+    return cur.fetchall()
+
+
 def check_after_b(conn):
     cur = conn.cursor()
 
@@ -53,14 +91,75 @@ def check_after_b(conn):
         check(cur, f"after B: source_feature_id {pid}: current parcel.geometry superseded a prior fact",
               row is not None and row[0] is not None and row[1] == "unknown", f"got {row}")
 
+    # P13: was "exactly 3" (568, 509, 508) before the fixture extension.
+    # Now 4, not 5 or 6 -- 99999003/99999004 (APN degrades) must NOT appear
+    # here: a degrade supersedes with NO successor (db/README.md's rule),
+    # so it contributes zero rows to this count, not one each. 99999005
+    # (never-resolvable, geometry-only change) DOES newly appear -- its
+    # geometry change was invisible before the INNER->LEFT JOIN fix (#17's
+    # other half) and now correctly gets a successor. 99999006 (resolves
+    # for the first time) also does NOT appear: its parcel.apn write is a
+    # NEW fact (no supersedes_fact_id), not a supersession, so
+    # supersession_reason IS NULL for it and this count -- which only
+    # counts superseded successors -- correctly excludes it.
     cur.execute("""
         SELECT count(DISTINCT f.parcel_id) FROM fact f
         WHERE f.supersession_reason = 'unknown' AND f.snapshot_id = %s
           AND f.field_key IN ('parcel.apn', 'parcel.geometry')
     """, (B_SID,))
     changed_parcel_count = cur.fetchone()[0]
-    check(cur, "after B: exactly 3 parcels got a changed-field successor fact (matches 1(c)'s real count)",
-          changed_parcel_count == 3, f"got {changed_parcel_count}")
+    check(cur, "after B: exactly 4 parcels got a changed-field successor fact "
+               "(568, 509, 508 apn/geom + 99999005's newly-visible geometry change)",
+          changed_parcel_count == 4, f"got {changed_parcel_count}")
+
+    # --- P13: resolvable -> unresolvable degrade (findings #17/#22) ---
+    for pid, reason, raw_apn in [("99999003", "placeholder", "99999003???"), ("99999004", "blank", None)]:
+        d = live_apn_fact(cur, pid)
+        check(cur, f"after B: source_feature_id {pid}: NO live parcel.apn fact "
+                   f"(degrade supersedes with no successor, not a placeholder/null value)",
+              d is None, f"got {d}")
+        check(cur, f"after B: source_feature_id {pid}: parcel.apn cache column is NULL "
+                   f"(0034: no fact means no cache value)",
+              apn_cache_column(cur, pid) is None, f"got {apn_cache_column(cur, pid)!r}")
+        history = apn_exception_history(cur, pid)
+        check(cur, f"after B: source_feature_id {pid}: exactly one open parcel_apn_unresolvable "
+                   f"exception, reason={reason!r}, raw_apn={raw_apn!r}",
+              len(history) == 1 and history[0][1] == "open"
+              and history[0][4].get("reason") == reason and history[0][4].get("raw_apn") == raw_apn,
+              f"got {history}")
+
+    # --- P13: never-resolvable, geometry-only change (#17's INNER->LEFT JOIN half) ---
+    d = live_apn_fact(cur, "99999005")
+    check(cur, "after B: source_feature_id 99999005: still no parcel.apn fact "
+               "(never resolvable, unchanged -- APN side must stay untouched)",
+          d is None, f"got {d}")
+    history = apn_exception_history(cur, "99999005")
+    check(cur, "after B: source_feature_id 99999005: still exactly ONE open exception "
+               "(the original A-era one -- unchanged condition must not raise a duplicate)",
+          len(history) == 1 and history[0][1] == "open", f"got {history}")
+    cur.execute("""
+        SELECT f.supersedes_fact_id, f.supersession_reason
+        FROM source_feature_identity sfi
+        JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'parcel.geometry' AND f.superseded_at IS NULL
+        WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = '99999005'
+    """)
+    geom_row = cur.fetchone()
+    check(cur, "after B: source_feature_id 99999005: parcel.geometry DID get superseded "
+               "(the INNER JOIN would have silently dropped this before the fix -- #17's other half)",
+          geom_row is not None and geom_row[0] is not None and geom_row[1] == "unknown", f"got {geom_row}")
+
+    # --- P13: unresolvable -> resolvable for the FIRST time (the #17 direction itself) ---
+    d = live_apn_fact(cur, "99999006")
+    check(cur, "after B: source_feature_id 99999006: NEW parcel.apn fact = '99999006APN', "
+               "NOT a supersession (nothing was live to supersede)",
+          d is not None and d[1] == "99999006APN" and d[2] is None, f"got {d}")
+    check(cur, "after B: source_feature_id 99999006: parcel.apn cache column = '99999006APN'",
+          apn_cache_column(cur, "99999006") == "99999006APN", f"got {apn_cache_column(cur, '99999006')!r}")
+    history = apn_exception_history(cur, "99999006")
+    check(cur, "after B: source_feature_id 99999006: its A-era open exception is now "
+               "condition_cleared, resolved_by the detector itself",
+          len(history) == 1 and history[0][1] == "condition_cleared" and history[0][2] == APN_DETECTOR,
+          f"got {history}")
 
     for pid in ("99999001", "99999002"):
         cur.execute("""
@@ -196,6 +295,65 @@ def check_after_a2(conn):
         check(cur, f"after A2: source_feature_id {pid}: permits.active STILL untouched -- one fact row, "
                    f"true, never superseded, still permits' own provenance",
               permits_rows == [(True, None, "ca_san_jose.building_permits_active")], f"got {permits_rows}")
+
+    # --- P13: degrade-then-resolve, A2 restores the ORIGINAL A value (#17/#22) ---
+    for pid, orig_value in [("99999003", "99999003APN"), ("99999004", "99999004APN")]:
+        d = live_apn_fact(cur, pid)
+        check(cur, f"after A2: source_feature_id {pid}: NEW parcel.apn fact = {orig_value!r}, "
+                   f"NOT a supersession (nothing was live to supersede -- the degrade in B left none)",
+              d is not None and d[1] == orig_value and d[2] is None, f"got {d}")
+        check(cur, f"after A2: source_feature_id {pid}: parcel.apn cache column = {orig_value!r}",
+              apn_cache_column(cur, pid) == orig_value, f"got {apn_cache_column(cur, pid)!r}")
+        history = apn_exception_history(cur, pid)
+        check(cur, f"after A2: source_feature_id {pid}: its B-era open exception is now "
+                   f"condition_cleared, resolved_by the detector itself",
+              len(history) == 1 and history[0][1] == "condition_cleared" and history[0][2] == APN_DETECTOR,
+              f"got {history}")
+
+    # --- P13: never-resolvable, geometry reverts to A's (still no APN activity) ---
+    d = live_apn_fact(cur, "99999005")
+    check(cur, "after A2: source_feature_id 99999005: still no parcel.apn fact",
+          d is None, f"got {d}")
+    history = apn_exception_history(cur, "99999005")
+    check(cur, "after A2: source_feature_id 99999005: still exactly ONE open exception, "
+               "the same original one -- never touched by either reconcile",
+          len(history) == 1 and history[0][1] == "open", f"got {history}")
+    cur.execute("""
+        SELECT f.value, f.supersedes_fact_id, f.supersession_reason
+        FROM source_feature_identity sfi
+        JOIN fact f ON f.parcel_id = sfi.parcel_id AND f.field_key = 'parcel.geometry' AND f.superseded_at IS NULL
+        WHERE sfi.source_id = 'ca_san_jose.parcels' AND sfi.source_feature_id = '99999005'
+    """)
+    geom_row = cur.fetchone()
+    check(cur, "after A2: source_feature_id 99999005: parcel.geometry superseded AGAIN, back "
+               "toward A's geometry (a real, second change, not a no-op)",
+          geom_row is not None and geom_row[1] is not None and geom_row[2] == "unknown", f"got {geom_row}")
+
+    # --- P13: resolves in B, degrades AGAIN in A2 -- the reopened_from_id test ---
+    # A2 replays the exact same bytes as A, where this feature was blank --
+    # so it degrades a second time. Its exception must link back to the
+    # ORIGINAL A-era exception (same reason, 'blank'), proving
+    # relink_reopened_exceptions matches on (parcel_id, reason) across a
+    # real close-then-reopen cycle, not just "the last row for this parcel".
+    d = live_apn_fact(cur, "99999006")
+    check(cur, "after A2: source_feature_id 99999006: NO live parcel.apn fact "
+               "(degraded again -- supersedes B's resolved fact, no successor)",
+          d is None, f"got {d}")
+    check(cur, "after A2: source_feature_id 99999006: parcel.apn cache column is NULL again",
+          apn_cache_column(cur, "99999006") is None, f"got {apn_cache_column(cur, '99999006')!r}")
+    history = apn_exception_history(cur, "99999006")
+    check(cur, "after A2: source_feature_id 99999006: exactly two exceptions now -- the original "
+               "A-era one (condition_cleared) and a fresh open one",
+          len(history) == 2 and history[0][1] == "condition_cleared" and history[1][1] == "open",
+          f"got {history}")
+    if len(history) == 2:
+        original_id = history[0][0]
+        reopened_id, reopened_link = history[1][0], history[1][3]
+        check(cur, "after A2: source_feature_id 99999006: the fresh open exception's "
+                   "reopened_from_id links back to the ORIGINAL A-era exception "
+                   "(not NULL, not itself)",
+              reopened_link == original_id and reopened_id != original_id,
+              f"reopened_from_id={reopened_link} original_id={original_id}")
 
 
 if __name__ == "__main__":
