@@ -184,18 +184,24 @@ jobs:
       # entrypoint requires `server <path>` as an argument, so it cannot run
       # as a bare `services:` entry the way postgres above does. Started as
       # a plain background container instead, where the command is under
-      # full control. Not version-pinned to a specific minio RELEASE tag
-      # the way postgis/postgis above is pinned to 16-3.4 -- this
-      # environment had no way to confirm a specific tag still resolves at
-      # write time (no outbound network). `latest` is guaranteed to exist;
-      # pinning is the more correct long-term choice and worth doing in a
-      # follow-up once a tag can actually be verified.
+      # full control.
+      #
+      # Pinned to RELEASE.2025-09-07T16-13-09Z, same reasoning as
+      # postgis/postgis:16-3.4, pandoc 3.10.1 and import-linter 2.5.2 above
+      # and in docs.yml -- an unpinned `latest` in the one job that gates
+      # reconciliation correctness is the same false-diff/false-green trap
+      # those pins exist to prevent. Verified against the Docker Hub API
+      # (https://hub.docker.com/v2/repositories/minio/minio/tags), not
+      # guessed: this was, at verification time, the tag `latest` itself
+      # resolved to (matching `last_updated` timestamps for both). Confirmed
+      # against the real runner after pinning -- see prompts/README.md's
+      # P12 entry for the run ID.
       - name: Start MinIO
         run: |
           docker run -d --name minio -p 9000:9000 \
             -e MINIO_ROOT_USER="$OBJECT_STORE_ACCESS_KEY" \
             -e MINIO_ROOT_PASSWORD="$OBJECT_STORE_SECRET_KEY" \
-            minio/minio server /data
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
 
       - name: Wait for MinIO
         run: |
