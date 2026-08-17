@@ -247,15 +247,37 @@ schema-dump:
 # has no argument, so with none given it runs against DATABASE_URL's own
 # default above -- postgresql://localhost/ledgex_schema_check, the shared
 # local dev database CLAUDE.md names. Every run of db/tests/invariants.sql
-# writes one permanent parcel plus every fact any test writes against it
-# (0017/I4 make both undeletable by design -- see that file's own
-# precondition comment at the top). That is exactly how the default
-# invocation put 40 orphaned parcels and 324 locked facts into
+# writes one or more permanent parcels plus every fact any test writes
+# against them (0017/I4 make both undeletable by design -- see that
+# file's own precondition comment at the top). That is exactly how the
+# default invocation put 40 orphaned parcels and 324 locked facts into
 # ledgex_schema_check. Override DATABASE_URL to a scratch database before
 # running this against anything you intend to keep clean.
+#
+# P17, finding #26: db/tests/teardown.sql now runs UNCONDITIONALLY, as its
+# own separate psql invocation, after the suite -- pass or fail. The
+# suite's own exit code ($$suite_exit below), not teardown's, is what
+# this target ultimately exits with: a passing suite stays a passing
+# `make db-test` even if teardown finds nothing to do, and a failing
+# suite stays a failing `make db-test` even though teardown still runs
+# and still cleans up. Getting this backwards -- letting teardown's exit
+# code win, or skipping teardown on failure -- is exactly the
+# silently-passing-gate failure this repo has already found elsewhere
+# (qa_check, conformance, golden): a green `make db-test` on a red suite.
 db-test:
 	@command -v $(PSQL) >/dev/null 2>&1 || { echo "$(PSQL) not found"; exit 1; }
-	$(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f db/tests/invariants.sql
+	@$(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f db/tests/invariants.sql; \
+	 suite_exit=$$?; \
+	 echo ""; \
+	 echo "db-test: suite exited $$suite_exit -- running db/tests/teardown.sql unconditionally (P17, finding #26)"; \
+	 $(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 -f db/tests/teardown.sql; \
+	 teardown_exit=$$?; \
+	 if [ "$$teardown_exit" -ne 0 ]; then \
+		echo "db-test: WARNING -- teardown itself exited $$teardown_exit (see output above)."; \
+		echo "db-test: this target still reports the SUITE's own exit code ($$suite_exit), not teardown's --"; \
+		echo "db-test: a teardown problem never masks a passing suite, and a passing teardown never masks a failing one."; \
+	 fi; \
+	 exit $$suite_exit
 
 # Parameterized pack suite for sources, mappings, rights and dependency
 # cascades. Spec §1.2 make conformance: "Every enabled pack passes; no
