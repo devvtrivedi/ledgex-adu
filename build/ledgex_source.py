@@ -13,7 +13,7 @@ Invariant I17: these strings are authoritative only when read verbatim from the
 filesystem. Change the text HERE, once, then regenerate both artifacts.
 """
 
-SPEC_VERSION = "1.36"
+SPEC_VERSION = "1.37"
 RULES_VERSION = "1.4"
 PHASE = "Phase 1, Step 1 - City of San Jose"
 REVISION_DATE = "August 2026"
@@ -136,10 +136,12 @@ MAKE_TARGETS = [
      "Every enabled pack passes; no rights broadening or silent missing "
      "dependency."),
     ("make test",
-     "Unit and integration suites, including review, entitlement, outcome "
-     "observation, provider slot, edge guard and billing independence.",
-     "All required tests pass with zero skips and no external network "
-     "dependency in CI."),
+     "core/model's real pytest suite (P21) -- review, entitlement, outcome "
+     "observation, provider slot, edge guard and billing independence are "
+     "not yet reachable; none of that scope exists in core/ or commerce/ yet.",
+     "core/model's suite passes; the exit code reflects only that. The "
+     "absent areas are named explicitly on every run, never silently "
+     "counted as covered."),
     ("make golden",
      "Normalized refused Base Core fixture (P20) -- composed, partial and "
      "geometry-disabled are not yet reachable; STANDING-BLOCKER.md.",

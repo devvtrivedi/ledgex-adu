@@ -70,7 +70,7 @@ jobs:
           python-version: '3.11'
 
       - name: Install Python dependencies
-        run: pip install -r scripts/requirements.txt
+        run: pip install -r scripts/requirements.txt -r requirements-test.txt
 
       - name: Create clean database (not the service's TIGER-inited default)
         run: |
@@ -138,6 +138,17 @@ jobs:
       # covers all four fixture classes."
       - name: make golden
         run: make golden DATABASE_URL="$DATABASE_URL" PYTHON=python3
+
+      # P21: core/model's real pytest suite (tests/core/) -- same reasoning
+      # as golden and the snapshot-race test above, no new job. TEST_DATABASE_URL,
+      # not DATABASE_URL (own Makefile variable, same reason db-test reads
+      # DB_TEST_DATABASE_URL, P18/finding #25) -- passed this job's own
+      # already-fresh, already-disposable ledgex_ci explicitly. Exit code
+      # here means ONLY that core/model's own real suite passed -- see the
+      # Makefile's own test: target comment for why that is not the same
+      # claim as "make test covers everything §1.2 lists."
+      - name: make test
+        run: make test TEST_DATABASE_URL="$DATABASE_URL" PYTHON=python3
 
       # Spec §1.2 make schema-dump: "No diff; missing or stale generated DDL
       # fails." Regenerates db/schema.sql from the now-migrated (and

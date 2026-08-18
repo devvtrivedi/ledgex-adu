@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.36
+ Engineering Reference Spec v1.37
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.36                                       Machine-executed build contract.
+   1        This Spec v1.37                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -168,17 +168,23 @@ ledgex/
 │     ├── LEDGEX_SPEC.md                           ← this file
 │     ├── ARCHITECTURE_BLUEPRINT.pdf
 │     └── SAN_JOSE_CHECKLIST.pdf
-├── core/                                          ← NO city names. Enforced by CI. Currently an empty
-│                                                     scaffold (__init__.py only) -- exists so
-│                                                     import-linter has a real package to use as a
-│                                                     source_modules entry for I1/I15's contracts; no
-│                                                     submodule below has landed yet.
+├── core/                                          ← NO city names. Enforced by CI. Three layers have
+│                                                     real code as of P21 -- core/store.py (L4),
+│                                                     core/exceptions.py (L6), core/model.py (below) --
+│                                                     each a flat file, not a core/<name>/ directory the
+│                                                     layer diagram below implies: built via forced
+│                                                     extraction from working scripts/*.py call sites
+│                                                     (store, exceptions) or as the first standalone
+│                                                     domain module (model), never as anticipated
+│                                                     scaffolding, so no submodule has needed the
+│                                                     directory form yet. Every other layer below
+│                                                     remains unbuilt.
 │     ├── resolver/           L0       core/connectors/ L1               core/snapshots/ L2
-│     ├── normalize/          L3       core/store/              L4       core/rules/             L5
-│     ├── reconcile/          L6       core/exceptions/ L6               core/calc/              L7
+│     ├── normalize/          L3       core/store.py            L4       core/rules/             L5
+│     ├── reconcile/          L6       core/exceptions.py L6              core/calc/              L7
 │     ├── compose/            L8       core/deliver/            L8       core/rights/            X
-│     └── model/                       ← Fact, Parcel, Source, Licence, Exception, Refusal
-│                                         (no queue, no task, no assignee types exist)
+│     └── model.py                     ← Fact, Parcel, Source, Licence, ParcelException, Refusal,
+│                                         Result[T] (I8). (no queue, no task, no assignee types exist)
 ├── infra/                                         ← env var access, DB connection construction,
 │                                                     value-normalization helpers. Zero business logic,
 │                                                     zero layer (not L0-L8) -- NOT core/: core/* may
@@ -1784,7 +1790,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.36
+                     Engineering Reference Spec v1.37
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1845,7 +1851,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.36
+                   Engineering Reference Spec v1.37
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1874,7 +1880,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.36
+                Engineering Reference Spec v1.37
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -2794,6 +2800,26 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              acceptance runners fixed at the source (their own
                                              ACCEPTANCE_OBJECT_STORE_BUCKET, defaulting to a disposable local bucket,
                                              overriding whatever a sourced .env already exported).
+
+   Aug 2026             1.37                 core/model.py: I2's Pydantic half, and the first real domain module -- Fact,   P21, README finding #15 (core/ now has real code for
+                                             Parcel, Source, Licence, ParcelException (I2 built-in shadowing hazard, named  check_jurisdiction_names.py to scan -- one live
+                                             per this file's own docstring, not section 2's literal word), Refusal,         violation found and fixed, a docstring literal).
+                                             Result[T] (I8). fact_provenance_complete (0006) and the Fact model are not     Refusal cannot subclass Exception (I8); Result[T]
+                                             one shared object -- SQL cannot import Python -- so a 96-case parametrized     raises RuntimeError if .value or .refusal is read
+                                             test drives every                                                              without checking is_ok/is_refused first, so a
+                                             method/source_id/snapshot_id/retrieved_at/source_url/method_version            refusal cannot be silently dropped the way an
+                                             combination through both the constraint and the validator and asserts they     unchecked return value normally can be. Loader
+                                             agree, RED-proven by disabling the derived-fact branch and confirming exactly  adoption of Fact (core/store.py's own docstring
+                                             the 6 derived cases disagree. qa_check.py's refusal-code check extended from   names the fit) reported and deferred, not absorbed
+                                             a two-way (section 9 vs 0038) to a three-way diff, core/model.py's own         -- touches three ingest scripts and every acceptance
+                                             REFUSAL_CODES included, so a third copy cannot drift unseen either. Section    suite, a separate package.
+                                             1.2's make test row: now runs core/model's real suite (tests/core/, 142
+                                             tests); review, entitlement, outcome observation, provider slot, edge guard
+                                             and billing independence remain unbuilt and are named explicitly on every run
+                                             rather than folded into a blanket pass, the same exit-code discipline 1.36
+                                             applied to make golden. New requirements.txt (pydantic) and requirements-
+                                             test.txt (pytest, pytest-postgresql) at repo root -- scripts/requirements.txt
+                                             is scoped to the ingest scripts and stays that way.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

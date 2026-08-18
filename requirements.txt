@@ -1,0 +1,13 @@
+# Runtime dependencies for core/, api/, commerce/ -- the domain layer and
+# whatever eventually serves it, NOT the ingest scripts (those depend on
+# boto3/psycopg2/requests/ijson for source-specific fetch/parse work that
+# core/ must never import, per I1; see scripts/requirements.txt, the only
+# requirements file that existed before this one, named and scoped for
+# that job specifically).
+#
+# pydantic already allowed by SPEC.md §11 ("API FastAPI + Pydantic v2 +
+# uvicorn") -- first real consumer is core/model.py (P21). fastapi/uvicorn
+# not added yet: nothing imports them, and adding a dependency before
+# anything needs it is exactly the "anticipated, not forced by need" scope
+# core/store.py's own docstring already argues against.
+pydantic>=2,<3

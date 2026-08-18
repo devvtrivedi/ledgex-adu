@@ -317,13 +317,29 @@ conformance:
 
 # Spec §1.2 make test: "Unit and integration suites, including review,
 # entitlement, outcome observation, provider slot, edge guard and billing
-# independence." Fails rather than reporting a pass: none of core/,
-# commerce/ or their test suites exist in this repo yet, and a target that
-# exits 0 having run nothing is indistinguishable from a target that ran
-# everything and it all passed. This must keep failing until a real suite
-# backs it. (The database invariant suite does exist -- see `make db-test`.)
+# independence." P21: core/model's own real pytest suite exists now
+# (tests/core/) -- review, entitlement, outcome observation, provider
+# slot, edge guard and billing independence do not, and this target says
+# so explicitly on every run, same resolution P20 already applied to
+# `make golden` rather than a second convention: the exit code tracks
+# ONLY whether the real, built suite passes (0 = it passed, 1 = it
+# failed), never a blanket 1 regardless of correctness (which would make
+# a real pass indistinguishable from a broken one, and make a
+# break-then-revert proof meaningless) and never a blanket 0 once any
+# slice passes (which would claim coverage this target does not have).
+#
+# TEST_DATABASE_URL, not DATABASE_URL -- same reason db-test got its own
+# DB_TEST_DATABASE_URL (P18, finding #25): the fact_provenance_complete
+# equivalence test (tests/core/test_fact_provenance_equivalence.py)
+# writes real fact/parcel rows, and DATABASE_URL's own default points at
+# ledgex_schema_check, the shared local dev database. Defaults to the
+# same disposable ledgex_test db-test already uses -- one shared scratch
+# database for both, not a second one to create.
+TEST_DATABASE_URL ?= postgresql://localhost/ledgex_test
 test:
-	@echo "test: not implemented in Phase 1 (core/, commerce/ suites). Database invariants are covered separately -- see 'make db-test'." && exit 1
+	@echo "TEST: running core/model's real suite (P21) -- tests/core/ (Fact/Parcel/Source/Licence/ParcelException/Refusal/Result shape validation, plus the fact_provenance_complete equivalence proof)."
+	@echo "TEST: NOT covered (SPEC.md sec 1.2's own list, none of core/'s or commerce/'s remaining scope exists yet): review, entitlement, outcome observation, provider slot, edge guard, billing independence."
+	DATABASE_URL="$(TEST_DATABASE_URL)" $(PYTHON) -m pytest tests/core/ -v
 
 # Spec §1.2 make golden: "Normalized composed, partial, refused and
 # geometry-disabled Base Core fixtures." P20: one of the four classes is

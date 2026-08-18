@@ -36,7 +36,7 @@
 <tbody>
 <tr>
 <td>1</td>
-<td>Engineering Reference Spec v1.36</td>
+<td>Engineering Reference Spec v1.37</td>
 <td>Machine-executed build contract.</td>
 </tr>
 <tr>
@@ -207,8 +207,8 @@
 </tr>
 <tr>
 <td><strong>make test</strong></td>
-<td>Unit and integration suites, including review, entitlement, outcome observation, provider slot, edge guard and billing independence.</td>
-<td>All required tests pass with zero skips and no external network dependency in CI.</td>
+<td>core/model's real pytest suite (P21) -- review, entitlement, outcome observation, provider slot, edge guard and billing independence are not yet reachable; none of that scope exists in core/ or commerce/ yet.</td>
+<td>core/model's suite passes; the exit code reflects only that. The absent areas are named explicitly on every run, never silently counted as covered.</td>
 </tr>
 <tr>
 <td><strong>make golden</strong></td>
@@ -329,7 +329,7 @@
 <blockquote>
 <p><strong>READ VERBATIM</strong></p>
 </blockquote>
-<p>Business Plan 2.1.4 - commercial boundary Engineering Reference Spec v1.36 - executable contract Implementation Rules v1.4 - operational restatement</p>
+<p>Business Plan 2.1.4 - commercial boundary Engineering Reference Spec v1.37 - executable contract Implementation Rules v1.4 - operational restatement</p>
 <p>PRESERVE I1-I20; automated composed / partial / refused commerce-only Track B observations; no customer rendering one validated geometry provider slot; no runtime substitution edge 429 before core/compose; no file outcome</p>
 <blockquote>
 <p><strong>RUN BEFORE MERGE</strong></p>

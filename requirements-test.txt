@@ -1,0 +1,20 @@
+# Test-only tooling -- never installed in the api/worker/geo containers
+# SPEC.md §11 actually ships (a deliberate scope boundary CLAUDE.md's own
+# both-halves discipline applies to: runtime deps and test deps are
+# different concerns, so they get different files, not one file two
+# audiences have to read past each other's entries in).
+#
+# pytest/pytest-postgresql already allowed by SPEC.md §11 ("Test: pytest,
+# pytest-postgresql"). First real consumer is tests/core/ (P21) --
+# pytest-postgresql specifically is NOT used by that suite's own
+# fact_provenance_complete equivalence test: it provisions a bare
+# Postgres from whatever local `postgres` binary is on PATH, which does
+# not have PostGIS installed in this project's own dev environment
+# (confirmed directly, not assumed), and the real fact table's migration
+# chain needs PostGIS from parcel.geom onward. Kept installable anyway,
+# per §11 -- a future test that genuinely wants a fully-isolated,
+# framework-managed ephemeral database (no PostGIS dependency) has it
+# available without a second dependency-adding pass.
+-r requirements.txt
+pytest>=8,<9
+pytest-postgresql>=6

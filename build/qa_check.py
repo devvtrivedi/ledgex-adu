@@ -325,10 +325,14 @@ def check_spec_references_migrations():
 
 
 REFUSAL_CODE_MIGRATION = MIGRATIONS_DIR / "0038_refusals_code_check.sql"
+MODEL_FILE = ROOT / "core" / "model.py"
 SPEC_SECTION_9_RE = re.compile(r"## 9\. Refusal and error codes(.*?)### 9\.1", re.S)
 REFUSAL_CODE_IN_PROSE_RE = re.compile(r"\b[A-Z][A-Z]*(?:_[A-Z]+)+\b")
 REFUSAL_CODE_BLOCK_RE = re.compile(r"REFUSAL_CODES_BEGIN(.*?)REFUSAL_CODES_END", re.S)
 REFUSAL_CODE_LITERAL_RE = re.compile(r"'([A-Z][A-Z_]+)'")
+REFUSAL_CODE_MODEL_BLOCK_RE = re.compile(
+    r"REFUSAL_CODES: Final\[tuple\[str, \.\.\.\]\] = \((.*?)\)", re.S)
+REFUSAL_CODE_MODEL_LITERAL_RE = re.compile(r'"([A-Z][A-Z_]+)"')
 
 
 def check_refusal_codes_match_spec():
@@ -349,12 +353,22 @@ def check_refusal_codes_match_spec():
     pick up an unrelated ALL_CAPS_TOKEN elsewhere in either file -- §9.1
     itself names CONFIDENCE_BELOW_THRESHOLD, a code removed in v1.2, which
     is exactly the kind of stale entry this check must not treat as live.
+
+    P21: extended to a THIRD copy, core/model.py's Refusal.code Literal
+    (REFUSAL_CODES tuple) -- the same drift risk, the same reason a
+    literal §0.2-style shared object is impossible (SQL cannot import
+    Python; see core/model.py's own top-of-file docstring, decision (a)).
+    Still shaped as pairwise extract-and-diff, now run against both
+    existing sources rather than invented as a third mechanism.
     """
     if not SPEC.exists():
         return  # already reported by check_presence
     if not REFUSAL_CODE_MIGRATION.exists():
         failures.append(
             f"MISSING ARTIFACT: {REFUSAL_CODE_MIGRATION.relative_to(ROOT)}")
+        return
+    if not MODEL_FILE.exists():
+        failures.append(f"MISSING ARTIFACT: {MODEL_FILE.relative_to(ROOT)}")
         return
 
     spec_text = SPEC.read_text(encoding="utf-8")
@@ -377,18 +391,35 @@ def check_refusal_codes_match_spec():
         return
     migration_codes = set(REFUSAL_CODE_LITERAL_RE.findall(code_block.group(1)))
 
-    missing_from_migration = sorted(spec_codes - migration_codes)
-    if missing_from_migration:
+    model_text = MODEL_FILE.read_text(encoding="utf-8")
+    model_block = REFUSAL_CODE_MODEL_BLOCK_RE.search(model_text)
+    if model_block is None:
         failures.append(
-            f"{REFUSAL_CODE_MIGRATION.name}: §9 names refusal code(s) not "
-            f"in refusals_codes_valid()'s allowed list: "
-            f"{', '.join(missing_from_migration)}")
+            f"{MODEL_FILE.name}: REFUSAL_CODES tuple not found in the "
+            f"expected shape -- refusal-code vocabulary check cannot run "
+            f"against it")
+        model_codes = None
+    else:
+        model_codes = set(REFUSAL_CODE_MODEL_LITERAL_RE.findall(model_block.group(1)))
 
-    phantom_in_migration = sorted(migration_codes - spec_codes)
-    if phantom_in_migration:
-        failures.append(
-            f"{REFUSAL_CODE_MIGRATION.name}: refusals_codes_valid() allows "
-            f"code(s) §9 does not name: {', '.join(phantom_in_migration)}")
+    pairs = [
+        ("§9", spec_codes, REFUSAL_CODE_MIGRATION.name, migration_codes),
+    ]
+    if model_codes is not None:
+        pairs.append(("§9", spec_codes, MODEL_FILE.name, model_codes))
+        pairs.append((REFUSAL_CODE_MIGRATION.name, migration_codes, MODEL_FILE.name, model_codes))
+
+    for left_name, left_codes, right_name, right_codes in pairs:
+        missing_from_right = sorted(left_codes - right_codes)
+        if missing_from_right:
+            failures.append(
+                f"{right_name}: {left_name} names refusal code(s) not "
+                f"present there: {', '.join(missing_from_right)}")
+        phantom_in_right = sorted(right_codes - left_codes)
+        if phantom_in_right:
+            failures.append(
+                f"{right_name}: has refusal code(s) {left_name} does not "
+                f"name: {', '.join(phantom_in_right)}")
 
 
 BUILD_DIR = ROOT / "build"

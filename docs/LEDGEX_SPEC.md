@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.36
+# LedgeX / ADU.X — Engineering Reference Spec v1.37
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.36 | Machine-executed build contract. |
+| 1 | This Spec v1.37 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -97,7 +97,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 | **make schema** | Apply every forward-only migration to an empty database. | Clean apply; constraints, functions and triggers compile. |
 | **make schema-dump** | Regenerate db/schema.sql from the applied database and compare the committed dump. | No diff; missing or stale generated DDL fails. |
 | **make conformance** | Parameterized pack suite for sources, mappings, rights, dependency cascades and endpoint liveness. | Every enabled pack passes; no rights broadening or silent missing dependency. |
-| **make test** | Unit and integration suites, including review, entitlement, outcome observation, provider slot, edge guard and billing independence. | All required tests pass with zero skips and no external network dependency in CI. |
+| **make test** | core/model's real pytest suite (P21) -- review, entitlement, outcome observation, provider slot, edge guard and billing independence are not yet reachable; none of that scope exists in core/ or commerce/ yet. | core/model's suite passes; the exit code reflects only that. The absent areas are named explicitly on every run, never silently counted as covered. |
 | **make golden** | Normalized refused Base Core fixture (P20) -- composed, partial and geometry-disabled are not yet reachable; STANDING-BLOCKER.md. | Refused-path output matches the approved fixture; the exit code reflects only that check. The three remaining classes are named explicitly on every run, never silently counted as covered. |
 
 ## 15. Architecture Addendum A-1
@@ -117,7 +117,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.36 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.37 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -128,17 +128,23 @@ ledgex/
 │     ├── LEDGEX_SPEC.md                           ← this file
 │     ├── ARCHITECTURE_BLUEPRINT.pdf
 │     └── SAN_JOSE_CHECKLIST.pdf
-├── core/                                          ← NO city names. Enforced by CI. Currently an empty
-│                                                     scaffold (__init__.py only) -- exists so
-│                                                     import-linter has a real package to use as a
-│                                                     source_modules entry for I1/I15's contracts; no
-│                                                     submodule below has landed yet.
+├── core/                                          ← NO city names. Enforced by CI. Three layers have
+│                                                     real code as of P21 -- core/store.py (L4),
+│                                                     core/exceptions.py (L6), core/model.py (below) --
+│                                                     each a flat file, not a core/<name>/ directory the
+│                                                     layer diagram below implies: built via forced
+│                                                     extraction from working scripts/*.py call sites
+│                                                     (store, exceptions) or as the first standalone
+│                                                     domain module (model), never as anticipated
+│                                                     scaffolding, so no submodule has needed the
+│                                                     directory form yet. Every other layer below
+│                                                     remains unbuilt.
 │     ├── resolver/           L0       core/connectors/ L1               core/snapshots/ L2
-│     ├── normalize/          L3       core/store/              L4       core/rules/             L5
-│     ├── reconcile/          L6       core/exceptions/ L6               core/calc/              L7
+│     ├── normalize/          L3       core/store.py            L4       core/rules/             L5
+│     ├── reconcile/          L6       core/exceptions.py L6              core/calc/              L7
 │     ├── compose/            L8       core/deliver/            L8       core/rights/            X
-│     └── model/                       ← Fact, Parcel, Source, Licence, Exception, Refusal
-│                                         (no queue, no task, no assignee types exist)
+│     └── model.py                     ← Fact, Parcel, Source, Licence, ParcelException, Refusal,
+│                                         Result[T] (I8). (no queue, no task, no assignee types exist)
 ├── infra/                                         ← env var access, DB connection construction,
 │                                                     value-normalization helpers. Zero business logic,
 │                                                     zero layer (not L0-L8) -- NOT core/: core/* may
@@ -1766,7 +1772,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.36
+Engineering Reference Spec v1.37
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1827,7 +1833,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.36
+Engineering Reference Spec v1.37
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1858,7 +1864,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.36
+Engineering Reference Spec v1.37
 
 ## 9. Refusal and error codes
 
@@ -2795,6 +2801,26 @@ directly (302 object versions, ~2.16 GB, 20 distinct keys) and its two
 acceptance runners fixed at the source (their own
 ACCEPTANCE_OBJECT_STORE_BUCKET, defaulting to a disposable local bucket,
 overriding whatever a sourced .env already exported).
+
+Aug 2026             1.37                 core/model.py: I2's Pydantic half, and the first real domain module -- Fact,   P21, README finding #15 (core/ now has real code for
+Parcel, Source, Licence, ParcelException (I2 built-in shadowing hazard, named  check_jurisdiction_names.py to scan -- one live
+per this file's own docstring, not section 2's literal word), Refusal,         violation found and fixed, a docstring literal).
+Result[T] (I8). fact_provenance_complete (0006) and the Fact model are not     Refusal cannot subclass Exception (I8); Result[T]
+one shared object -- SQL cannot import Python -- so a 96-case parametrized     raises RuntimeError if .value or .refusal is read
+test drives every                                                              without checking is_ok/is_refused first, so a
+method/source_id/snapshot_id/retrieved_at/source_url/method_version            refusal cannot be silently dropped the way an
+combination through both the constraint and the validator and asserts they     unchecked return value normally can be. Loader
+agree, RED-proven by disabling the derived-fact branch and confirming exactly  adoption of Fact (core/store.py's own docstring
+the 6 derived cases disagree. qa_check.py's refusal-code check extended from   names the fit) reported and deferred, not absorbed
+a two-way (section 9 vs 0038) to a three-way diff, core/model.py's own         -- touches three ingest scripts and every acceptance
+REFUSAL_CODES included, so a third copy cannot drift unseen either. Section    suite, a separate package.
+1.2's make test row: now runs core/model's real suite (tests/core/, 142
+tests); review, entitlement, outcome observation, provider slot, edge guard
+and billing independence remain unbuilt and are named explicitly on every run
+rather than folded into a blanket pass, the same exit-code discipline 1.36
+applied to make golden. New requirements.txt (pydantic) and requirements-
+test.txt (pytest, pytest-postgresql) at repo root -- scripts/requirements.txt
+is scoped to the ingest scripts and stays that way.
 
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
