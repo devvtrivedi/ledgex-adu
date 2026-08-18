@@ -67,7 +67,7 @@ def evaluate_geometry_dependent_conclusion(conclusion: str, geometry_tier_enable
             message=(
                 f"{conclusion} requires a validated geometry tier, and this "
                 f"jurisdiction's geometry tier is disabled (3DEP gate not "
-                f"cleared, I10)."
+                f"satisfied, I10)."
             ),
             detail={"conclusion": conclusion, "geometry_tier_enabled": False},
         ))
