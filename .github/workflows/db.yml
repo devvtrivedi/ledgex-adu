@@ -7,6 +7,13 @@ on:
 jobs:
   schema:
     runs-on: ubuntu-latest
+    # P27: no job in this file had a bound before this pass -- GitHub's
+    # 360-minute default applied, so a hang here (found for real: the
+    # snapshot-race test's own lock wait, see scripts/test_snapshot_race_invariant.py's
+    # module docstring) ran to six hours instead of failing promptly. Historical
+    # wall-clock for this job is ~1-2 minutes; 20 is generous headroom, not a
+    # tight fit, and still fails an order of magnitude faster than the default.
+    timeout-minutes: 20
 
     # Pinned to 16-3.4, not `latest` or `16`: §3 specifies "PostgreSQL 16 +
     # PostGIS 3.4" as the schema's target, and a schema-only dump taken
@@ -205,6 +212,9 @@ jobs:
   # `schema`'s db-test/schema-dump steps or their data.
   p5-acceptance:
     runs-on: ubuntu-latest
+    # P27: same reasoning as schema:'s timeout-minutes above -- no bound
+    # existed, so this job also defaulted to GitHub's 360-minute ceiling.
+    timeout-minutes: 15
 
     services:
       postgres:
@@ -349,6 +359,9 @@ jobs:
   # `p5-acceptance`'s data.
   phaseb-acceptance:
     runs-on: ubuntu-latest
+    # P27: same reasoning as schema:'s timeout-minutes above -- no bound
+    # existed, so this job also defaulted to GitHub's 360-minute ceiling.
+    timeout-minutes: 15
 
     services:
       postgres:

@@ -7,6 +7,9 @@ on:
 jobs:
   qa:
     runs-on: ubuntu-latest
+    # P27: same reasoning as db.yml's schema: job -- no bound existed here
+    # either, and this job's own historical wall-clock is under a minute.
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
