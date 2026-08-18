@@ -8,11 +8,17 @@ jobs:
   schema:
     runs-on: ubuntu-latest
     # P27: no job in this file had a bound before this pass -- GitHub's
-    # 360-minute default applied, so a hang here (found for real: the
-    # snapshot-race test's own lock wait, see scripts/test_snapshot_race_invariant.py's
-    # module docstring) ran to six hours instead of failing promptly. Historical
-    # wall-clock for this job is ~1-2 minutes; 20 is generous headroom, not a
-    # tight fit, and still fails an order of magnitude faster than the default.
+    # 360-minute default applied, so a hang here ran to six hours instead
+    # of failing promptly. The initial suspect was scripts/test_snapshot_
+    # race_invariant.py's own lock wait -- checked and disproven (insert_
+    # snapshot() commits internally before returning, so there is no
+    # uncommitted row for a second connection to block on). The real
+    # cause, read off run 32171649751's own per-step timestamps: the
+    # "Install postgresql-client-16" step (apt-get) stalled for 20+
+    # minutes -- see that step's own comment below and
+    # prompts/P27-ci-timeouts-and-lock-wait.md. Historical wall-clock for
+    # this job is ~1-2 minutes; 20 is generous headroom, not a tight fit,
+    # and still fails an order of magnitude faster than the default.
     timeout-minutes: 20
 
     # Pinned to 16-3.4, not `latest` or `16`: §3 specifies "PostgreSQL 16 +
