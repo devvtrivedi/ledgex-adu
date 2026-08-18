@@ -13,9 +13,28 @@ winner -- nothing in the record justifies forcing one number on every
 caller, and unifying it would be a behavior change dressed as a
 refactor.
 
-Same jurisdiction-free/tuple-not-type shape as core/store.insert_facts
--- see that module's docstring for the reasoning, which applies here
-unchanged.
+Same jurisdiction-free shape as core/store.insert_facts -- but NOT the
+same tuple-not-type shape any more (P22): insert_exceptions() still
+takes positional 7-tuples, deliberately, not core/model.ParcelException,
+even though core/store.insert_facts() was rewritten to list[Fact] in the
+same package. Considered, not assumed: detector_key and detector_version
+(0010_exceptions.sql: both `text NOT NULL`, no CHECK on either) are the
+same shape of hazard confidence_rule_id/pack_version were for Fact --
+transposing them would insert cleanly, and would corrupt the exact-
+version matching close_resolved_exceptions()/close_exceptions_for_
+parcels()/relink_reopened_exceptions()/retire_stranded_exceptions() all
+rely on (0045/0047/0049/0050's own precedent: an exact-key match is load-
+bearing, not incidental). Deferred anyway, to a named later package, on
+blast radius and severity, not on the hazard being smaller: insert_
+exceptions() has 4 call sites across 3 files (phase_e, load_zoning, and
+BOTH detectors in scripts/flag_invalid_geometry.py -- a script this
+package never otherwise touches), against Fact's 11 sites across the 2
+files this package was already rewriting; and a parcel_exception row,
+unlike a fact row, carries no whole-row immutability trigger (0017/0040
+are Fact-specific) -- a transposed detector_key/detector_version is
+theoretically correctable later by a migration UPDATE, where a
+transposed fact column is not. Real hazard, smaller stakes, separate
+package -- reported here rather than left unmentioned.
 
 close_resolved_exceptions() and relink_reopened_exceptions() (P9,
 prompts/P9-exception-resolution.md) are the closure half of exception

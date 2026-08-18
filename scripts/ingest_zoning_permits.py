@@ -23,11 +23,17 @@ copied.
 Nor is the execute_values fact/parcel_exception insert shape itself --
 core/store.insert_facts and core/exceptions.insert_exceptions now own
 that (§2 places both at their real layer, L4 and L6, and real code
-agrees). What still lives here, deliberately: the mapping into the
-tuple these functions take (ZONING/ZONINGABBREV -> zoning.district/
-zoning.district_verbatim, ASSESSORS_PARCEL_NUMBER -> the permits join
-key). That mapping is San-José-source-specific and belongs outside
-core/ (I1) -- it stays in this script for this slice rather than moving
+agrees). insert_facts() takes list[core.model.Fact] now, not a
+positional tuple (P22) -- this script builds Fact(...) with named
+fields at every fact_rows.append() site; insert_exceptions() still
+takes a positional tuple, a deliberate, separate decision (see core/
+exceptions.py's own docstring for why that adoption was deferred, not
+forgotten). What still lives here either way, deliberately: the mapping
+into whichever shape each function takes (ZONING/ZONINGABBREV ->
+zoning.district/zoning.district_verbatim, ASSESSORS_PARCEL_NUMBER -> the
+permits join key). That mapping is San-José-source-specific and belongs
+outside core/ (I1) -- it stays in this script for this slice rather than
+moving
 to a not-yet-created jurisdictions/ca_san_jose/, a bigger step this
 slice doesn't take.
 
@@ -117,6 +123,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
 from infra.values import is_blank, decimal_default, canonicalize_identifier  # noqa: E402
+from core.model import Fact  # noqa: E402
 from core.store import insert_facts  # noqa: E402
 from core.exceptions import insert_exceptions, close_resolved_exceptions, relink_reopened_exceptions  # noqa: E402
 
@@ -641,11 +648,13 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                     # zero-match/ambiguous -> matched (or first-ever
                     # classification): a NEW fact, never a supersession --
                     # there is nothing live to supersede.
-                    fact_rows.append((
-                        parcel_id, JURISDICTION_ID, field_key, json.dumps(fresh_value), "bulk",
-                        SOURCE_ID_ZONING, snapshot_id, retrieved_at, ENDPOINT_URL_ZONING,
-                        LICENCE_ID_ZONING, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                        retrieved_at, FACT_PACK_VERSION, None, None, None,
+                    fact_rows.append(Fact(
+                        parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
+                        field_key=field_key, value=json.dumps(fresh_value), method="bulk",
+                        source_id=SOURCE_ID_ZONING, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
+                        source_url=ENDPOINT_URL_ZONING, licence_id=LICENCE_ID_ZONING,
+                        confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID,
+                        effective_from=retrieved_at, pack_version=FACT_PACK_VERSION,
                     ))
                     counts["new"] += 1
                 else:
@@ -659,11 +668,14 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                         counts["same"] += 1  # no-op -- the whole point of this diff
                     else:
                         fact_ids_to_supersede.append(live_fact_id)
-                        fact_rows.append((
-                            parcel_id, JURISDICTION_ID, field_key, json.dumps(fresh_value), "bulk",
-                            SOURCE_ID_ZONING, snapshot_id, retrieved_at, ENDPOINT_URL_ZONING,
-                            LICENCE_ID_ZONING, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                            retrieved_at, FACT_PACK_VERSION, None, live_fact_id, "unknown",
+                        fact_rows.append(Fact(
+                            parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
+                            field_key=field_key, value=json.dumps(fresh_value), method="bulk",
+                            source_id=SOURCE_ID_ZONING, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
+                            source_url=ENDPOINT_URL_ZONING, licence_id=LICENCE_ID_ZONING,
+                            confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID,
+                            effective_from=retrieved_at, pack_version=FACT_PACK_VERSION,
+                            supersedes_fact_id=live_fact_id, supersession_reason="unknown",
                         ))
                         counts["different"] += 1
 
@@ -934,11 +946,13 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                 if live_entry is None:
                     if fresh_value is None:
                         continue  # never had one, still doesn't -- no-op
-                    fact_rows.append((
-                        parcel_id, JURISDICTION_ID, field_key, json.dumps(fresh_value), "bulk",
-                        SOURCE_ID_PERMITS, snapshot_id, retrieved_at, ENDPOINT_URL_PERMITS,
-                        LICENCE_ID_PERMITS, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                        retrieved_at, FACT_PACK_VERSION, None, None, None,
+                    fact_rows.append(Fact(
+                        parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
+                        field_key=field_key, value=json.dumps(fresh_value), method="bulk",
+                        source_id=SOURCE_ID_PERMITS, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
+                        source_url=ENDPOINT_URL_PERMITS, licence_id=LICENCE_ID_PERMITS,
+                        confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID,
+                        effective_from=retrieved_at, pack_version=FACT_PACK_VERSION,
                     ))
                     counts["new"] += 1
                     continue
@@ -963,11 +977,14 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
 
                 fact_ids_to_supersede.append(live_fact_id)
                 if fresh_value is not None:
-                    fact_rows.append((
-                        parcel_id, JURISDICTION_ID, field_key, json.dumps(fresh_value), "bulk",
-                        SOURCE_ID_PERMITS, snapshot_id, retrieved_at, ENDPOINT_URL_PERMITS,
-                        LICENCE_ID_PERMITS, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                        retrieved_at, FACT_PACK_VERSION, None, live_fact_id, "world_change",
+                    fact_rows.append(Fact(
+                        parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
+                        field_key=field_key, value=json.dumps(fresh_value), method="bulk",
+                        source_id=SOURCE_ID_PERMITS, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
+                        source_url=ENDPOINT_URL_PERMITS, licence_id=LICENCE_ID_PERMITS,
+                        confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID,
+                        effective_from=retrieved_at, pack_version=FACT_PACK_VERSION,
+                        supersedes_fact_id=live_fact_id, supersession_reason="world_change",
                     ))
                     counts["different"] += 1
                 elif retire_with_false_successor:
@@ -977,11 +994,14 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                     # bare retirement. Same source on both sides (0044
                     # satisfied), so this is honest in a way parcels'
                     # cross-source disappearance cascade (P4) was not.
-                    fact_rows.append((
-                        parcel_id, JURISDICTION_ID, field_key, json.dumps(False), "bulk",
-                        SOURCE_ID_PERMITS, snapshot_id, retrieved_at, ENDPOINT_URL_PERMITS,
-                        LICENCE_ID_PERMITS, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                        retrieved_at, FACT_PACK_VERSION, None, live_fact_id, "world_change",
+                    fact_rows.append(Fact(
+                        parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
+                        field_key=field_key, value=json.dumps(False), method="bulk",
+                        source_id=SOURCE_ID_PERMITS, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
+                        source_url=ENDPOINT_URL_PERMITS, licence_id=LICENCE_ID_PERMITS,
+                        confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID,
+                        effective_from=retrieved_at, pack_version=FACT_PACK_VERSION,
+                        supersedes_fact_id=live_fact_id, supersession_reason="world_change",
                     ))
                     counts["different"] += 1
                 else:

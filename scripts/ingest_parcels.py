@@ -79,6 +79,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
 from infra.values import is_blank, decimal_default, canonicalize_identifier  # noqa: E402
+from core.model import Fact  # noqa: E402
 from core.store import insert_facts  # noqa: E402
 from core.exceptions import insert_exceptions, close_exceptions_for_parcels, relink_reopened_exceptions  # noqa: E402
 
@@ -1211,17 +1212,21 @@ def phase_e(snapshot_id):
                     SOURCE_ID, source_feature_id, parcel_id,
                     snapshot_id, retrieved_at, snapshot_id, retrieved_at,
                 ))
-                fact_rows.append((
-                    parcel_id, JURISDICTION_ID, "parcel.geometry", geojson_geom_param(feat), "bulk",
-                    SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
-                    LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                    retrieved_at, FACT_PACK_VERSION, None, None, None,
+                fact_rows.append(Fact(
+                    parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
+                    field_key="parcel.geometry", value=geojson_geom_param(feat), method="bulk",
+                    source_id=SOURCE_ID, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
+                    source_url=ENDPOINT_URL, licence_id=LICENCE_ID, confidence=FACT_CONFIDENCE,
+                    confidence_rule_id=FACT_CONFIDENCE_RULE_ID, effective_from=retrieved_at,
+                    pack_version=FACT_PACK_VERSION,
                 ))
-                fact_rows.append((
-                    parcel_id, JURISDICTION_ID, "parcel.source_parcel_id", json.dumps(source_feature_id), "bulk",
-                    SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
-                    LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                    retrieved_at, FACT_PACK_VERSION, None, None, None,
+                fact_rows.append(Fact(
+                    parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
+                    field_key="parcel.source_parcel_id", value=json.dumps(source_feature_id), method="bulk",
+                    source_id=SOURCE_ID, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
+                    source_url=ENDPOINT_URL, licence_id=LICENCE_ID, confidence=FACT_CONFIDENCE,
+                    confidence_rule_id=FACT_CONFIDENCE_RULE_ID, effective_from=retrieved_at,
+                    pack_version=FACT_PACK_VERSION,
                 ))
                 if unresolvable:
                     unresolvable_count += 1
@@ -1233,11 +1238,13 @@ def phase_e(snapshot_id):
                     ))
                 else:
                     resolvable_count += 1
-                    fact_rows.append((
-                        parcel_id, JURISDICTION_ID, "parcel.apn", json.dumps(canon_apn), "bulk",
-                        SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
-                        LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                        retrieved_at, FACT_PACK_VERSION, apn_raw, None, None,
+                    fact_rows.append(Fact(
+                        parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
+                        field_key="parcel.apn", value=json.dumps(canon_apn), method="bulk",
+                        source_id=SOURCE_ID, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
+                        source_url=ENDPOINT_URL, licence_id=LICENCE_ID, confidence=FACT_CONFIDENCE,
+                        confidence_rule_id=FACT_CONFIDENCE_RULE_ID, effective_from=retrieved_at,
+                        pack_version=FACT_PACK_VERSION, local_verbatim=apn_raw,
                     ))
                 new_count += 1
 
@@ -1318,12 +1325,14 @@ def phase_e(snapshot_id):
                         # Ordinary resolvable -> different resolvable value.
                         # Unchanged from before P13.
                         fact_ids_to_supersede.append(apn_fact_id)
-                        fact_rows.append((
-                            parcel_id, JURISDICTION_ID, "parcel.apn", json.dumps(canon_apn), "bulk",
-                            SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
-                            LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                            retrieved_at, FACT_PACK_VERSION, apn_raw,
-                            apn_fact_id, "unknown",
+                        fact_rows.append(Fact(
+                            parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
+                            field_key="parcel.apn", value=json.dumps(canon_apn), method="bulk",
+                            source_id=SOURCE_ID, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
+                            source_url=ENDPOINT_URL, licence_id=LICENCE_ID, confidence=FACT_CONFIDENCE,
+                            confidence_rule_id=FACT_CONFIDENCE_RULE_ID, effective_from=retrieved_at,
+                            pack_version=FACT_PACK_VERSION, local_verbatim=apn_raw,
+                            supersedes_fact_id=apn_fact_id, supersession_reason="unknown",
                         ))
                         parcel_apn_cache_updates.append((parcel_id, canon_apn))
                         resolvable_count += 1
@@ -1337,12 +1346,13 @@ def phase_e(snapshot_id):
                         # one batch after the write loop (targeted close, not
                         # close_resolved_exceptions' full-recompute sweep --
                         # see that call site's own comment for why).
-                        fact_rows.append((
-                            parcel_id, JURISDICTION_ID, "parcel.apn", json.dumps(canon_apn), "bulk",
-                            SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
-                            LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                            retrieved_at, FACT_PACK_VERSION, apn_raw,
-                            None, None,
+                        fact_rows.append(Fact(
+                            parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
+                            field_key="parcel.apn", value=json.dumps(canon_apn), method="bulk",
+                            source_id=SOURCE_ID, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
+                            source_url=ENDPOINT_URL, licence_id=LICENCE_ID, confidence=FACT_CONFIDENCE,
+                            confidence_rule_id=FACT_CONFIDENCE_RULE_ID, effective_from=retrieved_at,
+                            pack_version=FACT_PACK_VERSION, local_verbatim=apn_raw,
                         ))
                         parcel_apn_cache_updates.append((parcel_id, canon_apn))
                         apn_resolved_parcel_ids.append(parcel_id)
@@ -1350,12 +1360,14 @@ def phase_e(snapshot_id):
 
                 if geom_changed:
                     fact_ids_to_supersede.append(geom_fact_id)
-                    fact_rows.append((
-                        parcel_id, JURISDICTION_ID, "parcel.geometry", geojson_geom_param(feat), "bulk",
-                        SOURCE_ID, snapshot_id, retrieved_at, ENDPOINT_URL,
-                        LICENCE_ID, FACT_CONFIDENCE, FACT_CONFIDENCE_RULE_ID,
-                        retrieved_at, FACT_PACK_VERSION, None,
-                        geom_fact_id, "unknown",
+                    fact_rows.append(Fact(
+                        parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
+                        field_key="parcel.geometry", value=geojson_geom_param(feat), method="bulk",
+                        source_id=SOURCE_ID, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
+                        source_url=ENDPOINT_URL, licence_id=LICENCE_ID, confidence=FACT_CONFIDENCE,
+                        confidence_rule_id=FACT_CONFIDENCE_RULE_ID, effective_from=retrieved_at,
+                        pack_version=FACT_PACK_VERSION,
+                        supersedes_fact_id=geom_fact_id, supersession_reason="unknown",
                     ))
                     parcel_geom_cache_updates.append((parcel_id, geojson_geom_param(feat)))
                     changed_field_counts["parcel.geometry"] += 1

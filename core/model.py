@@ -78,10 +78,106 @@ TWO DESIGN DECISIONS, reported before writing, not picked silently:
     (0048/0049/0050/0051's own established precedent for how a constraint
     changes here) -- the test re-derives against whatever the live
     database actually enforces, not a frozen copy of 0006's text.
+
+P22, DESIGN DECISION (c) -- found while adopting this class at the real
+call sites, not anticipated when it was written: FACT.VALUE'S ENCODING
+CONTRACT. Every real call site (six in scripts/ingest_parcels.py, five
+in scripts/ingest_zoning_permits.py) already builds this value as a
+PRE-ENCODED JSON STRING (json.dumps(canon_apn), geojson_geom_param(),
+json.dumps(fresh_value)) before it reaches the `value` position -- the
+live column is jsonb NOT NULL, and the SQL template casts it via
+%s::jsonb. `value: Any` left that contract undefined for a Pydantic
+model: reproduced directly against a real scratch database (never
+ledgex_schema_check -- this write is permanent, 0017) before deciding
+anything --
+
+  - a pre-encoded JSON string: succeeds, stores correctly.
+  - a native Python bool (True, not json.dumps(True)): FAILS --
+    psycopg2.errors.CannotCoerce, "cannot cast type boolean to jsonb"
+    (Postgres has no boolean->jsonb cast at all; predicted this would
+    succeed "by accident" and was wrong -- reproduced, not assumed).
+  - a native Python str ("hello", not pre-encoded): FAILS --
+    psycopg2.errors.InvalidTextRepresentation, "hello" is not valid
+    JSON text (needs quotes to BE a JSON string).
+  - a native Python dict ({"a": 1}, not pre-encoded): FAILS at the
+    Python/driver level, before Postgres -- psycopg2.ProgrammingError,
+    "can't adapt type 'dict'".
+  - None: Any accepts it at the Pydantic layer; the live NOT NULL
+    constraint rejects it at INSERT -- psycopg2.errors.NotNullViolation.
+
+Every one of those already fails loudly today -- none is the silent
+"stores wrong data forever" hazard confidence_rule_id/pack_version had.
+But all five fail with a raw driver/Postgres error naming no field, at
+INSERT time, not at Fact() construction -- exactly the class of
+unhelpful failure this package's own adoption is supposed to move away
+from.
+
+Three candidate shapes, numbered 1/2/3 to avoid colliding with this
+docstring's own (a)/(b)/(c) labels: (1) value holds a NATIVE Python
+value and insert_facts() does the json.dumps() itself -- one encoding
+rule, in one place, and the model describes the domain rather than the
+wire format. BLOCKED, not chosen: geometry values are parsed by ijson
+as decimal.Decimal and need infra.values.decimal_default to serialize
+at all (scripts/ingest_parcels.py's own geojson_geom_param() already
+calls json.dumps(..., default=decimal_default) for exactly this
+reason) -- giving insert_facts() that responsibility means
+core/store.py imports infra/, and docs/LEDGEX_SPEC.md §2 CONTRADICTS
+ITSELF on whether core/ may do that ("core/* may import core/model and
+stdlib/third-party only" in one bullet; "Any of core/, commerce/,
+jurisdictions/, pipelines/, api/ may import infra/" two bullets later --
+.importlinter enforces infra-is-a-leaf in the outgoing direction only,
+nothing enforces or forbids core->infra either way). A real spec
+defect, reported as README finding #29 regardless of which option won
+here, per this package's own instruction -- resolving it is a spec
+amendment and a §12 row, not a judgement call inside a commit message,
+and is NOT done in this package. (3) a validator that accepts native
+values and normalises them on construction hits the identical
+Decimal/infra blocker the moment a caller's geometry dict reaches it,
+for the same reason.
+
+(2) CHOSEN: value stays a PRE-ENCODED JSON STRING, exactly what every
+real call site already produces -- typed str, not Any (Any on the one
+column that is jsonb NOT NULL is how None reached the database above),
+with an added validator that the string actually IS valid JSON. Honest
+about describing the wire format, not the domain, on this one field --
+and it costs nothing: no caller's serialization logic changes at all
+(scripts/*.py keep calling json.dumps(), with decimal_default exactly
+where they already do), and core/ never needs infra/, §2's
+contradiction notwithstanding. Re-verified against the same five cases
+with value: str: True/dict/None are now rejected by Pydantic's own
+str-type check, at Fact() construction, naming the field, before any
+tuple or INSERT exists -- confirmed directly ("Input should be a valid
+string"), not assumed from the type declaration alone. "hello" (a real
+str, wrong content) is caught by the new is-valid-JSON validator
+instead, same construction-time failure shape. Every one of the five
+bad cases in the reproduction above is now a Fact()-construction-time
+ValidationError naming `value`, not an INSERT-time driver error naming
+nothing.
+
+WHAT "WRONG ORDER IS NOW UNREPRESENTABLE" MEANS, PRECISELY, AND WHAT IT
+DOES NOT: adopting Fact at a call site removes the POSITIONAL-TUPLE
+shape itself -- there is no longer a 17-slot tuple in caller source
+code for a human to hand-count and mistranscribe two same-typed values
+into the wrong slot, because every value is now bound to an explicit
+keyword in the same line it is written. That is the specific, narrow
+hazard this package closes, and insert_facts() (core/store.py) enforces
+the mechanical half of it directly: it now refuses a bare tuple
+outright (TypeError), not a silent tuple-shaped duck-type. It does NOT,
+and cannot, catch a caller who swaps which VARIABLE is passed to which
+keyword -- Fact(confidence_rule_id=FACT_PACK_VERSION,
+pack_version=FACT_CONFIDENCE_RULE_ID) is exactly as valid to Pydantic
+as the correct call, since both are ordinary non-empty strings and
+nothing in either field's type distinguishes "this string means a rule
+id" from "this string means a pack version" -- no type system can
+decide that without a caller stating it, and none of the three shapes
+above changes that. tests/core/test_fact_adoption_hazard.py proves both
+halves of this claim explicitly, not just the one that flatters the
+fix.
 """
 from __future__ import annotations
 
 import datetime
+import json
 from typing import Any, Final, Generic, Literal, TypeVar
 from uuid import UUID
 
@@ -249,7 +345,15 @@ class Fact(BaseModel):
     parcel_id: UUID
     jurisdiction_id: str = Field(min_length=1)
     field_key: str = Field(min_length=1)
-    value: Any
+    value: str = Field(
+        min_length=1,
+        description=(
+            "Pre-encoded JSON text, not a native Python value -- this "
+            "module's own docstring, design decision (c) [P22], explains "
+            "why. The live column is jsonb NOT NULL; construct this with "
+            "json.dumps(...) exactly as every real caller already does."
+        ),
+    )
     unit: str | None = None
     local_verbatim: str | None = None
 
@@ -280,6 +384,25 @@ class Fact(BaseModel):
     supersedes_fact_id: UUID | None = None
     supersession_reason: SupersessionReason | None = None
     source_asserted_as_of: datetime.datetime | None = None
+
+    @model_validator(mode="after")
+    def _check_value_is_valid_json(self) -> "Fact":
+        """This module's own docstring, design decision (c) [P22]: value
+        is pre-encoded JSON text, not a native Python value -- str alone
+        already rejects a native bool/dict/None (see that decision's own
+        reproduction against a real database), but a str that is NOT
+        itself valid JSON (e.g. "hello", unquoted) would still pass the
+        bare type check and fail later at INSERT with a raw Postgres
+        parse error naming no field. Caught here instead, at
+        construction, with a message that does."""
+        try:
+            json.loads(self.value)
+        except json.JSONDecodeError as e:
+            raise ValueError(
+                f"Fact.value must be valid JSON text (it is inserted via "
+                f"::jsonb) -- got {self.value!r}: {e}"
+            ) from e
+        return self
 
     @model_validator(mode="after")
     def _check_provenance_complete(self) -> "Fact":

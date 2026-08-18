@@ -42,7 +42,7 @@ def _retrieved_fact_kwargs(**overrides):
         parcel_id=PARCEL_ID,
         jurisdiction_id="test_jurisdiction",
         field_key="test.field",
-        value="v",
+        value='"v"',  # pre-encoded JSON text -- Fact.value, design decision (c) [P22]
         method="direct",
         source_id="test.source",
         source_url="https://example.com",
@@ -63,7 +63,7 @@ def _derived_fact_kwargs(**overrides):
         parcel_id=PARCEL_ID,
         jurisdiction_id="test_jurisdiction",
         field_key="test.field",
-        value="v",
+        value='"v"',  # pre-encoded JSON text -- Fact.value, design decision (c) [P22]
         method="derived",
         method_version="v1",
         effective_from=NOW,
@@ -115,6 +115,36 @@ class TestFactProvenanceComplete:
     def test_derived_fact_with_snapshot_id_rejected(self):
         with pytest.raises(ValidationError, match="must not carry source_id"):
             Fact(**_derived_fact_kwargs(snapshot_id="test.source:sha256:" + "0" * 64))
+
+
+# ---------------------------------------------------------------------------
+# Fact.value's encoding contract -- P22, design decision (c). Formalizes the
+# five-case reproduction recorded in core/model.py's own module docstring;
+# see that docstring for why value is str, not Any, and why a native
+# bool/dict/None each fail differently without it.
+# ---------------------------------------------------------------------------
+
+
+class TestFactValueEncoding:
+    def test_pre_encoded_json_string_accepted(self):
+        f = Fact(**_retrieved_fact_kwargs(value='"some val"'))
+        assert f.value == '"some val"'
+
+    def test_native_bool_rejected(self):
+        with pytest.raises(ValidationError, match="value"):
+            Fact(**_retrieved_fact_kwargs(value=True))
+
+    def test_native_str_that_is_not_valid_json_rejected(self):
+        with pytest.raises(ValidationError, match="must be valid JSON text"):
+            Fact(**_retrieved_fact_kwargs(value="hello"))
+
+    def test_native_dict_rejected(self):
+        with pytest.raises(ValidationError, match="value"):
+            Fact(**_retrieved_fact_kwargs(value={"a": 1}))
+
+    def test_none_rejected(self):
+        with pytest.raises(ValidationError, match="value"):
+            Fact(**_retrieved_fact_kwargs(value=None))
 
 
 # ---------------------------------------------------------------------------

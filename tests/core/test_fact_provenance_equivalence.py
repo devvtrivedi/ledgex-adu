@@ -139,7 +139,7 @@ def _combination_kwargs(method, has_source_id, has_snapshot_id, has_retrieved_at
         parcel_id=parcel_id,
         jurisdiction_id=JURISDICTION_ID,
         field_key="test.p21_field",
-        value="v",
+        value='"v"',  # pre-encoded JSON text -- Fact.value, design decision (c) [P22]
         method=method,
         licence_id=LICENCE_ID,
         confidence="high",
