@@ -72,7 +72,7 @@
   "property_file_fact": [
     {
       "fact_id": "<UUID:3>",
-      "snapshot_id": "ca_san_jose.parcels:sha256:394a29ded73dd6d109344bc038ebf18bba564bdabf0058d8498b75364b52fab0",
+      "snapshot_id": "ca_san_jose.parcels:sha256:077621d41e4c0ff40d9aacdcb099232710d9b5b1a4807bce484b2e387719a51c",
       "use": "input"
     }
   ]

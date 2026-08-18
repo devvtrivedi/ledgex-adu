@@ -13,7 +13,7 @@ Invariant I17: these strings are authoritative only when read verbatim from the
 filesystem. Change the text HERE, once, then regenerate both artifacts.
 """
 
-SPEC_VERSION = "1.38"
+SPEC_VERSION = "1.39"
 RULES_VERSION = "1.4"
 PHASE = "Phase 1, Step 1 - City of San Jose"
 REVISION_DATE = "August 2026"
@@ -143,11 +143,12 @@ MAKE_TARGETS = [
      "absent areas are named explicitly on every run, never silently "
      "counted as covered."),
     ("make golden",
-     "Normalized refused Base Core fixture (P20) -- composed, partial and "
-     "geometry-disabled are not yet reachable; STANDING-BLOCKER.md.",
-     "Refused-path output matches the approved fixture; the exit code "
-     "reflects only that check. The three remaining classes are named "
-     "explicitly on every run, never silently counted as covered."),
+     "Normalized refused and geometry-disabled Base Core fixtures (P20, P25) "
+     "-- composed and partial are not yet reachable; STANDING-BLOCKER.md.",
+     "Both refused-path and geometry-disabled-path outputs match their "
+     "approved fixtures; the exit code reflects only those two checks. "
+     "The two remaining classes are named explicitly on every run, never "
+     "silently counted as covered."),
 ]
 
 # --------------------------------------------------------------------------

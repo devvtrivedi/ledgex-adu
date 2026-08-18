@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.38
+# LedgeX / ADU.X — Engineering Reference Spec v1.39
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.38 | Machine-executed build contract. |
+| 1 | This Spec v1.39 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -98,7 +98,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 | **make schema-dump** | Regenerate db/schema.sql from the applied database and compare the committed dump. | No diff; missing or stale generated DDL fails. |
 | **make conformance** | Parameterized pack suite for sources, mappings, rights, dependency cascades and endpoint liveness. | Every enabled pack passes; no rights broadening or silent missing dependency. |
 | **make test** | core/model's real pytest suite (P21) -- review, entitlement, outcome observation, provider slot, edge guard and billing independence are not yet reachable; none of that scope exists in core/ or commerce/ yet. | core/model's suite passes; the exit code reflects only that. The absent areas are named explicitly on every run, never silently counted as covered. |
-| **make golden** | Normalized refused Base Core fixture (P20) -- composed, partial and geometry-disabled are not yet reachable; STANDING-BLOCKER.md. | Refused-path output matches the approved fixture; the exit code reflects only that check. The three remaining classes are named explicitly on every run, never silently counted as covered. |
+| **make golden** | Normalized refused and geometry-disabled Base Core fixtures (P20, P25) -- composed and partial are not yet reachable; STANDING-BLOCKER.md. | Both refused-path and geometry-disabled-path outputs match their approved fixtures; the exit code reflects only those two checks. The two remaining classes are named explicitly on every run, never silently counted as covered. |
 
 ## 15. Architecture Addendum A-1
 
@@ -117,7 +117,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.38 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.39 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -1782,7 +1782,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.38
+Engineering Reference Spec v1.39
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1843,7 +1843,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.38
+Engineering Reference Spec v1.39
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1874,7 +1874,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.38
+Engineering Reference Spec v1.39
 
 ## 9. Refusal and error codes
 
@@ -2849,6 +2849,29 @@ plants. CONVENTIONS.md's own "twice" suite discipline amended for an           -
 unrelated reason -- see this row's own reason column.                          unsatisfiable for both suites since they existed;
 every prior package's own "ran it twice" already
 meant twice-on-fresh, not twice-in-a-row.
+
+Aug 2026             1.39                 core/calc.py (L7, first real content in that layer) and                        P25. GEOMETRY_TIER_DISABLED already existed in
+compose_property_file.py extended for I10's geometry-disabled refusal path.    section 9's vocabulary and core/model's
+Settled first, from section 5's compose loop (an unconditional                 REFUSAL_CODES (P21) at stage L7 -- the layer that
+L0->...->L7->L6->L8->decide sequence, no branching language) and section 6.6   did not exist; I10's own required enforcement
+("a golden file that lost a refusal is a regression", presupposing co-         ("base-core / no-fallback tests") had zero tests
+occurring refusals as normal): refusals ACCUMULATE across pipeline stages,     until this package. Recommended by P24's own build-
+they do not short-circuit -- L8's rights gate now always runs regardless of    direction report as the fully-unblocked candidate,
+L7's own outcome. core/calc.evaluate_geometry_dependent_conclusion() is        smallest of the three scoped there, touching no
+refuse-only by design: computing or persisting a real derived fact would       already-working code.
+exercise I5/0029's licence trigger, I2's derived branch and fact_input
+lineage all at once, untested; geometry_tier_enabled=True deliberately raises
+NotImplementedError rather than fabricate an answer. Fixed
+property_file.geometry_tier_used, hardcoded false since 0012 -- now reads
+jurisdiction.geometry_tier_enabled for real, RED-proven against a flipped
+column (old code wrote false regardless); the True-case write path is proven
+by a dedicated regression test stubbing core/calc's own separately-tested
+raising behavior, since the coincidence (both false today) can never prove
+the fix on its own -- the same shape README finding #22 already named once.
+make golden widened from 1 of 4 fixture classes to 2 -- both refused.json and
+the new geometry_disabled.json now carry two refusals each
+(GEOMETRY_TIER_DISABLED, RIGHTS_BLOCKED), asserted positively by name, not
+merely via the full-object compare.
 
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

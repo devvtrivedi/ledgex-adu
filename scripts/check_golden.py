@@ -1,40 +1,64 @@
 #!/usr/bin/env python3
-"""make golden -- the refused Base Core fixture, and only it (P20).
+"""make golden -- two of SPEC.md sec 1.2's four fixture classes (P20:
+refused; P25: geometry-disabled).
 
 SPEC.md sec 1.2's golden row names four fixture classes: composed, partial,
-refused, and geometry-disabled Base Core. This checks exactly one --
-refused -- because it is the only one reachable today. STANDING-BLOCKER.md:
-every licence_channel row is allowed=false, cleared_by/cleared_at/
-evidence_uri all NULL, pending counsel/owner clearance that has not
-happened. compose_property_file.py's I6 rights gate therefore blocks every
-touched fact, on every channel, for every parcel -- correctly, because
-that is genuinely the rights state today, not a code gap. Building a
-composed/partial fixture would mean fabricating a licence clearance that
-does not exist -- exactly the "do not invent values to fill a silence"
-rule this project is organised around.
+refused, and geometry-disabled Base Core. This checks two -- refused and
+geometry-disabled -- because those are the only two reachable today.
+STANDING-BLOCKER.md: every licence_channel row is allowed=false,
+cleared_by/cleared_at/evidence_uri all NULL, pending counsel/owner
+clearance that has not happened. compose_property_file.py's I6 rights gate
+therefore blocks every touched fact, on every channel, for every parcel --
+correctly, because that is genuinely the rights state today, not a code
+gap. Building a composed/partial fixture would mean fabricating a licence
+clearance that does not exist -- exactly the "do not invent values to fill
+a silence" rule this project is organised around.
 
-THE COVERAGE TRAP, decided, not defaulted (P20). Exiting 0 unconditionally
-once ANY fixture class passes would be indistinguishable from a target
-that checked all four -- the exact silently-passing-gate shape this repo
-already fixed in qa_check, conformance, test and db-test. But exiting 1
-unconditionally (conformance/test's own current stance) is also wrong
-here, for a different reason: those two targets exit 1 because they check
-NOTHING -- any other exit code would be false. This target checks
-something REAL. Exiting 1 regardless of whether that real check passes
-would make golden's own exit code carry zero information (a broken
-refused-path check and a correctly-passing one would look identical),
-which would make P20 step 4's own break-then-revert proof meaningless --
-there would be no way to observe "red" as distinct from "genuinely
-covers less than four classes."
+P25: BOTH fixtures now carry TWO refusals, not one -- a real, load-bearing
+consequence of settling how refusals compose across stages (see this
+package's own report). SPEC.md sec 5's compose loop is an unconditional
+straight-line sequence (L0 -> ... -> L7 -> L6 -> L8 -> decide -> persist,
+no conditional/branching language anywhere), and sec 6.6 ("a golden file
+that lost a refusal is a regression") presupposes multiple co-occurring
+refusals are the normal shape -- refusals ACCUMULATE across stages, they
+do not short-circuit the pipeline. jurisdiction.geometry_tier_enabled
+defaults false for every jurisdiction (0002_registries.sql), so L7's
+geometry gate now refuses (GEOMETRY_TIER_DISABLED) on every single
+composition attempt today, alongside whatever L8's rights gate already
+refused -- there is no way to touch a real fact today without ALSO hitting
+the universal rights block, so a "geometry-disabled-only" fixture with a
+single refusal is not constructible without fabricating rights clearance,
+the same prohibition that keeps composed/partial unbuilt. The two fixture
+files are kept separate anyway, matching sec 1.2's own four-class
+taxonomy: their content is close today, by coincidence of the current
+real state, but the moment rights ever clear, "refused" and
+"geometry-disabled" stop being the same shape at all (composed/partial
+with a per-conclusion refusal is not a refused file) -- separating them
+now avoids a bigger fixture-file split later.
 
-Decided: exit code tracks ONLY whether the refused-path check itself is
-correct (0 = the one real, built check passed; 1 = it failed OR broke).
-The three absent classes are named explicitly, unconditionally, on EVERY
-run, pass or fail -- never folded into a bare "PASSED" that could be
-misread as full coverage. Same shape as db/tests/invariants.sql's
-known_gaps/test_skipped sections (P9/P14): real coverage counted
-honestly, absence stated loudly, neither silently inflated nor silently
-hidden.
+THE COVERAGE TRAP, decided, not defaulted (P20; still true at 2/4, P25).
+Exiting 0 unconditionally once ANY fixture class passes would be
+indistinguishable from a target that checked all four -- the exact
+silently-passing-gate shape this repo already fixed in qa_check,
+conformance, test and db-test. But exiting 1 unconditionally
+(conformance/test's own current stance) is also wrong here, for a
+different reason: those two targets exit 1 because they check NOTHING --
+any other exit code would be false. This target checks something REAL,
+now two somethings. Exiting 1 regardless of whether those real checks
+pass would make golden's own exit code carry zero information (broken
+checks and correctly-passing ones would look identical), which would
+make P20's own break-then-revert proof meaningless -- there would be no
+way to observe "red" as distinct from "genuinely covers less than four
+classes."
+
+Decided: exit code tracks ONLY whether the two real, built checks are
+both correct (0 = refused AND geometry-disabled both passed; 1 = either
+failed OR broke). The two absent classes are named explicitly,
+unconditionally, on EVERY run, pass or fail -- never folded into a bare
+"PASSED" that could be misread as full coverage. Same shape as
+db/tests/invariants.sql's known_gaps/test_skipped sections (P9/P14):
+real coverage counted honestly, absence stated loudly, neither silently
+inflated nor silently hidden.
 
 COMPOSER_VERSION -- a real, reported deviation from SPEC.md sec 6.6's
 literal text, not a silent one. sec 6.6 says composer_version is
@@ -80,12 +104,13 @@ override the fact insert's own timestamps.
 Usage:
   DATABASE_URL=... .venv-ingest/bin/python3 scripts/check_golden.py [--bless]
 
-  --bless overwrites tests/golden/ca_san_jose/refused.json with this run's
-  own normalised output, instead of comparing against it -- the "reviewed
+  --bless overwrites BOTH tests/golden/ca_san_jose/refused.json and
+  tests/golden/ca_san_jose/geometry_disabled.json with this run's own
+  normalised output, instead of comparing against them -- the "reviewed
   fixture update" sec 1.2's own pass condition names. Never run --bless as
   part of `make golden` itself; it is a human, deliberate action.
 
-Exit code 0 = the refused-path check passed. Exit code 1 = it failed.
+Exit code 0 = both checks passed. Exit code 1 = either failed.
 """
 import argparse
 import datetime
@@ -104,11 +129,15 @@ import compose_property_file as cpf  # noqa: E402 -- module under test, imported
 from infra.env import get_db  # noqa: E402
 
 FIXTURE_PATH = os.path.join(REPO_ROOT, "tests", "golden", "ca_san_jose", "refused.json")
+GEOMETRY_DISABLED_FIXTURE_PATH = os.path.join(
+    REPO_ROOT, "tests", "golden", "ca_san_jose", "geometry_disabled.json"
+)
 GOLDEN_CHANNEL = "paid_property_file"
 GOLDEN_AS_OF = datetime.datetime(2099, 1, 1, tzinfo=datetime.timezone.utc)
 GOLDEN_DIGEST = hashlib.sha256(b"golden-refused-fixture-v1").hexdigest()
+GEOMETRY_DISABLED_GOLDEN_DIGEST = hashlib.sha256(b"golden-geometry-disabled-fixture-v1").hexdigest()
 
-MISSING_CLASSES = ["composed", "partial", "geometry-disabled Base Core"]
+MISSING_CLASSES = ["composed", "partial"]
 
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 COMPOSER_VERSION_RE = re.compile(r"^compose@([0-9a-f]{40}(-dirty)?|no-git:.+)$")
@@ -160,34 +189,40 @@ def seed_reference_rows(conn):
             ON CONFLICT (field_key) DO NOTHING
             """
         )
-        # Fixed, reused snapshot -- ON CONFLICT DO NOTHING, permanent by
+        # Fixed, reused snapshots -- ON CONFLICT DO NOTHING, permanent by
         # design (0021), same as the idempotent reference rows above.
         # snapshot_id must be STABLE run to run for sec 6.6's "Retained --
-        # a changed snapshot should fail the test" to mean anything.
-        uri = ip.object_uri("golden-fixture-bucket", GOLDEN_DIGEST)
-        cur.execute(
-            """
-            INSERT INTO snapshot (id, source_id, object_uri, content_hash, media_type, byte_size,
-                                   request, http_status, fetched_at, licence_observed_id)
-            VALUES (%s, %s, %s, %s, 'application/json', 1, '{}'::jsonb, 200, now(), %s)
-            ON CONFLICT (id) DO NOTHING
-            """,
-            (ip.snapshot_id_for(GOLDEN_DIGEST), ip.SOURCE_ID, uri, GOLDEN_DIGEST, ip.LICENCE_ID),
-        )
+        # a changed snapshot should fail the test" to mean anything. Two
+        # distinct digests (P25) -- one per fixture class, so the refused
+        # and geometry-disabled property_files link to their own,
+        # separately-identifiable snapshot, not a shared one.
+        for digest in (GOLDEN_DIGEST, GEOMETRY_DISABLED_GOLDEN_DIGEST):
+            uri = ip.object_uri("golden-fixture-bucket", digest)
+            cur.execute(
+                """
+                INSERT INTO snapshot (id, source_id, object_uri, content_hash, media_type, byte_size,
+                                       request, http_status, fetched_at, licence_observed_id)
+                VALUES (%s, %s, %s, %s, 'application/json', 1, '{}'::jsonb, 200, now(), %s)
+                ON CONFLICT (id) DO NOTHING
+                """,
+                (ip.snapshot_id_for(digest), ip.SOURCE_ID, uri, digest, ip.LICENCE_ID),
+            )
     conn.commit()
 
 
-def make_fixture_parcel_and_fact(conn):
+def make_fixture_parcel_and_fact(conn, apn, snapshot_id):
     """A fresh parcel every run (0034 dropped apn uniqueness -- a constant,
     grep-able apn across runs is fine, safe, never ambiguous, since this
     script always looks the id up by RETURNING, never by apn). One fact,
     fixed field_key/value/licence_id every run -- what actually drives
     payload_hash's stability, not the parcel/fact ids themselves (those
-    are uuids, normalised away below)."""
+    are uuids, normalised away below). apn/snapshot_id parameterized
+    (P25) so the refused and geometry-disabled fixtures use their own
+    distinct, non-colliding parcels against the same jurisdiction."""
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO parcel (jurisdiction_id, apn) VALUES (%s, %s) RETURNING id",
-            (ip.JURISDICTION_ID, "GOLDEN-REFUSED-FIXTURE"),
+            (ip.JURISDICTION_ID, apn),
         )
         parcel_id = cur.fetchone()[0]
         cur.execute(
@@ -197,11 +232,11 @@ def make_fixture_parcel_and_fact(conn):
                 retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
                 effective_from, pack_version
             ) VALUES (
-                %s, %s, 'parcel.apn', '"GOLDEN-REFUSED-FIXTURE"'::jsonb, 'bulk', %s, %s,
+                %s, %s, 'parcel.apn', %s::jsonb, 'bulk', %s, %s,
                 now(), 'https://example.com/parcels', %s, 'high', 'rule_1', now(), 'v1.0'
             )
             """,
-            (parcel_id, ip.JURISDICTION_ID, ip.SOURCE_ID, ip.snapshot_id_for(GOLDEN_DIGEST), ip.LICENCE_ID),
+            (parcel_id, ip.JURISDICTION_ID, json.dumps(apn), ip.SOURCE_ID, snapshot_id, ip.LICENCE_ID),
         )
     conn.commit()
     return parcel_id
@@ -275,10 +310,10 @@ def normalize(pf_row, pf_facts):
     return normalized, facts_normalized, composer_version_shape_ok
 
 
-def run_composition():
+def run_composition(apn, digest):
     conn = get_db()
     seed_reference_rows(conn)
-    parcel_id = make_fixture_parcel_and_fact(conn)
+    parcel_id = make_fixture_parcel_and_fact(conn, apn, ip.snapshot_id_for(digest))
 
     property_file_id = cpf.compose(conn, parcel_id, GOLDEN_CHANNEL, as_of=GOLDEN_AS_OF)
     if property_file_id is None:
@@ -320,70 +355,107 @@ def run_composition():
     return normalize(pf_row, pf_facts)
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--bless", action="store_true",
-                         help="overwrite the committed fixture with this run's output, "
-                              "instead of comparing against it")
-    args = parser.parse_args()
+def _rights_blocked_refusal(refusals):
+    return next((r for r in refusals if r.get("code") == "RIGHTS_BLOCKED"), None)
 
-    print("GOLDEN: checking 1 of 4 fixture classes this run -- refused.")
-    print(f"GOLDEN: NOT covered (see scripts/check_golden.py's own module docstring "
-          f"and STANDING-BLOCKER.md for why): {', '.join(MISSING_CLASSES)}.")
 
-    normalized, facts_normalized, composer_version_shape_ok = run_composition()
+def _geometry_tier_disabled_refusal(refusals):
+    return next((r for r in refusals if r.get("code") == "GEOMETRY_TIER_DISABLED"), None)
+
+
+def check_fixture(name, fixture_path, apn, digest, bless, failures):
+    """One fixture class's full check: run the real composition, assert
+    both refusals POSITIVELY (sec 6.6: "a golden file that lost a
+    refusal is a regression" -- neither code's presence is left to the
+    full-object compare alone, a bug there should never be able to hide
+    a missing refusal), then the full normalized compare. Appends to the
+    shared `failures` list rather than returning its own -- both fixture
+    classes' checks contribute to ONE overall exit code, same as before
+    P25 widened this from one fixture to two."""
+    print(f"\n--- {name} ---")
+    normalized, facts_normalized, composer_version_shape_ok = run_composition(apn, digest)
     output = {"property_file": normalized, "property_file_fact": facts_normalized}
 
-    if args.bless:
-        os.makedirs(os.path.dirname(FIXTURE_PATH), exist_ok=True)
-        with open(FIXTURE_PATH, "w") as f:
+    if bless:
+        os.makedirs(os.path.dirname(fixture_path), exist_ok=True)
+        with open(fixture_path, "w") as f:
             json.dump(output, f, indent=2, sort_keys=True)
             f.write("\n")
-        print(f"GOLDEN: blessed {FIXTURE_PATH}")
-        return 0
-
-    failures = []
+        print(f"GOLDEN: blessed {fixture_path}")
+        return
 
     def check(label, condition, detail=""):
         status = "PASS" if condition else "FAIL"
-        print(f"[{status}] {label}" + (f" -- {detail}" if detail and not condition else ""))
+        print(f"[{status}] {name}: {label}" + (f" -- {detail}" if detail and not condition else ""))
         if not condition:
-            failures.append(label)
+            failures.append(f"{name}: {label}")
 
     check("composer_version is well-formed (compose@<sha>[-dirty] or compose@no-git:...)",
           composer_version_shape_ok)
 
-    if not os.path.exists(FIXTURE_PATH):
-        check("golden fixture file exists", False, f"missing: {FIXTURE_PATH} (run --bless once to create it)")
-    else:
-        with open(FIXTURE_PATH) as f:
-            expected = json.load(f)
+    if not os.path.exists(fixture_path):
+        check("golden fixture file exists", False, f"missing: {fixture_path} (run --bless once to create it)")
+        return
 
-        # Refusals asserted POSITIVELY (sec 6.6: "a golden file that lost a
-        # refusal is a regression"), not just via the full-object compare
-        # below -- a bug in the comparison logic itself should not be able
-        # to hide a missing refusal.
-        actual_refusals = normalized.get("refusals") or []
-        check("exactly one refusal present", len(actual_refusals) == 1, f"got {len(actual_refusals)}")
-        if actual_refusals:
-            r = actual_refusals[0]
-            check("refusal code is RIGHTS_BLOCKED", r.get("code") == "RIGHTS_BLOCKED", f"got {r.get('code')!r}")
-            check("refusal stage is L8", r.get("stage") == "L8", f"got {r.get('stage')!r}")
-            check("refusal cites the fixture's own licence_id",
-                  r.get("detail", {}).get("licence_id") == ip.LICENCE_ID,
-                  f"got {r.get('detail', {}).get('licence_id')!r}")
-            check("refusal cites parcel.apn among its blocked field_keys",
-                  "parcel.apn" in r.get("detail", {}).get("field_keys", []),
-                  f"got {r.get('detail', {}).get('field_keys')!r}")
+    with open(fixture_path) as f:
+        expected = json.load(f)
 
-        check("normalized property_file matches the committed golden fixture",
-              output == expected,
-              f"\n  expected: {json.dumps(expected, indent=2, sort_keys=True)}"
-              f"\n  actual:   {json.dumps(output, indent=2, sort_keys=True)}")
+    actual_refusals = normalized.get("refusals") or []
+    # P25: BOTH refusals asserted positively, every fixture, every run --
+    # see this module's own docstring for why neither fixture can show
+    # only one of the two today.
+    check("exactly two refusals present", len(actual_refusals) == 2, f"got {len(actual_refusals)}")
 
-    print(f"\nGOLDEN SUMMARY: refused-path check {'PASSED' if not failures else 'FAILED'} "
-          f"({len(failures)} failure(s)). Coverage this run: 1/4 fixture classes "
-          f"(refused). NOT covered: {', '.join(MISSING_CLASSES)}.")
+    rights = _rights_blocked_refusal(actual_refusals)
+    check("RIGHTS_BLOCKED refusal present", rights is not None, f"codes present: {[r.get('code') for r in actual_refusals]}")
+    if rights:
+        check("RIGHTS_BLOCKED stage is L8", rights.get("stage") == "L8", f"got {rights.get('stage')!r}")
+        check("RIGHTS_BLOCKED cites the fixture's own licence_id",
+              rights.get("detail", {}).get("licence_id") == ip.LICENCE_ID,
+              f"got {rights.get('detail', {}).get('licence_id')!r}")
+        check("RIGHTS_BLOCKED cites parcel.apn among its blocked field_keys",
+              "parcel.apn" in rights.get("detail", {}).get("field_keys", []),
+              f"got {rights.get('detail', {}).get('field_keys')!r}")
+
+    geometry = _geometry_tier_disabled_refusal(actual_refusals)
+    check("GEOMETRY_TIER_DISABLED refusal present", geometry is not None,
+          f"codes present: {[r.get('code') for r in actual_refusals]}")
+    if geometry:
+        check("GEOMETRY_TIER_DISABLED stage is L7", geometry.get("stage") == "L7", f"got {geometry.get('stage')!r}")
+        # I10: "refuse BY NAME" -- the refusal must identify WHICH
+        # conclusion, not merely that something was refused.
+        check("GEOMETRY_TIER_DISABLED names the refused conclusion (placement)",
+              geometry.get("detail", {}).get("conclusion") == "placement",
+              f"got {geometry.get('detail', {}).get('conclusion')!r}")
+
+    check("normalized property_file matches the committed golden fixture",
+          output == expected,
+          f"\n  expected: {json.dumps(expected, indent=2, sort_keys=True)}"
+          f"\n  actual:   {json.dumps(output, indent=2, sort_keys=True)}")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--bless", action="store_true",
+                         help="overwrite the committed fixtures with this run's output, "
+                              "instead of comparing against them")
+    args = parser.parse_args()
+
+    print("GOLDEN: checking 2 of 4 fixture classes this run -- refused, geometry-disabled.")
+    print(f"GOLDEN: NOT covered (see scripts/check_golden.py's own module docstring "
+          f"and STANDING-BLOCKER.md for why): {', '.join(MISSING_CLASSES)}.")
+
+    failures = []
+    check_fixture("refused", FIXTURE_PATH, "GOLDEN-REFUSED-FIXTURE", GOLDEN_DIGEST, args.bless, failures)
+    check_fixture("geometry-disabled", GEOMETRY_DISABLED_FIXTURE_PATH, "GOLDEN-GEOMETRY-DISABLED-FIXTURE",
+                  GEOMETRY_DISABLED_GOLDEN_DIGEST, args.bless, failures)
+
+    if args.bless:
+        return 0
+
+    print(f"\nGOLDEN SUMMARY: {'PASSED' if not failures else 'FAILED'} "
+          f"({len(failures)} failure(s)). Coverage this run: 2/4 fixture classes "
+          f"(refused, geometry-disabled). NOT covered: {', '.join(MISSING_CLASSES)}.")
     return 1 if failures else 0
 
 

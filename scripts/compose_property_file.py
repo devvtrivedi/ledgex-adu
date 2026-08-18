@@ -11,13 +11,20 @@ all four scripts -- see infra/__init__.py for why that's not core/.
 
 Scope, deliberately small, per instruction:
   - read one parcel's current facts via current_fact_at(now()) (C5, 0036)
-  - apply the I6 rights gate to every TOUCHED fact, not just rendered ones
-  - on any blocked fact: write property_file(status='refused',
-    refusals populated, delivered_at NULL) and link every touched fact
-    via property_file_fact
-  - on zero blocked facts: report that the gate passed and STOP -- no
-    rendering, no payload assembly, no success/partial path. That is
-    real, unbuilt scope, not a case this script fakes an answer for.
+  - L7 (P25): evaluate the "placement" geometry-dependent conclusion
+    against this jurisdiction's geometry_tier_enabled -- core/calc,
+    refuse-only, never computes or persists a derived fact
+  - apply the I6 rights gate (L8) to every TOUCHED fact, not just
+    rendered ones -- runs regardless of L7's own outcome, see P25's own
+    report for why (refusals accumulate across stages, they do not
+    short-circuit the pipeline)
+  - on any refusal from either stage: write property_file(status='refused',
+    refusals populated -- L7's and L8's together, delivered_at NULL) and
+    link every touched fact via property_file_fact
+  - on zero refusals from either stage: report that both gates passed
+    and STOP -- no rendering, no payload assembly, no success/partial
+    path. That is real, unbuilt scope, not a case this script fakes an
+    answer for.
 
 WHY refusal first, and why every run today refuses. 0030 set every
 licence_channel row (cc0, cc_by_4_0, all six channels each) to
@@ -28,7 +35,11 @@ not because this composer is broken, but because the rights position
 IS "nothing is cleared yet." Proving that is the actual milestone:
 a well-formed refused property_file, for the right reason, is a
 positive result here, not a placeholder for a success path that
-doesn't exist yet.
+doesn't exist yet. geometry_tier_enabled defaults false for every
+jurisdiction too (0002_registries.sql), so a real composition today
+always carries at least a GEOMETRY_TIER_DISABLED refusal alongside
+RIGHTS_BLOCKED -- two independent, honestly-arrived-at reasons the same
+file refuses, not one masking the other.
 
 use='input' for every property_file_fact row this script writes, not
 'gate' or 'rendered': 'gate' (per 0012's own comment) names facts that
@@ -39,9 +50,9 @@ is false for a refused file (I6: nothing renders). 'input' is what is
 actually true: every touched fact was read as an input to the (aborted)
 composition attempt.
 
-Refusal code: RIGHTS_BLOCKED, stage L8 -- both already named in §9's
-refusal code table ("Licence forbids this field in this channel"), not
-invented for this script.
+Refusal codes: RIGHTS_BLOCKED (L8) and GEOMETRY_TIER_DISABLED (L7, P25)
+-- both already named in §9's refusal code table, neither invented for
+this script.
 """
 import argparse
 import hashlib
@@ -58,6 +69,7 @@ import psycopg2.extras
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
+from core.calc import evaluate_geometry_dependent_conclusion  # noqa: E402
 
 
 def get_composer_version():
@@ -178,8 +190,8 @@ def compose(conn, parcel_id, channel, as_of=None):
             raise SystemExit(f"no parcel with id={parcel_id!r}")
         parcel_id, jurisdiction_id, apn = row
 
-        cur.execute("SELECT pack_version FROM jurisdiction WHERE id = %s", (jurisdiction_id,))
-        pack_version = cur.fetchone()[0]
+        cur.execute("SELECT pack_version, geometry_tier_enabled FROM jurisdiction WHERE id = %s", (jurisdiction_id,))
+        pack_version, geometry_tier_enabled = cur.fetchone()
 
         # C5 (0036): the point-in-time read path, not the cached matview --
         # this is a live composition, not a report against a stale refresh.
@@ -213,16 +225,21 @@ def compose(conn, parcel_id, channel, as_of=None):
 
     elapsed_ms = int((time.monotonic() - t0) * 1000)
 
-    if not blocked_by_licence:
-        print(f"\nRIGHTS GATE PASSED for channel={channel!r}: every touched fact's licence "
-              f"permits this channel. No property_file written -- composing a real file "
-              f"(rendering, payload assembly, a success/partial path) is out of scope for "
-              f"this minimal composer. This is the expected outcome only when a "
-              f"licence_channel row has been deliberately flipped for verification; do not "
-              f"treat it as evidence anything is ready to ship.")
-        return None
-
+    # L7 (P25): geometry-dependent conclusion gate, runs regardless of L8's
+    # own outcome below -- see this package's own report for the full
+    # argument, in short: §5's compose loop is an unconditional
+    # straight-line sequence (L0 -> ... -> L7 -> L6 -> L8 -> decide), and
+    # §6.6 ("a golden file that lost a refusal is a regression")
+    # presupposes multiple co-occurring refusals are the normal shape, not
+    # the exception. Refuse-only: core/calc never computes or persists a
+    # derived fact here (see its own module docstring for why).
     refusals = []
+    geometry_result = evaluate_geometry_dependent_conclusion("placement", geometry_tier_enabled)
+    if geometry_result.is_refused:
+        refusals.append(geometry_result.refusal.model_dump())
+
+    # L8 rights gate (unchanged logic, now accumulated with L7 above
+    # rather than being the only possible source of a refusal).
     for licence_id in sorted(blocked_by_licence):
         field_keys = sorted(blocked_by_licence[licence_id])
         refusals.append({
@@ -231,6 +248,16 @@ def compose(conn, parcel_id, channel, as_of=None):
             "message": f"Licence {licence_id} forbids channel {channel} for touched field(s): {', '.join(field_keys)}.",
             "detail": {"licence_id": licence_id, "channel": channel, "field_keys": field_keys},
         })
+
+    if not refusals:
+        print(f"\nRIGHTS GATE PASSED for channel={channel!r}: every touched fact's licence "
+              f"permits this channel, and no geometry-dependent conclusion was refused. "
+              f"No property_file written -- composing a real file (rendering, payload "
+              f"assembly, a success/partial path) is out of scope for this minimal "
+              f"composer. This is the expected outcome only when a licence_channel row "
+              f"has been deliberately flipped for verification; do not treat it as "
+              f"evidence anything is ready to ship.")
+        return None
 
     payload = {"status": "refused", "refusals": refusals, "attribution": [], "omitted_for_rights": []}
     payload_json = json.dumps(payload, sort_keys=True)
@@ -248,14 +275,14 @@ def compose(conn, parcel_id, channel, as_of=None):
             ) VALUES (
                 %s, %s, %s, %s, 'refused', %s,
                 %s, %s, %s,
-                false, %s::jsonb, '[]'::jsonb, '{}',
+                %s, %s::jsonb, '[]'::jsonb, '{}',
                 %s::jsonb, %s, NULL, %s
             )
             """,
             (
                 property_file_id, parcel_id, jurisdiction_id, channel, as_of,
-                pack_version, "unevaluated -- refused before L5 Rules", composer_version,
-                json.dumps(refusals), payload_json, payload_hash, elapsed_ms,
+                pack_version, "unevaluated -- L5 Rules not yet built", composer_version,
+                geometry_tier_enabled, json.dumps(refusals), payload_json, payload_hash, elapsed_ms,
             ),
         )
 

@@ -139,6 +139,18 @@ jobs:
       - name: make golden
         run: make golden DATABASE_URL="$DATABASE_URL" PYTHON=python3
 
+      # P25: property_file.geometry_tier_used regression guard -- same
+      # reasoning as the snapshot-race test and golden above, no new job.
+      # Not covered by make golden itself: every real jurisdiction defaults
+      # geometry_tier_enabled=false, so a golden fixture alone can never
+      # distinguish "correctly read false" from the old hardcoded-false bug
+      # (the identical coincidence-masking shape README finding #22 already
+      # named once) -- this test stubs core/calc's own separately-tested
+      # geometry_tier_enabled=True behavior to prove the write path for
+      # real, see the test's own module docstring.
+      - name: scripts/test_compose_geometry_tier_used.py
+        run: python3 scripts/test_compose_geometry_tier_used.py
+
       # P21: core/model's real pytest suite (tests/core/) -- same reasoning
       # as golden and the snapshot-race test above, no new job. TEST_DATABASE_URL,
       # not DATABASE_URL (own Makefile variable, same reason db-test reads

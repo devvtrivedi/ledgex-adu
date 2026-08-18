@@ -342,15 +342,17 @@ test:
 	DATABASE_URL="$(TEST_DATABASE_URL)" $(PYTHON) -m pytest tests/core/ -v
 
 # Spec §1.2 make golden: "Normalized composed, partial, refused and
-# geometry-disabled Base Core fixtures." P20: one of the four classes is
-# real now -- refused, via scripts/check_golden.py and tests/golden/
-# ca_san_jose/refused.json -- the other three are not (composed/partial
-# would mean fabricating a licence clearance STANDING-BLOCKER.md says
-# does not exist; geometry-disabled needs its own decision). This
-# target's own exit code tracks ONLY the refused-path check's own
-# correctness (0 = it passed, 1 = it failed) -- it does NOT mean "all
-# four classes covered." scripts/check_golden.py prints the three
-# missing classes explicitly on every single run, pass or fail -- see
+# geometry-disabled Base Core fixtures." P20 made refused real; P25 makes
+# geometry-disabled real too, via scripts/check_golden.py and
+# tests/golden/ca_san_jose/{refused,geometry_disabled}.json -- composed
+# and partial are still not (would mean fabricating a licence clearance
+# STANDING-BLOCKER.md says does not exist). Both real fixtures now carry
+# TWO refusals each (RIGHTS_BLOCKED and GEOMETRY_TIER_DISABLED) -- P25's
+# own report settles why refusals accumulate across stages rather than
+# short-circuiting. This target's own exit code tracks ONLY those two
+# checks' own correctness (0 = both passed, 1 = either failed) -- it does
+# NOT mean "all four classes covered." scripts/check_golden.py prints the
+# two missing classes explicitly on every single run, pass or fail -- see
 # that script's own module docstring for the full argument against
 # either silently inflating this to "done" or silently keeping it at
 # an uninformative permanent exit 1.

@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.38
+ Engineering Reference Spec v1.39
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.38                                       Machine-executed build contract.
+   1        This Spec v1.39                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -1800,7 +1800,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.38
+                     Engineering Reference Spec v1.39
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1861,7 +1861,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.38
+                   Engineering Reference Spec v1.39
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1890,7 +1890,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.38
+                Engineering Reference Spec v1.39
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -2848,6 +2848,29 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              unrelated reason -- see this row's own reason column.                          unsatisfiable for both suites since they existed;
                                                                                                                             every prior package's own "ran it twice" already
                                                                                                                             meant twice-on-fresh, not twice-in-a-row.
+
+   Aug 2026             1.39                 core/calc.py (L7, first real content in that layer) and                        P25. GEOMETRY_TIER_DISABLED already existed in
+                                             compose_property_file.py extended for I10's geometry-disabled refusal path.    section 9's vocabulary and core/model's
+                                             Settled first, from section 5's compose loop (an unconditional                 REFUSAL_CODES (P21) at stage L7 -- the layer that
+                                             L0->...->L7->L6->L8->decide sequence, no branching language) and section 6.6   did not exist; I10's own required enforcement
+                                             ("a golden file that lost a refusal is a regression", presupposing co-         ("base-core / no-fallback tests") had zero tests
+                                             occurring refusals as normal): refusals ACCUMULATE across pipeline stages,     until this package. Recommended by P24's own build-
+                                             they do not short-circuit -- L8's rights gate now always runs regardless of    direction report as the fully-unblocked candidate,
+                                             L7's own outcome. core/calc.evaluate_geometry_dependent_conclusion() is        smallest of the three scoped there, touching no
+                                             refuse-only by design: computing or persisting a real derived fact would       already-working code.
+                                             exercise I5/0029's licence trigger, I2's derived branch and fact_input
+                                             lineage all at once, untested; geometry_tier_enabled=True deliberately raises
+                                             NotImplementedError rather than fabricate an answer. Fixed
+                                             property_file.geometry_tier_used, hardcoded false since 0012 -- now reads
+                                             jurisdiction.geometry_tier_enabled for real, RED-proven against a flipped
+                                             column (old code wrote false regardless); the True-case write path is proven
+                                             by a dedicated regression test stubbing core/calc's own separately-tested
+                                             raising behavior, since the coincidence (both false today) can never prove
+                                             the fix on its own -- the same shape README finding #22 already named once.
+                                             make golden widened from 1 of 4 fixture classes to 2 -- both refused.json and
+                                             the new geometry_disabled.json now carry two refusals each
+                                             (GEOMETRY_TIER_DISABLED, RIGHTS_BLOCKED), asserted positively by name, not
+                                             merely via the full-object compare.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
