@@ -731,3 +731,35 @@ class ParcelException(BaseModel):
                 "resolved_at must be at or after detected_at (parcel_exception_resolved_after_detected)"
             )
         return self
+
+
+# --------------------------------------------------------------------------
+# Rule (P31) -- core/rules.py's own return type. Mirrors db/migrations/
+# 0009_rules.sql's `rule` table directly, the same "typed shape of a real
+# row, not an invented one" precedent every other model in this file
+# already follows. Deliberately excludes params/authored_by/reviewed_by/
+# review_mode/reviewed_at/attestation_uri: select_effective_rule()'s only
+# real caller (scripts/compose_property_file.py) needs the rule's
+# IDENTITY (what to stamp into property_file.ruleset_version) and its
+# citation (I11) -- not the full review-evidence row. Widen this only
+# when a real caller needs one of those fields, not in anticipation.
+# --------------------------------------------------------------------------
+
+
+class Rule(BaseModel):
+    """A single selected `rule` row -- core/rules.select_effective_rule()'s
+    Result[Rule] success value. Frozen, like every other model in this
+    file returned from a read path (Refusal, Fact) -- a caller building a
+    ruleset_version stamp from this should not be able to mutate it out
+    from under I11's own recording requirement."""
+
+    model_config = ConfigDict(frozen=True)
+
+    id: str = Field(min_length=1)
+    jurisdiction_id: str = Field(min_length=1)
+    rule_key: str = Field(min_length=1)
+    version: int = Field(gt=0)
+    citation: str = Field(min_length=1)
+    pack_version: str = Field(min_length=1)
+    effective_from: datetime.date
+    effective_to: datetime.date | None = None
