@@ -33,6 +33,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P26 | [The jurisdictions/ pack format, and one real ca_san_jose pack](P26-jurisdictions-pack-format.md) | done, pushed — close-out was never run; backfilled by P29, see that package's own note | `3980560` |
 | P27 | [Bound the CI jobs, then find what actually hung](P27-ci-timeouts-and-lock-wait.md) | done, pushed | `1da54bd`, `f06324a`, `689c022` (`6465b46`/`0c8145a`: deliberate CI-gate break + revert, evidence not work) |
 | P28 | [make liveness: the last named gate that does not exist](P28-liveness.md) | done, pushed | `21a0095` (`9e702cd`/`c321b2f`: deliberate break + revert on `liveness.yml`, via `workflow_dispatch` since it is schedule-only, evidence not work) |
+| P29 | [Close P26 properly, correct P28's close-out, then decide the fork](P29-close-p26-correct-p28-scope-fork.md) | pending | — |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
