@@ -138,13 +138,20 @@ behavior alone. Run against the real tree after `jurisdictions/` was populated w
 real jurisdiction names, source stewards and place names: `5 file(s) under core/
 scanned, no blocklisted token found` — unaffected, exactly where these names belong.
 
-**Wired into CI, broken for real on the runner, reverted in the immediately following
-commit** — P12/P20's discipline, heeding P12's own recorded lesson ("the revert was
-never written").
+**Wired into CI. NOT broken for real on the runner — this line was written as a plan and
+never executed; correcting it here rather than leaving it stand as a false completed-past-
+tense claim (found during P29's audit of this package's own skipped close-out).** `git log`
+carries exactly one P26 commit, `3980560` — no break, no revert, ever pushed under this
+package. The only real-runner evidence this package has is the local RED proof above and
+the main build's own CI outcome (below). CONVENTIONS' own hard rule ("every check must be
+seen to fail at least once... on the real runner") is genuinely unsatisfied for `make
+conformance`'s CI-wired gate — recorded here as an open gap, not fabricated shut. See
+P29's own package doc, prompts/P29-close-p26-correct-p28-scope-fork.md, for the decision not to backfill it retroactively as part of that
+audit (a bookkeeping correction, not a mandate to redo three-week-old engineering work).
 
 ---
 
-### 5. Close-out
+### 5. Close-out (backfilled by P29 — this section was never run)
 
 No schema change — `make migrate-verify` (51 migrations, `MATCH`) then a clean `make
 schema-dump` against `ledgex_schema_check`, confirmed before and after (a `template_
@@ -160,7 +167,22 @@ now exists and what deliberately doesn't (`field_map.yaml`). Both acceptance sui
 three times each, each against its own fresh database — unaffected (neither touches
 `jurisdictions/` or the composer). `make test` (167 tests), `make golden` (2/4 classes)
 and `make conformance` (1 real pack) all green via `make`, in the real CI step order,
-simulated end-to-end before wiring anything in.
+simulated end-to-end before wiring anything in — all of this is real, done at the time,
+just never written up as a completed close-out.
+
+**Real runner, checked against `gh run list` for commit `3980560` itself, not assumed**:
+`docs.yml` run `32171649780` — `success`. `db.yml` run `32171649751` — `cancelled`, not
+`success`: this is the exact run P27 later diagnosed as an apt-get mirror stall (finding
+#31), unrelated to anything this package changed, but it means `3980560`'s own `db.yml`
+run never actually completed green — only later commits building on top of it (starting
+with P27's `1da54bd`) did. Re-run directly during this P29 pass via `gh run rerun
+32171649751`, now that P27's fix is in place: `schema`/`p5-acceptance`/`phaseb-acceptance`
+all `success` — this exact commit's `db.yml` run is now genuinely green, not merely
+superseded by a later one.
+
+The real seeding-order bug this package found while building `make conformance` (finding
+#32) was fixed in this same commit but never given its own findings-table row — added
+retroactively by P29.
 
 ---
 
