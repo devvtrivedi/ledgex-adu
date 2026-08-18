@@ -59,7 +59,19 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # P27: step-level bound, tighter than this job's own 20-minute
+      # timeout-minutes above. Real evidence, not a guess: run 32171649751
+      # hung at exactly this step for 20+ minutes (schema and
+      # phaseb-acceptance both, same push) while p5-acceptance's identical
+      # step on the identical commit finished in 6 seconds -- a transient
+      # apt/mirror stall on the runner, confirmed not to be
+      # scripts/test_snapshot_race_invariant.py or make conformance (see
+      # prompts/P27-ci-timeouts-and-lock-wait.md): neither step had even
+      # started yet when the job was cancelled. This bound makes a repeat
+      # fail here, by name, in minutes -- not consume the whole job's
+      # timeout budget before anyone can tell which step actually stalled.
       - name: Install postgresql-client-16
+        timeout-minutes: 5
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client-16
@@ -247,7 +259,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # P27: same step-level bound as db.yml's schema job, same reasoning --
+      # this exact step, on this exact push, hung for 20+ minutes here too
+      # (run 32171649751).
       - name: Install postgresql-client-16
+        timeout-minutes: 5
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client-16
@@ -388,7 +404,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # P27: same step-level bound as db.yml's schema/p5-acceptance jobs,
+      # same reasoning -- this exact step, on this exact push, hung for
+      # 20+ minutes here too (run 32171649751).
       - name: Install postgresql-client-16
+        timeout-minutes: 5
         run: |
           sudo apt-get update
           sudo apt-get install -y postgresql-client-16

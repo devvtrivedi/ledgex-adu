@@ -70,17 +70,59 @@ them can wait on a lock with no timeout, they have the same latent hang and nobo
 know until a runner was slow enough to expose it.
 ```
 
-### 3. In plain terms
+### 3. Diagnosis: the named suspect checked out clean; the real cause was elsewhere
 
-Two separate problems stacked on top of each other. The first is a missing seatbelt: no
-CI job had a maximum runtime, so a hang and a six-hour job look identical from the
-outside — GitHub just says "still running" either way. Fixed first, independent of cause,
-because it's correct regardless of what turns out to be hung.
+The prompt's leading suspect was `scripts/test_snapshot_race_invariant.py`'s own
+`INSERT ... ON CONFLICT DO NOTHING` race — plausible on its face, since Postgres does
+make a second `INSERT` wait on a first, uncommitted transaction touching the same key.
+**Checked, not assumed, and it does not hold against the current code**: `insert_snapshot()`
+(`scripts/ingest_parcels.py:311-350`, and `scripts/ingest_zoning_permits.py`'s twin) calls
+`conn.commit()` itself, unconditionally, before returning. `conn_a`'s row is already
+committed by the time `conn_b`'s `insert_snapshot()` call even starts — there is no
+uncommitted row for it to block on. Predicted before running: exit 0, all PASS, under a
+few seconds. Reproduced against a fresh migrations-only scratch database
+(`p27_scratch`, all 51 migrations applied): 1 second, all 12 assertions PASS, no hang.
+The hypothesis is falsified for this code as it stands, not merely unconfirmed.
 
-The second is the actual crash: `test_snapshot_race_invariant.py` deliberately races two
-database connections to prove a dedup fix works (P19), but Postgres makes a second
-`INSERT` wait for a first, still-open transaction touching the same key — even with `ON
-CONFLICT DO NOTHING`, which only skips the conflict once it can see the other row's final
-state. If the first connection is slow to commit for any reason, the second one just sits
-there, and nothing was ever set up to time that out. A test that races two transactions on
-purpose needs its own escape hatch from that exact race going wrong.
+**The real cause, read directly off GitHub's own per-step timestamps for the hung run
+(`32171649751`), not inferred**: the `schema` and `phaseb-acceptance` jobs both hung at
+the identical step, `Install postgresql-client-16` (`sudo apt-get update && sudo apt-get
+install -y postgresql-client-16`) — started `18:33:51`/`18:33:49`, still running when
+cancelled at `18:54:31`/`18:54:29`, ~21 minutes. Every step after it, including
+`scripts/test_snapshot_race_invariant.py` and `make conformance`, shows `skipped` — neither
+one had even started. `p5-acceptance`, running the byte-identical step on the byte-identical
+commit in the same job matrix, finished it in 6 seconds. Same push, same step, same runner
+pool, two different outcomes — this is a transient apt/mirror stall on the GitHub-hosted
+runner, external infrastructure this repo's code has no part in, not a bug in
+`test_snapshot_race_invariant.py`, `make conformance`, or anything else in the tree.
+
+Per `CONVENTIONS.md`'s "never change a constraint, test, or threshold to make something
+pass" and "if something turns out to be impossible as specified, that is a finding" — no
+`lock_timeout`/`statement_timeout` was added to `test_snapshot_race_invariant.py`. There is
+no bug there to hardcode a fix for; doing so anyway would be exactly the kind of unearned
+defensive code CONVENTIONS argues against, dressed up as a fix for an incident it didn't
+cause. Instead, `db.yml`'s three `Install postgresql-client-16` steps (`schema`,
+`p5-acceptance`, `phaseb-acceptance`) each got their own `timeout-minutes: 5`, tighter than
+the job-level bound — a repeat of this exact stall now fails, by name, in the Actions UI,
+in minutes, rather than quietly consuming the whole job's 15-20 minute budget before
+anyone can tell which step actually stalled.
+
+`make conformance` (the prompt's other named suspect) ran and passed cleanly, in the
+already-confirmed-green step 1 run (`32173747500`) — never exposed to any hang.
+
+### 4. In plain terms
+
+Two separate problems, and only one of them turned out to be where the prompt expected.
+The first is a missing seatbelt: no CI job had a maximum runtime, so a hang and a
+legitimately slow six-hour job would have looked identical from the outside. Fixed first,
+independent of cause, because it's correct regardless of what turns out to be hung — and
+it was.
+
+The second is the actual cause, and it wasn't the database race that looked like the
+obvious candidate. `test_snapshot_race_invariant.py` races two connections on purpose, but
+the function under test already commits between them — so by the time the second
+connection tries to insert, there's nothing left uncommitted to wait on. The real hang was
+one level below any of this repo's own code: `apt-get` itself sat there for twenty minutes
+on two of three jobs while the third finished in six seconds, on the same push. Bounding
+the one step that actually stalled, tightly, is the honest fix — inventing a database lock
+bug that isn't there would have fixed nothing and hidden the real, external cause.
