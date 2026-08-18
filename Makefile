@@ -13,7 +13,7 @@
 # diff against the committed file — match PG_DUMP/DATABASE_URL to 16 before
 # regenerating it.
 
-.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden state
+.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden liveness state
 
 # `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
 # not guaranteed under `make -j`: parallel make can start pdf's docs
@@ -319,6 +319,22 @@ db-test:
 # §1.2's full contract is satisfied.
 conformance:
 	$(PYTHON) scripts/check_conformance.py
+
+# Spec §6.4 make liveness: "every active source responds with expected
+# fields." P28: real for the pack's three active, ca_san_jose-owned
+# sources -- a bounded-prefix GET (never a full ingest), checked for the
+# raw key(s) each declared field_key actually depends on. Writes no
+# snapshot row (not a fetch in C7's sense -- see
+# scripts/check_liveness.py's own module docstring); writes a job_run row
+# per source using job_run.schema_drift for its own already-declared
+# meaning. NOT wired into db.yml/docs.yml -- scheduled
+# (.github/workflows/liveness.yml) plus workflow_dispatch, not push-gated
+# (an external city government endpoint has no SLA to this project; see
+# prompts/P28-liveness.md section 2 for the full argument against gating
+# every push on it). Federal sources and non-active sources are named,
+# not silently skipped -- see the script's own summary output.
+liveness:
+	$(PYTHON) scripts/check_liveness.py
 
 # Spec §1.2 make test: "Unit and integration suites, including review,
 # entitlement, outcome observation, provider slot, edge guard and billing

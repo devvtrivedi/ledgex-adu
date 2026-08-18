@@ -1,0 +1,92 @@
+name: liveness
+
+# P28: deliberately NOT `on: push`/`pull_request`. §6.4 lists `make
+# liveness` among the CI gates, but gating every push on a third-party
+# city government endpoint's uptime means an unrelated commit fails for a
+# reason nobody who pushed it can fix -- P27's whole incident was an
+# external dependency stalling a push-gated job for 20 minutes, and this
+# check depends on a server with no SLA to this project at all, not a
+# transient package-mirror stall. See prompts/P28-liveness.md section 2
+# for the full argument, including why P12's earlier rejection of
+# "scheduled, non-blocking" does not transfer here unchanged (that finding
+# was about an INTERNAL regression silently persisting because nothing
+# required looking at it; this checks an EXTERNAL cause no commit here can
+# fix). A failing scheduled run still shows up red in the Actions tab --
+# the same discovery mechanism every push-gated failure already uses --
+# and still fails loudly (nonzero exit), satisfying §6.4's "a city
+# breaking is a failing test, not a support ticket" without extending
+# CONVENTIONS.md's "must be green before a package starts" to a promise
+# this project cannot keep.
+on:
+  schedule:
+    - cron: '17 13 * * *'  # daily, arbitrary offset off the hour -- not tied to any source's own stated cadence
+  workflow_dispatch:
+
+jobs:
+  liveness:
+    runs-on: ubuntu-latest
+    # P27: an external endpoint is exactly what hangs -- bound the whole
+    # job, tighter than db.yml's push-gated jobs since this one does much
+    # less work (three bounded-prefix GETs, no full schema/test suite).
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      # Fresh, migrations-only, disposable -- torn down with the runner.
+      # NOT the real Supabase database named in .env's own DATABASE_URL --
+      # see prompts/P28-liveness.md section 1 for why using it here was
+      # considered and rejected (a new GitHub-secret production-credential
+      # trust decision this package should not make unilaterally, and
+      # finding #23 already flags that database as the one this project is
+      # most deliberately cautious about touching from automation).
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ledgex_liveness
+      PSQL: /usr/lib/postgresql/16/bin/psql
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # P27: same step-level bound as db.yml's three occurrences, same
+      # reasoning (apt-get is exactly what stalled there).
+      - name: Install postgresql-client-16
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          "$PSQL" --version
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r scripts/requirements.txt -r requirements.txt
+
+      - name: Create clean database (not the service's TIGER-inited default)
+        run: |
+          "$PSQL" "postgresql://postgres:postgres@localhost:5432/postgres" \
+            -v ON_ERROR_STOP=1 -c "CREATE DATABASE ledgex_liveness;"
+
+      - name: make schema
+        run: make schema DATABASE_URL="$DATABASE_URL" PSQL="$PSQL"
+
+      # The actual probe -- real network calls to real external
+      # endpoints, three bounded-prefix GETs (256 KiB cap each, never a
+      # full fetch). Own timeout, tighter than the job's: each individual
+      # request already has a 15s timeout inside scripts/check_liveness.py
+      # (REQUEST_TIMEOUT) -- this is the backstop for the whole step, not
+      # a substitute for that.
+      - name: make liveness
+        timeout-minutes: 3
+        run: make liveness DATABASE_URL="$DATABASE_URL" PYTHON=python3

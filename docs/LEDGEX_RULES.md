@@ -8,7 +8,7 @@
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | Engineering Reference Spec v1.40 | Machine-executed build contract. |
+| 1 | Engineering Reference Spec v1.41 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement of the Spec. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -41,7 +41,7 @@ Evidence, rights and immutability gates apply before any product or measurement 
 | **I19** | Evaluation-to-permit outcome observations exist only in commerce as Track B measurement. They never enter core/compose, never render in a Property File and never become public facts or provenance inputs. | schema separation; no-render test |
 | **I20** | A footprint provider cannot occupy the active geometry slot unless an immutable approved measured-error record exists for the same provider version, method and jurisdiction. Runtime substitution is forbidden. | constraint trigger; provider-slot tests |
 
-## 2. Six make targets
+## 2. Seven make targets
 
 A target name without execution scope and a pass condition is not a definition of done.
 
@@ -50,15 +50,16 @@ A target name without execution scope and a pass condition is not a definition o
 | **make check-boundary** | Jurisdiction-name grep, import-linter, public-to-commerce catalogue query, filesystem authority, no-graph and Track B no-render checks. | I1, I15, I17 and I19 pass; zero forbidden imports, FKs or derived authority. |
 | **make schema** | Apply every forward-only migration to an empty database. | Clean apply; constraints, functions and triggers compile. |
 | **make schema-dump** | Regenerate db/schema.sql from the applied database and compare the committed dump. | No diff; missing or stale generated DDL fails. |
-| **make conformance** | Real for one pack (P26, jurisdictions/ca_san_jose) -- schema validity plus every active source's licence/field_definition/expected_fields agreement with the live database. Mappings, rights broadening against Plan 2.1.4 Appendix K, dependency cascades and endpoint liveness are not yet checked. | The one real pack's checks pass; the exit code reflects only that. The four absent areas are named explicitly on every run, never silently counted as covered. |
+| **make conformance** | Real for one pack (P26, jurisdictions/ca_san_jose) -- schema validity plus every active source's licence/field_definition/expected_fields agreement with the live database. Mappings, rights broadening against Plan 2.1.4 Appendix K and dependency cascades are not yet checked (endpoint liveness moved to its own real gate, P28). | The one real pack's checks pass; the exit code reflects only that. The three absent areas are named explicitly on every run, never silently counted as covered. |
 | **make test** | core/model's real pytest suite (P21) -- review, entitlement, outcome observation, provider slot, edge guard and billing independence are not yet reachable; none of that scope exists in core/ or commerce/ yet. | core/model's suite passes; the exit code reflects only that. The absent areas are named explicitly on every run, never silently counted as covered. |
 | **make golden** | Normalized refused and geometry-disabled Base Core fixtures (P20, P25) -- composed and partial are not yet reachable; STANDING-BLOCKER.md. | Both refused-path and geometry-disabled-path outputs match their approved fixtures; the exit code reflects only those two checks. The two remaining classes are named explicitly on every run, never silently counted as covered. |
+| **make liveness** | Real for the pack's three active, ca_san_jose-owned sources (P28) -- a bounded-prefix GET per source (never a full ingest), checked against the raw key(s) each declared field_key depends on. Writes no snapshot row (not a fetch under C7 -- see scripts/check_liveness.py); writes a job_run row per source, using job_run.schema_drift for its own already-declared meaning. Scheduled (daily) plus workflow_dispatch, not push/pull_request-gated -- an external city endpoint has no SLA to this project (see prompts/P28-liveness.md section 2). | All three probed sources respond 200 with every declared field present in the checked prefix; the exit code reflects only that. Federal sources and non-active sources are named explicitly on every run, never silently counted as covered. |
 
 ## 3. A-1 scope
 
 | Item | Title | Scope |
 |---|---|---|
-| **A-1.1** | Control recovery / canonical invariants | Canonical I1-I20, internal-fact licence-gate rationale and six make targets. |
+| **A-1.1** | Control recovery / canonical invariants | Canonical I1-I20, internal-fact licence-gate rationale and seven make targets. |
 | **A-1.2** | Evaluation-to-permit outcome loop | Immutable Track B evaluation-to-permit observations in commerce only. |
 | **A-1.3** | Validated footprint-provider slot | One validated footprint-provider slot; switching is controlled, never runtime fallback. No activation without approved measured-error evidence. |
 | **A-1.4** | Edge request guard | Edge infrastructure protection before entitlement and core/compose; rejection is HTTP 429, not a file outcome and not a fourth outcome. |
@@ -189,7 +190,7 @@ run.
 > **READ VERBATIM**
 
 Business Plan 2.1.4 - commercial boundary
-Engineering Reference Spec v1.40 - executable contract
+Engineering Reference Spec v1.41 - executable contract
 Implementation Rules v1.4 - operational restatement
 
 PRESERVE

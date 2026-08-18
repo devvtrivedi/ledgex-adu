@@ -32,6 +32,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P25 | [Geometry-disabled Base Core: the L7 refusal path and a fourth golden fixture](P25-geometry-disabled-base-core.md) | done, pushed | `8a1da6d` (`f936232`/`8869f8d`: deliberate CI-gate break + revert, evidence not work) |
 | P26 | [The jurisdictions/ pack format, and one real ca_san_jose pack](P26-jurisdictions-pack-format.md) | pending | — |
 | P27 | [Bound the CI jobs, then find what actually hung](P27-ci-timeouts-and-lock-wait.md) | done, pushed | `1da54bd`, `f06324a`, `689c022` (`6465b46`/`0c8145a`: deliberate CI-gate break + revert, evidence not work) |
+| P28 | [make liveness: the last named gate that does not exist](P28-liveness.md) | pending | — |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic

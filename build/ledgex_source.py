@@ -2,7 +2,7 @@
 LedgeX / ADU.X — ONE INVARIANT SOURCE.
 
 This module is the single source of truth for the invariant table (I1-I20) and
-the six make targets. build_spec.py and build_rules.py both import
+the seven make targets. build_spec.py and build_rules.py both import
 from here. Neither builder may contain a copied invariant table. This is also
 the only place SPEC_VERSION/RULES_VERSION are set -- every other reference to
 either version, anywhere in build/ or text/*.txt, is derived from these two
@@ -13,7 +13,7 @@ Invariant I17: these strings are authoritative only when read verbatim from the
 filesystem. Change the text HERE, once, then regenerate both artifacts.
 """
 
-SPEC_VERSION = "1.40"
+SPEC_VERSION = "1.41"
 RULES_VERSION = "1.4"
 PHASE = "Phase 1, Step 1 - City of San Jose"
 REVISION_DATE = "August 2026"
@@ -115,7 +115,7 @@ INVARIANTS = [
 ]
 
 # --------------------------------------------------------------------------
-# MAKE_TARGETS - the six targets. (target, execution_surface, pass_condition)
+# MAKE_TARGETS - the seven targets. (target, execution_surface, pass_condition)
 # --------------------------------------------------------------------------
 MAKE_TARGETS = [
     ("make check-boundary",
@@ -134,10 +134,10 @@ MAKE_TARGETS = [
      "Real for one pack (P26, jurisdictions/ca_san_jose) -- schema validity "
      "plus every active source's licence/field_definition/expected_fields "
      "agreement with the live database. Mappings, rights broadening "
-     "against Plan 2.1.4 Appendix K, dependency cascades and endpoint "
-     "liveness are not yet checked.",
+     "against Plan 2.1.4 Appendix K and dependency cascades are not yet "
+     "checked (endpoint liveness moved to its own real gate, P28).",
      "The one real pack's checks pass; the exit code reflects only that. "
-     "The four absent areas are named explicitly on every run, never "
+     "The three absent areas are named explicitly on every run, never "
      "silently counted as covered."),
     ("make test",
      "core/model's real pytest suite (P21) -- review, entitlement, outcome "
@@ -153,6 +153,20 @@ MAKE_TARGETS = [
      "approved fixtures; the exit code reflects only those two checks. "
      "The two remaining classes are named explicitly on every run, never "
      "silently counted as covered."),
+    ("make liveness",
+     "Real for the pack's three active, ca_san_jose-owned sources (P28) -- "
+     "a bounded-prefix GET per source (never a full ingest), checked "
+     "against the raw key(s) each declared field_key depends on. Writes no "
+     "snapshot row (not a fetch under C7 -- see scripts/check_liveness.py); "
+     "writes a job_run row per source, using job_run.schema_drift for its "
+     "own already-declared meaning. Scheduled (daily) plus "
+     "workflow_dispatch, not push/pull_request-gated -- an external city "
+     "endpoint has no SLA to this project (see prompts/P28-liveness.md "
+     "section 2).",
+     "All three probed sources respond 200 with every declared field "
+     "present in the checked prefix; the exit code reflects only that. "
+     "Federal sources and non-active sources are named explicitly on "
+     "every run, never silently counted as covered."),
 ]
 
 # --------------------------------------------------------------------------
@@ -160,7 +174,7 @@ MAKE_TARGETS = [
 # --------------------------------------------------------------------------
 A1_SCOPE = [
     ("A-1.1", "Control recovery / canonical invariants",
-     "Canonical I1-I20, internal-fact licence-gate rationale and six make targets."),
+     "Canonical I1-I20, internal-fact licence-gate rationale and seven make targets."),
     ("A-1.2", "Evaluation-to-permit outcome loop",
      "Immutable Track B evaluation-to-permit observations in commerce only."),
     ("A-1.3", "Validated footprint-provider slot",

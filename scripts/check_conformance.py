@@ -49,8 +49,10 @@ full conformance contract is satisfied:
     design or build that file; see prompts/P26-jurisdictions-pack-
     format.md's own scope section for why moving the loaders' real
     mapping logic is a separate, later package.
-  - endpoint liveness -- make liveness (§6.4) is its own, separate,
-    still-unbuilt target; this script makes no network calls.
+  Endpoint liveness is now real (P28, make liveness) -- its own,
+  separate, scheduled-only gate (.github/workflows/liveness.yml), not
+  folded into this script and not covered by this exit code: this
+  script still makes no network calls.
 
 Usage:
   DATABASE_URL=... .venv-ingest/bin/python3 scripts/check_conformance.py
@@ -78,7 +80,6 @@ NOT_YET_CHECKED = [
     "rights broadening against Plan 2.1.4 Appendix K (test_licences_not_broader_than_appendix_k, sec 7.3)",
     "dependency cascades (a blocked/deferred source's effect on a dependent conclusion)",
     "mappings (field_map.yaml / crosswalk values -- deliberately not designed by this package)",
-    "endpoint liveness (make liveness, sec 6.4, a separate unbuilt target)",
 ]
 
 failures = []

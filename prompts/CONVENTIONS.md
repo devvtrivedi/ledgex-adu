@@ -15,17 +15,23 @@ If a package needs to override one of these, it says so explicitly and gives the
   false" are different claims and must not be written as the same fact.
 - **Scope creep is reported, not absorbed.** If a fix requires touching a shared primitive
   or a second source, say so before writing, not in the summary afterward.
-- **Every CI workflow must be green before a package starts, verified on the real
-  runner, not locally.** This repo has two: `db.yml` and `docs.yml`. `docs.yml` runs
-  `make qa` and `make check-boundary` as two separate steps -- different targets, and a
-  green `make qa` says nothing about whether `make check-boundary` (import-linter,
-  `build/check_jurisdiction_names.py`, then `qa_check.py` again) was ever run. Check the
-  actual GitHub Actions run for the commit a package starts from; a local re-run of the
-  same commands is not the same evidence (this session's own `pg_dump` version mismatch
-  is exactly the kind of local/CI divergence that makes "I ran it locally" insufficient).
-  `docs.yml` was red for about a day, through five packages, because nothing checked it
-  before any of them started -- every `make qa GREEN` report in that window was honest
-  and real, for a narrower target than the one CI actually gated on.
+- **Every push/PR-gated CI workflow must be green before a package starts, verified on
+  the real runner, not locally.** This repo has three workflow files: `db.yml`,
+  `docs.yml`, and (P28) `liveness.yml` -- but only the first two are push/PR-gated, and
+  this rule is scoped to those two. `docs.yml` runs `make qa` and `make check-boundary` as
+  two separate steps -- different targets, and a green `make qa` says nothing about
+  whether `make check-boundary` (import-linter, `build/check_jurisdiction_names.py`, then
+  `qa_check.py` again) was ever run. Check the actual GitHub Actions run for the commit a
+  package starts from; a local re-run of the same commands is not the same evidence (this
+  session's own `pg_dump` version mismatch is exactly the kind of local/CI divergence that
+  makes "I ran it locally" insufficient). `docs.yml` was red for about a day, through five
+  packages, because nothing checked it before any of them started -- every `make qa GREEN`
+  report in that window was honest and real, for a narrower target than the one CI
+  actually gated on. `liveness.yml` is deliberately excluded from this precondition: it is
+  `schedule:`/`workflow_dispatch`-only, checking a third-party endpoint's uptime that no
+  commit in this repo can fix -- see `prompts/P28-liveness.md` section 2 for the full
+  argument. Check it when the work at hand actually touches ingest or a jurisdiction pack,
+  not as an unconditional gate on starting unrelated work.
 - **A delegated agent reports; it does not commit or push to `main` on its own.** The
   decision to commit, and the decision to push to shared `main`, stay with the session
   that dispatched it -- a push to shared `main` is exactly the kind of hard-to-reverse,

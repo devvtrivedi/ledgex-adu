@@ -123,7 +123,7 @@ def render_md():
              "would authorize a conclusion the licence does not support. I6 therefore "
              "gates every *touched* fact, not only every rendered fact.")
     p.append("")
-    p.append("### 1.2 Six make targets")
+    p.append("### 1.2 Seven make targets")
     p.append("")
     p.append(S.make_target_table_md())
     p.append("")

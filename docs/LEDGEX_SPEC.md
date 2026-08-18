@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.40
+# LedgeX / ADU.X — Engineering Reference Spec v1.41
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.40 | Machine-executed build contract. |
+| 1 | This Spec v1.41 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -89,22 +89,23 @@ I1–I10 preserve evidence, rights, refusal and geometry-degraded Base Core beha
 
 A fact used to resolve jurisdiction participates in composition even if it is not rendered. Letting unknown-rights `city_limits` pass internally would authorize a conclusion the licence does not support. I6 therefore gates every *touched* fact, not only every rendered fact.
 
-### 1.2 Six make targets
+### 1.2 Seven make targets
 
 | Target | Execution surface | Pass condition |
 |---|---|---|
 | **make check-boundary** | Jurisdiction-name grep, import-linter, public-to-commerce catalogue query, filesystem authority, no-graph and Track B no-render checks. | I1, I15, I17 and I19 pass; zero forbidden imports, FKs or derived authority. |
 | **make schema** | Apply every forward-only migration to an empty database. | Clean apply; constraints, functions and triggers compile. |
 | **make schema-dump** | Regenerate db/schema.sql from the applied database and compare the committed dump. | No diff; missing or stale generated DDL fails. |
-| **make conformance** | Real for one pack (P26, jurisdictions/ca_san_jose) -- schema validity plus every active source's licence/field_definition/expected_fields agreement with the live database. Mappings, rights broadening against Plan 2.1.4 Appendix K, dependency cascades and endpoint liveness are not yet checked. | The one real pack's checks pass; the exit code reflects only that. The four absent areas are named explicitly on every run, never silently counted as covered. |
+| **make conformance** | Real for one pack (P26, jurisdictions/ca_san_jose) -- schema validity plus every active source's licence/field_definition/expected_fields agreement with the live database. Mappings, rights broadening against Plan 2.1.4 Appendix K and dependency cascades are not yet checked (endpoint liveness moved to its own real gate, P28). | The one real pack's checks pass; the exit code reflects only that. The three absent areas are named explicitly on every run, never silently counted as covered. |
 | **make test** | core/model's real pytest suite (P21) -- review, entitlement, outcome observation, provider slot, edge guard and billing independence are not yet reachable; none of that scope exists in core/ or commerce/ yet. | core/model's suite passes; the exit code reflects only that. The absent areas are named explicitly on every run, never silently counted as covered. |
 | **make golden** | Normalized refused and geometry-disabled Base Core fixtures (P20, P25) -- composed and partial are not yet reachable; STANDING-BLOCKER.md. | Both refused-path and geometry-disabled-path outputs match their approved fixtures; the exit code reflects only those two checks. The two remaining classes are named explicitly on every run, never silently counted as covered. |
+| **make liveness** | Real for the pack's three active, ca_san_jose-owned sources (P28) -- a bounded-prefix GET per source (never a full ingest), checked against the raw key(s) each declared field_key depends on. Writes no snapshot row (not a fetch under C7 -- see scripts/check_liveness.py); writes a job_run row per source, using job_run.schema_drift for its own already-declared meaning. Scheduled (daily) plus workflow_dispatch, not push/pull_request-gated -- an external city endpoint has no SLA to this project (see prompts/P28-liveness.md section 2). | All three probed sources respond 200 with every declared field present in the checked prefix; the exit code reflects only that. Federal sources and non-active sources are named explicitly on every run, never silently counted as covered. |
 
 ## 15. Architecture Addendum A-1
 
 | Item | Title | Scope |
 |---|---|---|
-| **A-1.1** | Control recovery / canonical invariants | Canonical I1-I20, internal-fact licence-gate rationale and six make targets. |
+| **A-1.1** | Control recovery / canonical invariants | Canonical I1-I20, internal-fact licence-gate rationale and seven make targets. |
 | **A-1.2** | Evaluation-to-permit outcome loop | Immutable Track B evaluation-to-permit observations in commerce only. |
 | **A-1.3** | Validated footprint-provider slot | One validated footprint-provider slot; switching is controlled, never runtime fallback. No activation without approved measured-error evidence. |
 | **A-1.4** | Edge request guard | Edge infrastructure protection before entitlement and core/compose; rejection is HTTP 429, not a file outcome and not a fourth outcome. |
@@ -117,7 +118,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.40 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.41 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -1154,6 +1155,16 @@ make liveness                    # every active source responds with expected fi
 
 make liveness is also production monitoring. A city breaking is a failing test, not a support ticket.
 
+make liveness (P28, 1.41) runs scheduled (.github/workflows/liveness.yml: daily cron
+plus workflow_dispatch), not on push/pull_request, unlike the five gates above it.
+Gating every push on a third-party government endpoint's uptime would fail an
+unrelated commit for a reason nobody who pushed it can fix -- P27 recorded exactly
+this class of risk one layer down (an apt mirror, not a city server, but the same
+external-dependency shape) and CONVENTIONS.md's "every CI workflow must be green
+before a package starts" is scoped to the push/PR-gated workflows for the same reason.
+A failing scheduled run still shows up red in the Actions tab and still fails loudly --
+see prompts/P28-liveness.md section 2 for the full argument.
+
 No CI gate reads a knowledge graph. (I17) Every gate above resolves against the filesystem. This matters most for make
 check-boundary, which reads build/check_jurisdiction_names.py's blocklist directly against core/**/*.py on disk (plus
 .importlinter's real import-graph contracts) — a stale or partial graph would answer “no matches” for a violation
@@ -1794,7 +1805,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.40
+Engineering Reference Spec v1.41
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1855,7 +1866,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.40
+Engineering Reference Spec v1.41
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1886,7 +1897,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.40
+Engineering Reference Spec v1.41
 
 ## 9. Refusal and error codes
 
@@ -2907,6 +2918,23 @@ required to have a database row. Mappings, rights broadening against Plan
 
 as NOT yet checked, every run, same discipline make golden/make test already
 use.
+Aug 2026             1.41                 P28: make liveness real for the pack's three active, ca_san_jose-owned         P27's own incident (an external apt mirror
+sources -- scripts/check_liveness.py, a new scheduled-only                     stalling a push-gated job for 20 minutes) argued
+.github/workflows/liveness.yml (daily cron plus workflow_dispatch,             directly against gating every push on a third-
+deliberately NOT push/pull_request-gated), and a new liveness: Makefile        party government endpoint with no SLA to this
+target. A bounded-prefix GET (256 KiB cap, never a full ingest) checked        project -- an unrelated commit would fail for a
+against the raw key each declared field_key depends on. Writes no snapshot     reason nobody who pushed it could fix. P12's
+row -- not a fetch under C7, since it never captures a complete artifact to    earlier rejection of "scheduled, non-blocking"
+correctly content-address. Writes a job_run row per source using               does not transfer unchanged: that finding was
+job_run.schema_drift for its own already-declared meaning ("fields expected    about an internal regression silently persisting
+but missing", 0051) -- the first real writer that column has had. Section      because nothing required looking at it; this
+6.4's own CI-gates text and section 1.2's table (now seven make targets, not   checks an external cause no commit here can fix,
+six) both updated. CONVENTIONS.md's "this repo has two workflows" corrected    and a failing scheduled run still shows up red in
+to three, "must be green before a package starts" scoped to the push/PR-gated  the Actions tab. Proven on real live endpoints,
+two.                                                                           not simulated: a deliberately wrong endpoint (HTTP
+400) and one declared field silently required-but-
+absent each failed red, independently, reverted
+after.
 
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

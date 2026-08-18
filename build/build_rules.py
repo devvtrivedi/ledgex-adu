@@ -70,7 +70,7 @@ def render_md():
     p.append("")
     p.append(S.invariant_table_md())
     p.append("")
-    p.append("## 2. Six make targets")
+    p.append("## 2. Seven make targets")
     p.append("")
     p.append("A target name without execution scope and a pass condition is not a "
              "definition of done.")
