@@ -73,7 +73,6 @@ jobs:
       - name: Install postgresql-client-16
         timeout-minutes: 5
         run: |
-          sleep 400  # P27 DELIBERATE BREAK -- proving the 5-minute step timeout fires; reverted next commit
           sudo apt-get update
           sudo apt-get install -y postgresql-client-16
           "$PSQL" --version
