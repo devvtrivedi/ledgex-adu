@@ -96,6 +96,7 @@ LIVENESS_FIELD_CHECKS = {
         "parcel.apn": geojson_property("APN"),                    # ingest_parcels.py: props.get("APN")
         "parcel.geometry": geojson_geometry_structural(),         # ingest_parcels.py: feat["geometry"], GeoJSON structural member
         "parcel.source_parcel_id": geojson_property("PARCELID"),  # ingest_parcels.py: props.get("PARCELID")
+        "parcel.NONEXISTENT_FIELD_P28_RED_PROOF": geojson_property("TOTALLY_MADE_UP_PROPERTY_NAME"),  # P28 DELIBERATE BREAK -- proving liveness.yml fails red on the real runner; reverted next commit
     },
     izp.SOURCE_ID_ZONING: {
         "zoning.district": geojson_property("ZONING"),                    # ingest_zoning_permits.py: props.get("ZONING")
