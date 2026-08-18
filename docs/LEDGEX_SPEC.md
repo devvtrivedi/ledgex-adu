@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.39
+# LedgeX / ADU.X — Engineering Reference Spec v1.40
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.39 | Machine-executed build contract. |
+| 1 | This Spec v1.40 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -96,7 +96,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 | **make check-boundary** | Jurisdiction-name grep, import-linter, public-to-commerce catalogue query, filesystem authority, no-graph and Track B no-render checks. | I1, I15, I17 and I19 pass; zero forbidden imports, FKs or derived authority. |
 | **make schema** | Apply every forward-only migration to an empty database. | Clean apply; constraints, functions and triggers compile. |
 | **make schema-dump** | Regenerate db/schema.sql from the applied database and compare the committed dump. | No diff; missing or stale generated DDL fails. |
-| **make conformance** | Parameterized pack suite for sources, mappings, rights, dependency cascades and endpoint liveness. | Every enabled pack passes; no rights broadening or silent missing dependency. |
+| **make conformance** | Real for one pack (P26, jurisdictions/ca_san_jose) -- schema validity plus every active source's licence/field_definition/expected_fields agreement with the live database. Mappings, rights broadening against Plan 2.1.4 Appendix K, dependency cascades and endpoint liveness are not yet checked. | The one real pack's checks pass; the exit code reflects only that. The four absent areas are named explicitly on every run, never silently counted as covered. |
 | **make test** | core/model's real pytest suite (P21) -- review, entitlement, outcome observation, provider slot, edge guard and billing independence are not yet reachable; none of that scope exists in core/ or commerce/ yet. | core/model's suite passes; the exit code reflects only that. The absent areas are named explicitly on every run, never silently counted as covered. |
 | **make golden** | Normalized refused and geometry-disabled Base Core fixtures (P20, P25) -- composed and partial are not yet reachable; STANDING-BLOCKER.md. | Both refused-path and geometry-disabled-path outputs match their approved fixtures; the exit code reflects only those two checks. The two remaining classes are named explicitly on every run, never silently counted as covered. |
 
@@ -117,7 +117,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.39 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.40 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -164,7 +164,16 @@ ledgex/
 ├── commerce/                                      ← orders, disclosure, payment. §13. Currently an
 │                                                     empty scaffold, same reason as core/ above.
 │                                                     May import core/model. Never imported by core.
-├── jurisdictions/
+├── jurisdictions/                                 ← P26: _schema/ and ca_san_jose/ hold real
+│                                                     content now (sources.yaml, licences.yaml,
+│                                                     their JSON Schemas) -- the source-property-
+│                                                     to-field_key mapping (field_map.yaml) does
+│                                                     NOT: its own file format has no drafted
+│                                                     shape anywhere in this spec, unlike sources/
+│                                                     licences, and moving the loaders' real,
+│                                                     working mapping logic out of scripts/ is a
+│                                                     separate, later package (regression risk to
+│                                                     working code, reported not absorbed).
 │     ├── _schema/                                 JSON Schema for every pack file
 │     ├── ca_state/                                adu.yaml, sb9.yaml
 │     ├── ca_santa_clara_county/
@@ -1260,7 +1269,10 @@ licence: cc_by_4_0                      # CONFIRMED by audit; Plan App K active
 phase_status: active
 phase_status_reason: "CC BY confirmed; attribution attached automatically."
 cadence_stated: "weekly, Mondays"
-supplies: [parcel.apn, parcel.geometry, parcel.lot_area_gis, parcel.situs_address]
+supplies: [parcel.apn, parcel.geometry, parcel.source_parcel_id]   # corrected 1.40, P26 --
+# see 0026/0035 and jurisdictions/ca_san_jose/sources.yaml's own header
+# comment. lot_area_gis/situs_address: confirmed absent from the real
+# GeoJSON feature set (Phase C); source_parcel_id: added later (0035).
 url_verified_at: null
 
 - id: ca_san_jose.zoning_districts
@@ -1782,7 +1794,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.39
+Engineering Reference Spec v1.40
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1843,7 +1855,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.39
+Engineering Reference Spec v1.40
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1874,7 +1886,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.39
+Engineering Reference Spec v1.40
 
 ## 9. Refusal and error codes
 
@@ -2873,6 +2885,29 @@ the new geometry_disabled.json now carry two refusals each
 (GEOMETRY_TIER_DISABLED, RIGHTS_BLOCKED), asserted positively by name, not
 merely via the full-object compare.
 
+Aug 2026             1.40                 jurisdictions/_schema/{sources,licences}.schema.json and                       P26. Real drift between section 7.1's own text and
+jurisdictions/ca_san_jose/{sources,licences}.yaml -- the first real content    the live, corrected database found and fixed while
+under jurisdictions/. YAML confirmed, not inferred, from section 2's own       building the pack, not hypothetical -- the exact
+ca_state/ file names (adu.yaml, sb9.yaml). Format and one real pack only --    class of risk this package's own design question
+explicitly NOT rewiring scripts/ingest_parcels.py's or                         (what stops the pack and the seed disagreeing) asked
+scripts/ingest_zoning_permits.py's own working, CI-gated field-key mapping     about. RED-proven on the real runner: a field_key
+into a pack file; field_map.yaml's own content format has no drafted shape     absent from field_definition, planted in the pack,
+anywhere in this spec (unlike sources.yaml/licences.yaml, both fully drafted   confirmed red, reverted.
+in section 7.1/7.2 already) and moving working code is a separate, later
+package. Building the pack surfaced a real drift: section 7.1's own parcels
+supplies: list predated migrations 0026/0035 and disagreed with the live,
+corrected source.expected_fields -- corrected in both section 7.1 (this row)
+and the new pack file, with the same correction noted in each. make
+conformance real for this one pack: schema validity plus every active,
+ca_san_jose-owned source's licence/field_definition/expected_fields agreement
+with the live database, scoped to active sources only -- 21 of this pack's
+own 26 sources are blocked/deferred/excluded, declared for completeness, not
+required to have a database row. Mappings, rights broadening against Plan
+### 2.1.4 Appendix K, dependency cascades and endpoint liveness named explicitly
+
+as NOT yet checked, every run, same discipline make golden/make test already
+use.
+
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
 Review” → “Composition &                review stage.
@@ -3530,4 +3565,4 @@ These checks are required and not asserted complete by this PDF. Record CI outpu
 
 ---
 
-*Generated 2026-08-17 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*
+*Generated 2026-08-18 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*

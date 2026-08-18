@@ -1,0 +1,372 @@
+# jurisdictions/ca_san_jose/sources.yaml (P26)
+#
+# Content is SPEC.md §7.1, transcribed, with ONE correction reported here,
+# not silently: the parcels source's own `supplies:` list below is
+# `[parcel.apn, parcel.geometry, parcel.source_parcel_id]`, not §7.1's
+# literal `[parcel.apn, parcel.geometry, parcel.lot_area_gis,
+# parcel.situs_address]`. §7.1 predates two real, database-verified
+# corrections: migration 0026 (scripts/ingest_parcels.py's own Phase C
+# inspection of the real ~210MB GeoJSON, 225,039 features, found NEITHER
+# lot_area_gis nor situs_address anywhere in the feature set -- both are
+# now phase1_deferred in field_definition, not supplied) and migration
+# 0035 (parcel.source_parcel_id / PARCELID added, confirmed unique and
+# fully populated). db/seeds/day4_sources.sql and the live
+# source.expected_fields column already carry the corrected list; this
+# pack now agrees with them, not with §7.1's un-updated draft -- see
+# prompts/P26-jurisdictions-pack-format.md for the discovery and the
+# spec-text fix landed alongside this file. Every other entry below is
+# unmodified §7.1 content -- most of it describes sources with no database
+# row at all yet (blocked_rights, deferred, excluded), declared here so
+# the gap is a recorded decision, not an oversight (§7.1's own words).
+#
+# make conformance validates this file for real, scoped to phase_status:
+# active entries only -- see scripts/check_conformance.py's own module
+# docstring for exactly what is and is not checked, and why.
+
+jurisdiction: ca_san_jose
+pack_version: "ca_san_jose@0.1.0"
+
+portals:
+  gis_open_data: "https://gisdata-csj.opendata.arcgis.com/"   # TODO-VERIFY
+  data_portal: "https://data.sanjoseca.gov/"                  # TODO-VERIFY
+
+sources:
+  # ---- City of San José ----
+  - id: ca_san_jose.parcels
+    display_name: Parcels
+    steward: City of San José
+    method: bulk
+    licence: cc_by_4_0                    # CONFIRMED by audit; Plan App K active
+    phase_status: active
+    phase_status_reason: "CC BY confirmed; attribution attached automatically."
+    cadence_stated: "weekly, Mondays"
+    # Corrected from §7.1's own draft -- see this file's own header comment.
+    supplies: [parcel.apn, parcel.geometry, parcel.source_parcel_id]
+    url_verified_at: "2026-08-06"
+
+  - id: ca_san_jose.zoning_districts
+    display_name: Zoning Districts
+    steward: City of San José
+    method: bulk
+    licence: cc_by_4_0                    # CONFIRMED by audit; Plan App K active
+    phase_status: active
+    phase_status_reason: "CC BY confirmed; attribution attached automatically."
+    cadence_stated: "weekly, Mondays"
+    supplies: [zoning.district, zoning.district_verbatim]
+    url_verified_at: "2026-08-06"
+
+  - id: ca_san_jose.building_permits_active
+    display_name: Active Building Permits
+    steward: City of San José
+    method: bulk
+    licence: cc0                          # CONFIRMED -- strongest position in the stack
+    phase_status: active
+    phase_status_reason: "CC0 confirmed; no restriction. Basis of the tier 1 posture (coverage and cadence, not fetch mode)."
+    cadence_stated: "daily"
+    earliest_record_date: null            # MUST BE MEASURED -- gates record_to_ground
+    supplies: [permits.active, permits.series_earliest]
+    url_verified_at: "2026-08-06"
+
+  - id: ca_san_jose.building_permits_under_inspection
+    display_name: Building Permits Under Inspection
+    steward: City of San José
+    method: direct
+    licence: sj_portal_terms              # CONFIRM PER RESOURCE -- LD-2
+    phase_status: blocked_rights
+    phase_status_reason: "Portal terms unconfirmed. Default deny. Plan App K: blocked."
+    cadence_stated: "daily"
+    supplies: [permits.under_inspection]
+    url_verified_at: null
+
+  - id: ca_san_jose.planning_permits
+    display_name: "Planning Permits (30-day and 60-180-day series)"
+    steward: City of San José
+    method: direct
+    licence: sj_portal_terms              # CONFIRM PER RESOURCE -- LD-2
+    phase_status: blocked_rights
+    phase_status_reason: "Portal terms unconfirmed. Default deny. Plan App K: blocked."
+    cadence_stated: "rolling window"
+    notes: "A rolling window is not a history. Accumulate from first ingest; show the gap."
+    supplies: [planning.permit_history]
+    url_verified_at: null
+
+  - id: ca_san_jose.city_limits
+    display_name: City limits / jurisdiction boundary
+    steward: City of San José
+    method: direct
+    licence: unknown                      # LD-1 -- BLOCKS EVERYTHING. See §1.1.
+    phase_status: blocked_rights
+    phase_status_reason: >-
+      Licence not observed. Supplies the L0 gate, so under I6 this blocks ALL
+      channels including free_snapshot. Launch dependency LD-1. Plan App K:
+      "Blocked for paid output -- required for the jurisdiction gate; confirm licence."
+    notes: "L0 gate. Cross-checked against county boundary; disagreement refuses."
+    supplies: [jurisdiction.incorporated]
+    url_verified_at: null
+
+  - id: ca_san_jose.general_plan
+    display_name: General Plan Land Use (Envision San José 2040)
+    steward: City of San José
+    method: direct
+    licence: unknown                      # CONFIRM PER RESOURCE -- LD-3
+    phase_status: blocked_rights
+    phase_status_reason: >-
+      The audit's CC BY confirmation covers Parcels and Zoning Districts
+      specifically. This resource is unconfirmed. Plan App K: blocked, confirm.
+    supplies: [zoning.general_plan_designation]
+    url_verified_at: null
+
+  - id: ca_san_jose.urban_villages
+    display_name: Urban Village / plan-area boundaries
+    steward: City of San José
+    method: direct
+    licence: unknown                      # LD-3
+    phase_status: blocked_rights
+    phase_status_reason: "Unconfirmed. Plan App K: blocked, confirm; may override zoning."
+    notes: "San José-specific. Village plan areas can override base zoning standards."
+    supplies: [overlay.urban_village]
+    url_verified_at: null
+
+  - id: ca_san_jose.overlays
+    display_name: "Specific plans, planned development, historic, conservation overlays"
+    steward: City of San José
+    method: direct
+    licence: unknown                      # LD-3
+    phase_status: blocked_rights
+    phase_status_reason: "Unconfirmed. Plan App K: blocked, confirm."
+    supplies: [overlay.specific_plan, overlay.planned_development, overlay.historic]
+    url_verified_at: null
+
+  - id: ca_san_jose.code_enforcement
+    display_name: Code enforcement cases
+    steward: City of San José
+    method: portal
+    licence: unknown
+    phase_status: not_machine_readable
+    phase_status_reason: >-
+      No documented machine-readable series found. Field is OMITTED with reason
+      SOURCE_NOT_MACHINE_READABLE. It is never looked up by hand (I13).
+      Consequence: one corroborating signal for record-to-ground is unavailable.
+    active: false                         # I14: portal sources can never be active
+    supplies: [ordinance.code_enforcement]
+    url_verified_at: null
+
+  - id: ca_san_jose.fee_schedules
+    display_name: "Development, impact and permit fee schedules"
+    steward: City of San José
+    method: manual
+    licence: unknown
+    phase_status: not_machine_readable
+    phase_status_reason: >-
+      Published as documents, not a feed. Fee VALUES live in the rule pack
+      (rules/fees.yaml) as dated, cited parameters authored and reviewed at build
+      time -- NOT fetched per request. This is a RULE, not a source. Re-authoring on
+      a fee change is a pack commit, not a runtime human step.
+    active: false
+    supplies: []                          # v1.2: supplies nothing. cost.city_fees
+                                           # comes from the rule pack via L5, not L1.
+    url_verified_at: null
+
+  # ---- Santa Clara County ----
+  - id: ca_santa_clara_county.parcels
+    display_name: County parcels
+    steward: Santa Clara County
+    method: direct
+    licence: unknown
+    phase_status: blocked_rights
+    phase_status_reason: >-
+      Plan App K: "Internal cross-check only; paid output blocked pending licence
+      confirmation." Export cadence is not factual freshness (Audit §B, M-04).
+    cadence_stated: "annual, around August"
+    supplies: [parcel.apn_county, parcel.geometry_county]
+    url_verified_at: null
+
+  - id: ca_santa_clara_county.hazards
+    display_name: "Geologic, flood, fire and habitat hazard layers"
+    steward: Santa Clara County
+    method: direct
+    licence: unknown                      # LD-3
+    phase_status: blocked_rights
+    phase_status_reason: "Plan App K: 'County hazard layers -- Blocked, confirm licence.'"
+    supplies: [hazard.liquefaction, hazard.landslide, hazard.fault, hazard.habitat_plan]
+    url_verified_at: null
+
+  - id: ca_santa_clara_county.assessor
+    display_name: Assessor characteristics and assessed value
+    steward: Santa Clara County Assessor
+    method: portal
+    licence: unknown
+    phase_status: not_machine_readable
+    phase_status_reason: >-
+      Portal lookup only. Assessor characteristics are OMITTED unless a
+      machine-readable route is confirmed. The ~$52,535 FY25 paid combination is
+      EXCLUDED from the Phase 1 stack (M-06, Plan §16) and is a static file, not an
+      API, so it would not solve this either.
+    active: false
+    supplies: [property.year_built, property.sqft, property.beds, property.baths, tax.assessed_value, tax.annual_tax]
+    url_verified_at: null
+
+  - id: ca_santa_clara_county.recorder
+    display_name: "Clerk-Recorder -- ownership, sales, recorded maps"
+    steward: Santa Clara County Clerk-Recorder
+    method: manual
+    licence: unknown
+    phase_status: not_machine_readable
+    phase_status_reason: >-
+      Per-parcel manual lookup. Ownership, sale history and recorded maps are
+      OMITTED. Consequence: derived.sb9_eligibility must REFUSE on the
+      prior-lot-split disqualifier rather than assume no prior split.
+      Recorded in refusals.yaml.
+    active: false
+    supplies: [ownership.current, ownership.sale_history, legal.recorded_maps]
+    url_verified_at: null
+
+  # ---- EXCLUDED: recorded so the exclusion is a decision, not an oversight ----
+  - id: ca_santa_clara_county.building_footprints
+    display_name: County building footprints
+    steward: Santa Clara County
+    method: direct
+    licence: sanborn_asserted
+    phase_status: excluded
+    phase_status_reason: >-
+      Layer identifies Sanborn Map Company rights (M-05). REMOVED FROM THE STACK
+      ENTIRELY, not merely gated. Do not re-enable without written County clearance.
+    active: false
+    excluded: true
+    url_verified_at: null
+    supplies: []
+
+  # ---- Federal / state, reusable across all future CA jurisdictions ----
+  - id: us_fema.nfhl
+    display_name: FEMA National Flood Hazard Layer
+    steward: FEMA
+    method: direct
+    licence: us_gov_open
+    phase_status: active
+    phase_status_reason: "Federal open data. Plan App K: open sources active."
+    supplies: [hazard.flood_zone]
+    url_verified_at: null
+
+  - id: us_nrcs.soil_survey
+    display_name: NRCS soil survey
+    steward: USDA NRCS
+    method: direct
+    licence: us_gov_open
+    phase_status: active
+    phase_status_reason: "Federal open data. Plan App K: open sources active."
+    supplies: [hazard.soil_type]
+    url_verified_at: null
+
+  - id: us_usgs.3dep
+    display_name: USGS 3DEP lidar
+    steward: USGS
+    method: bulk
+    licence: usgs_3dep_open               # free, no use restrictions (M-14)
+    phase_status: blocked_engineering
+    phase_status_reason: >-
+      Rights are clear; ACCURACY IS NOT. Coverage, extraction repeatability and
+      measured error are pending. The rights gate and the engineering gate are
+      DIFFERENT GATES and must not be conflated. Launch dependency LD-4.
+    active: false
+    supplies: [geometry.building_footprint, geometry.slope, geometry.elevation]
+    url_verified_at: null
+
+  - id: ca_dtsc.envirostor
+    display_name: DTSC EnviroStor / Cortese List
+    steward: California DTSC
+    method: direct
+    licence: unknown                      # LD-3
+    phase_status: blocked_rights
+    phase_status_reason: >-
+      Plan App K: "unconfirmed sources blocked from paid output." Spec v1.1's §7.3
+      summary said 'Yes' -- that table is deleted in v1.2 as a second normative
+      source.
+    supplies: [hazard.contamination_sites]
+    url_verified_at: null
+
+  - id: ca_cslb.licence_lookup
+    display_name: CSLB contractor licence lookup
+    steward: California CSLB
+    method: direct
+    licence: unknown                      # LD-3
+    phase_status: blocked_rights
+    phase_status_reason: "Unconfirmed. Plan App K: blocked from paid output."
+    supplies: [contractor.licence_status]
+    url_verified_at: null
+
+  # ---- DEFERRED for Phase 1 -- real, known, out of scope. See §7.4. ----
+  - id: ca_valley_water.creek_jurisdiction
+    display_name: "Valley Water creek, riparian and flood-protection jurisdiction"
+    steward: Santa Clara Valley Water District
+    method: direct
+    licence: unknown
+    phase_status: deferred
+    phase_status_reason: >-
+      Checklist §3 names this San José-specific and "frequently decisive": creek
+      setbacks and encroachment permits can eliminate a rear-yard ADU site that
+      zoning would otherwise allow. Access mode and terms unconfirmed. DEFERRED.
+      Field is a declared coverage gap; rear-yard conclusions carry a stated caveat.
+    active: false
+    supplies: [hazard.creek_jurisdiction]
+    url_verified_at: null
+
+  - id: ca_scc_aluc.airport_influence
+    display_name: "Airport influence and safety areas -- Mineta San José, Reid-Hillview"
+    steward: Santa Clara County Airport Land Use Commission
+    method: direct
+    licence: unknown
+    phase_status: deferred
+    phase_status_reason: >-
+      Blueprint §08 names this one of the five San José irregularities the pack
+      format exists to absorb; Checklist §15 calls it a genuine differentiator.
+      Two airports with influence areas over dense residential neighbourhoods;
+      height and in some zones residential intensity are constrained. DEFERRED --
+      declared coverage gap, and height-dependent conclusions carry a stated caveat.
+    active: false
+    supplies: [overlay.airport_influence]
+    url_verified_at: null
+
+  - id: ca_calfire.fhsz
+    display_name: "CAL FIRE Fire Hazard Severity Zones (SRA / LRA) and WUI"
+    steward: CAL FIRE
+    method: direct
+    licence: unknown
+    phase_status: deferred
+    phase_status_reason: >-
+      San José is predominantly LRA with VHFHSZ and WUI exposure in the eastern and
+      southern foothills. Checklist §3 requires confirming the currently ADOPTED
+      CITY map, not only the state layer -- that confirmation is not done. DEFERRED.
+    active: false
+    supplies: [hazard.fire_severity]
+    url_verified_at: null
+
+  - id: ca_san_jose.water_retailers
+    display_name: Retail water service areas and sanitary sewer authority
+    steward: "Multiple -- municipal, investor-owned and mutual utilities"
+    method: direct
+    licence: unknown
+    phase_status: deferred
+    phase_status_reason: >-
+      Blueprint §08: "utility provider is not a city-level constant." Which retailer
+      serves a parcel is a SPATIAL LOOKUP, and connection fees, meter rules and
+      will-serve processes differ by retailer. A single-provider assumption produces
+      wrong cost numbers on a meaningful share of parcels. No consolidated
+      machine-readable service-area layer identified. DEFERRED.
+    active: false
+    supplies: [utility.water_provider, utility.sewer_authority, utility.separate_meter_required]
+    url_verified_at: null
+
+  - id: ca_scc_schools.attendance_boundaries
+    display_name: School district attendance boundaries
+    steward: "Multiple districts; County Office of Education; NCES"
+    method: direct
+    licence: unknown
+    phase_status: deferred
+    phase_status_reason: >-
+      Checklist §11: San José is served by many separate elementary, union and high
+      school districts whose boundaries do not follow city limits. Many stewards,
+      differing formats and cadences for one city. DEFERRED -- also gates the
+      school-impact-fee input.
+    active: false
+    supplies: [school.attendance_boundary]
+    url_verified_at: null

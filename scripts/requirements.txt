@@ -9,3 +9,11 @@ ijson
 # this is the only Python requirements file in the repo, and pip-installing
 # it is already the documented way to get a working environment.
 import-linter
+
+# Not an ingest-script dependency either -- used by `make conformance`
+# (scripts/check_conformance.py, P26): PyYAML to read jurisdictions/*/*.yaml
+# pack files, jsonschema to validate them against jurisdictions/_schema/.
+# Same reasoning as import-linter above -- tracked here because this is
+# still the one requirements file every dev/CI environment already installs.
+PyYAML
+jsonschema

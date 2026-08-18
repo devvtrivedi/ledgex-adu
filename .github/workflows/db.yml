@@ -162,6 +162,22 @@ jobs:
       - name: make test
         run: make test TEST_DATABASE_URL="$DATABASE_URL" PYTHON=python3
 
+      # P26: real for one pack (jurisdictions/ca_san_jose) -- same reasoning
+      # as golden/test above, no new job. Self-seeds its own reference rows
+      # (scripts/check_conformance.py's own seed_reference_rows(), ON
+      # CONFLICT DO UPDATE for the source rows specifically -- found for
+      # real that scripts/check_golden.py's own, narrower seed above already
+      # inserts a ca_san_jose.parcels row with no expected_fields, and a
+      # plain DO NOTHING here would silently lose to it depending on step
+      # order; see that function's own docstring), so it needs no seed step
+      # of its own despite this job never running db/seeds/. Exit code here
+      # means ONLY that this one real pack's checks passed -- see the
+      # Makefile's own conformance: target comment and check_conformance.py's
+      # own module docstring for the four areas §1.2 lists that this does
+      # not yet check.
+      - name: make conformance
+        run: make conformance DATABASE_URL="$DATABASE_URL" PYTHON=python3
+
       # Spec §1.2 make schema-dump: "No diff; missing or stale generated DDL
       # fails." Regenerates db/schema.sql from the now-migrated (and
       # db-tested, though schema-only means test data doesn't affect this)

@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.39
+ Engineering Reference Spec v1.40
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.39                                       Machine-executed build contract.
+   1        This Spec v1.40                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -204,7 +204,16 @@ ledgex/
 ├── commerce/                                      ← orders, disclosure, payment. §13. Currently an
 │                                                     empty scaffold, same reason as core/ above.
 │                                                     May import core/model. Never imported by core.
-├── jurisdictions/
+├── jurisdictions/                                 ← P26: _schema/ and ca_san_jose/ hold real
+│                                                     content now (sources.yaml, licences.yaml,
+│                                                     their JSON Schemas) -- the source-property-
+│                                                     to-field_key mapping (field_map.yaml) does
+│                                                     NOT: its own file format has no drafted
+│                                                     shape anywhere in this spec, unlike sources/
+│                                                     licences, and moving the loaders' real,
+│                                                     working mapping logic out of scripts/ is a
+│                                                     separate, later package (regression risk to
+│                                                     working code, reported not absorbed).
 │     ├── _schema/                                 JSON Schema for every pack file
 │     ├── ca_state/                                adu.yaml, sb9.yaml
 │     ├── ca_santa_clara_county/
@@ -1278,7 +1287,10 @@ sources:
     phase_status: active
     phase_status_reason: "CC BY confirmed; attribution attached automatically."
     cadence_stated: "weekly, Mondays"
-    supplies: [parcel.apn, parcel.geometry, parcel.lot_area_gis, parcel.situs_address]
+    supplies: [parcel.apn, parcel.geometry, parcel.source_parcel_id]   # corrected 1.40, P26 --
+    # see 0026/0035 and jurisdictions/ca_san_jose/sources.yaml's own header
+    # comment. lot_area_gis/situs_address: confirmed absent from the real
+    # GeoJSON feature set (Phase C); source_parcel_id: added later (0035).
     url_verified_at: null
 
   - id: ca_san_jose.zoning_districts
@@ -1800,7 +1812,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.39
+                     Engineering Reference Spec v1.40
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1861,7 +1873,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.39
+                   Engineering Reference Spec v1.40
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1890,7 +1902,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.39
+                Engineering Reference Spec v1.40
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -2871,6 +2883,28 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              the new geometry_disabled.json now carry two refusals each
                                              (GEOMETRY_TIER_DISABLED, RIGHTS_BLOCKED), asserted positively by name, not
                                              merely via the full-object compare.
+
+   Aug 2026             1.40                 jurisdictions/_schema/{sources,licences}.schema.json and                       P26. Real drift between section 7.1's own text and
+                                             jurisdictions/ca_san_jose/{sources,licences}.yaml -- the first real content    the live, corrected database found and fixed while
+                                             under jurisdictions/. YAML confirmed, not inferred, from section 2's own       building the pack, not hypothetical -- the exact
+                                             ca_state/ file names (adu.yaml, sb9.yaml). Format and one real pack only --    class of risk this package's own design question
+                                             explicitly NOT rewiring scripts/ingest_parcels.py's or                         (what stops the pack and the seed disagreeing) asked
+                                             scripts/ingest_zoning_permits.py's own working, CI-gated field-key mapping     about. RED-proven on the real runner: a field_key
+                                             into a pack file; field_map.yaml's own content format has no drafted shape     absent from field_definition, planted in the pack,
+                                             anywhere in this spec (unlike sources.yaml/licences.yaml, both fully drafted   confirmed red, reverted.
+                                             in section 7.1/7.2 already) and moving working code is a separate, later
+                                             package. Building the pack surfaced a real drift: section 7.1's own parcels
+                                             supplies: list predated migrations 0026/0035 and disagreed with the live,
+                                             corrected source.expected_fields -- corrected in both section 7.1 (this row)
+                                             and the new pack file, with the same correction noted in each. make
+                                             conformance real for this one pack: schema validity plus every active,
+                                             ca_san_jose-owned source's licence/field_definition/expected_fields agreement
+                                             with the live database, scoped to active sources only -- 21 of this pack's
+                                             own 26 sources are blocked/deferred/excluded, declared for completeness, not
+                                             required to have a database row. Mappings, rights broadening against Plan
+                                             2.1.4 Appendix K, dependency cascades and endpoint liveness named explicitly
+                                             as NOT yet checked, every run, same discipline make golden/make test already
+                                             use.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

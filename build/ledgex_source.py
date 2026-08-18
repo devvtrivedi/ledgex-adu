@@ -13,7 +13,7 @@ Invariant I17: these strings are authoritative only when read verbatim from the
 filesystem. Change the text HERE, once, then regenerate both artifacts.
 """
 
-SPEC_VERSION = "1.39"
+SPEC_VERSION = "1.40"
 RULES_VERSION = "1.4"
 PHASE = "Phase 1, Step 1 - City of San Jose"
 REVISION_DATE = "August 2026"
@@ -131,10 +131,14 @@ MAKE_TARGETS = [
      "committed dump.",
      "No diff; missing or stale generated DDL fails."),
     ("make conformance",
-     "Parameterized pack suite for sources, mappings, rights, dependency "
-     "cascades and endpoint liveness.",
-     "Every enabled pack passes; no rights broadening or silent missing "
-     "dependency."),
+     "Real for one pack (P26, jurisdictions/ca_san_jose) -- schema validity "
+     "plus every active source's licence/field_definition/expected_fields "
+     "agreement with the live database. Mappings, rights broadening "
+     "against Plan 2.1.4 Appendix K, dependency cascades and endpoint "
+     "liveness are not yet checked.",
+     "The one real pack's checks pass; the exit code reflects only that. "
+     "The four absent areas are named explicitly on every run, never "
+     "silently counted as covered."),
     ("make test",
      "core/model's real pytest suite (P21) -- review, entitlement, outcome "
      "observation, provider slot, edge guard and billing independence are "

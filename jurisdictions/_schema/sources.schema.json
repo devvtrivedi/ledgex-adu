@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ledgex.internal/schema/sources.schema.json",
+  "title": "LedgeX source pack (P26)",
+  "description": "Every jurisdictions/<pack>/sources.yaml validates against this. Field shapes mirror db/schema.sql's real source/field_definition tables directly, not an independently-invented shape -- see prompts/P26-jurisdictions-pack-format.md for the full argument. supplies: is this file's own name for what the live schema calls source.expected_fields (jsonb array) -- same list, different name because 'supplies' reads better in a source-authored-by-a-human pack file than the database's own storage-shaped column name.",
+  "type": "object",
+  "required": ["jurisdiction", "pack_version", "sources"],
+  "additionalProperties": false,
+  "properties": {
+    "jurisdiction": {
+      "type": "string",
+      "description": "Must equal a real jurisdiction.id row -- checked by make conformance, not by this schema alone (JSON Schema cannot see the database)."
+    },
+    "pack_version": {
+      "type": "string",
+      "pattern": "^[a-z0-9_]+@[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "\"<jurisdiction>@<semver>\" -- §7.1's own literal example is \"ca_san_jose@0.1.0\". Deliberately NOT the same value as jurisdiction.pack_version in the database (currently 'v1.0', a different, coarser versioning scheme for a different column) -- not conflated here."
+    },
+    "portals": {
+      "type": "object",
+      "description": "Human-facing landing pages, informational only -- never read by any loader or conformance check. Not source endpoints (those live per-source, in each source's own endpoint_url).",
+      "additionalProperties": { "type": "string", "format": "uri" }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/source" }
+    }
+  },
+  "$defs": {
+    "source": {
+      "type": "object",
+      "required": ["id", "display_name", "steward", "method", "licence", "phase_status", "phase_status_reason", "supplies"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Must equal a real source.id row when phase_status is 'active' -- checked by make conformance. Non-active entries may name a source with no database row yet (declared, not fabricated -- §7.1's own 'recorded so the exclusion is a decision, not an oversight')."
+        },
+        "display_name": { "type": "string" },
+        "steward": { "type": "string" },
+        "method": {
+          "type": "string",
+          "enum": ["direct", "bulk", "portal", "manual", "derived"],
+          "description": "Mirrors the live access_method enum (0001) exactly -- five values, not independently chosen."
+        },
+        "licence": {
+          "type": "string",
+          "description": "Must name an id declared in this pack's own sibling licences.yaml. Must equal a real licence.id row when phase_status is 'active' -- checked by make conformance."
+        },
+        "phase_status": {
+          "type": "string",
+          "enum": ["active", "blocked_rights", "blocked_engineering", "not_machine_readable", "deferred", "excluded"],
+          "description": "Mirrors the live source_phase_status enum (0001) exactly."
+        },
+        "phase_status_reason": { "type": "string", "minLength": 1 },
+        "cadence_stated": { "type": "string" },
+        "earliest_record_date": { "type": ["string", "null"], "format": "date" },
+        "supplies": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "field_key values this source provides -- source.expected_fields, by this file's own name for it. Every entry must exist in field_definition, and the full list must exactly match the live source row's expected_fields, when phase_status is 'active' -- both checked by make conformance, neither checkable by JSON Schema alone."
+        },
+        "url_verified_at": { "type": ["string", "null"], "format": "date" },
+        "active": {
+          "type": "boolean",
+          "description": "Only ever meaningfully false here -- I14: portal/manual sources can never be active (source_active_requires_machine_access). A source pack entry does not itself activate anything; the live source.active column is the only runtime authority (§7.3)."
+        },
+        "excluded": {
+          "type": "boolean",
+          "description": "true only for phase_status: excluded entries -- a source removed from the stack entirely (e.g. Sanborn-encumbered county building footprints), not merely gated. Redundant with phase_status: excluded by construction; kept as its own field because §7.1's own drafted text uses it that way."
+        },
+        "notes": { "type": "string" }
+      }
+    }
+  }
+}

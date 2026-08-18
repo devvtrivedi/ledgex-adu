@@ -307,13 +307,18 @@ db-test:
 
 # Parameterized pack suite for sources, mappings, rights and dependency
 # cascades. Spec §1.2 make conformance: "Every enabled pack passes; no
-# rights broadening or silent missing dependency." Fails rather than
-# reporting a pass: no conformance packs exist in this repo yet, and a
-# target that exits 0 having run nothing is indistinguishable from a target
-# that ran everything and it all passed -- the same defect test and golden
-# were already fixed for. Must keep failing until real packs back it.
+# rights broadening or silent missing dependency." P26: real for the one
+# real pack, jurisdictions/ca_san_jose -- schema validity plus every
+# active, ca_san_jose-owned source's licence/field_definition/
+# expected_fields agreement with the live database. Mappings, rights
+# broadening against Plan 2.1.4 Appendix K, dependency cascades and
+# endpoint liveness are NOT yet checked -- scripts/check_conformance.py
+# names all four explicitly on every run, same coverage-honesty
+# discipline P20/P21 already established for make golden/make test. The
+# exit code here means ONLY that those real checks passed, not that
+# §1.2's full contract is satisfied.
 conformance:
-	@echo "conformance: not implemented in Phase 1 (no packs exist)" && exit 1
+	$(PYTHON) scripts/check_conformance.py
 
 # Spec §1.2 make test: "Unit and integration suites, including review,
 # entitlement, outcome observation, provider slot, edge guard and billing

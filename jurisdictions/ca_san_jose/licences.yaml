@@ -1,0 +1,73 @@
+# jurisdictions/ca_san_jose/licences.yaml (P26)
+#
+# Content is SPEC.md §7.2, transcribed verbatim -- no corrections found here
+# (unlike sources.yaml's own parcels entry). §7.3: "Channel eligibility for
+# any fact is determined solely by licences.yaml, seeded into licence +
+# licence_channel and enforced by the composer (I6). Nothing else grants a
+# channel." This file is descriptive intent, not the runtime authority --
+# the live licence_channel table (immutable since 0033) is what I6 actually
+# reads, and db/seeds/day4_sources.sql is what seeds it, independently of
+# this file, today. See prompts/P26-jurisdictions-pack-format.md, design
+# decision on pack/seed drift, for why that independence is deliberate and
+# what stops the two from silently disagreeing.
+#
+# Only cc0 and cc_by_4_0 have a real licence table row today (confirmed
+# live, not assumed) -- the other five entries below are declared for
+# completeness (every licence a source in this pack's own sources.yaml
+# references, active or not), matching sources.yaml's own "declared, not
+# fabricated" posture for non-active entries.
+
+licences:
+  - id: cc0
+    display_name: CC0 1.0
+    restriction: open
+    commercial_use: allowed
+    redistribution: allowed
+    channels: { free_snapshot: true, paid_property_file: true, api: true, bulk_export: true }
+
+  - id: cc_by_4_0
+    display_name: CC BY 4.0
+    restriction: attribution
+    commercial_use: allowed
+    redistribution: allowed
+    attribution_text: "Contains data from the City of San José."
+    channels: { free_snapshot: true, paid_property_file: true, api: true, bulk_export: true }
+
+  - id: sj_portal_terms
+    display_name: San José per-resource portal terms
+    restriction: unknown
+    commercial_use: unknown
+    redistribution: unknown
+    channels: { free_snapshot: false, paid_property_file: false, api: false, bulk_export: false }
+    note: "DEFAULT DENY until per-resource confirmation is recorded. Pending evidence artifact."
+
+  - id: sanborn_asserted
+    display_name: Third-party Sanborn rights asserted
+    restriction: noncommercial
+    commercial_use: prohibited
+    redistribution: prohibited
+    channels: { free_snapshot: false, paid_property_file: false, api: false, bulk_export: false }
+    note: "Source excluded from the stack entirely, not merely gated."
+
+  - id: usgs_3dep_open
+    display_name: "USGS 3DEP -- free, no use restrictions"
+    restriction: open
+    commercial_use: allowed
+    redistribution: allowed
+    channels: { free_snapshot: true, paid_property_file: true, api: true, bulk_export: true }
+    note: "Rights clear. Accuracy is a SEPARATE engineering gate (LD-4)."
+
+  - id: us_gov_open
+    display_name: US federal open data
+    restriction: open
+    commercial_use: allowed
+    redistribution: allowed
+    channels: { free_snapshot: true, paid_property_file: true, api: true, bulk_export: true }
+
+  - id: unknown
+    display_name: Licence not yet observed
+    restriction: unknown
+    commercial_use: unknown
+    redistribution: unknown
+    channels: { free_snapshot: false, paid_property_file: false, api: false, bulk_export: false }
+    note: "The default. Silence is not permission."

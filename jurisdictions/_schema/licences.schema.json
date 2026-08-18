@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ledgex.internal/schema/licences.schema.json",
+  "title": "LedgeX licence pack (P26)",
+  "description": "Every jurisdictions/<pack>/licences.yaml validates against this. §7.3: 'Channel eligibility for any fact is determined solely by licences.yaml, seeded into licence + licence_channel and enforced by the composer (I6). Nothing else grants a channel.' This file's own shape mirrors db/schema.sql's real licence table plus the four real output_channel enum values -- not independently invented.",
+  "type": "object",
+  "required": ["licences"],
+  "additionalProperties": false,
+  "properties": {
+    "licences": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/licence" }
+    }
+  },
+  "$defs": {
+    "licence": {
+      "type": "object",
+      "required": ["id", "display_name", "restriction", "commercial_use", "redistribution", "channels"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Must equal a real licence.id row for any licence a pack's active source actually references -- checked by make conformance. A licence named only by a blocked/deferred source may have no database row yet, same reasoning as sources.schema.json's own id field."
+        },
+        "display_name": { "type": "string" },
+        "restriction": {
+          "type": "string",
+          "enum": ["open", "attribution", "noncommercial", "no_resale", "unknown"],
+          "description": "Mirrors the live use_restriction enum (0001) exactly."
+        },
+        "commercial_use": {
+          "type": "string",
+          "enum": ["allowed", "prohibited", "unknown"],
+          "description": "Mirrors the live permission_state enum (0001) exactly."
+        },
+        "redistribution": {
+          "type": "string",
+          "enum": ["allowed", "prohibited", "unknown"]
+        },
+        "attribution_text": { "type": "string" },
+        "channels": {
+          "type": "object",
+          "required": ["free_snapshot", "paid_property_file", "api", "bulk_export"],
+          "additionalProperties": false,
+          "properties": {
+            "free_snapshot": { "type": "boolean" },
+            "paid_property_file": { "type": "boolean" },
+            "api": { "type": "boolean" },
+            "bulk_export": { "type": "boolean" },
+            "analytics": { "type": "boolean" },
+            "model_training": { "type": "boolean" }
+          },
+          "description": "§7.3's own words: this is descriptive intent in the pack, never the runtime authority -- licence_channel (seeded from this file, then immutable, 0033) is what the composer's I6 gate actually reads. analytics/model_training (C9, 0031) are optional here since §7.2's own drafted licence entries predate them; a pack omitting either is not thereby wrong, just silent on that channel -- make conformance does not require them."
+        },
+        "note": { "type": "string" }
+      }
+    }
+  }
+}
