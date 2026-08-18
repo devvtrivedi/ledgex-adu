@@ -206,7 +206,7 @@ own rewrite; `core/exceptions.py:16` and `scripts/ingest_zoning_permits.py:24`'s
 now-inaccurate "same tuple-not-type shape" descriptions corrected to state the real,
 current, and deliberately different shapes of the two functions.
 
-Both acceptance suites run three times each, independent fresh migrations-only
+Both acceptance suites run three times each locally, independent fresh migrations-only
 databases (not twice against one, per finding #30 above) — all green.
 `tests/core/` (152 tests) green via `make test`. `make check-boundary` (import-linter,
 jurisdiction-name grep, `qa_check.py`) green throughout.
@@ -215,3 +215,19 @@ Findings: #27 reopened as recurring (§0). #29 and #30 opened, reported not fixe
 No new finding closed by the adoption itself — the transposition hazard `README` never
 had its own numbered row; it was named directly in this package's own instructions,
 proven, and fixed.
+
+**Real CI failure, caught only on the real runner, exactly the case CONVENTIONS.md's own
+hard rule about local-vs-CI evidence exists for.** `349ebb2` pushed green locally (three
+independent local runs of each acceptance suite) but the `p5-acceptance` and
+`phaseb-acceptance` jobs failed on GitHub Actions: `ModuleNotFoundError: No module named
+'pydantic'`. Both loaders now import `core.model.Fact`, but those two jobs' own "Install
+Python dependencies" steps only ever installed `scripts/requirements.txt` — P21 widened
+only the `schema` job's step, since nothing in `scripts/` needed `pydantic` yet at the
+time, a correct decision then. Local `.venv-ingest` already had `pydantic` installed from
+P21's own earlier work, which is exactly why three clean local runs never caught this —
+the local environment and the CI runner's fresh `pip install` were not the same evidence,
+CONVENTIONS.md's own warning, hit for real. Fixed in `5c79dbf`: both jobs' install steps
+widened to `-r scripts/requirements.txt -r requirements.txt` (not `requirements-test.txt`
+— these jobs run the acceptance script directly, not `pytest`, so `pytest`/
+`pytest-postgresql` are not needed). All four CI jobs (`schema`, `p5-acceptance`,
+`phaseb-acceptance`, `docs`/`qa`) confirmed green on `5c79dbf` before this package closed.
