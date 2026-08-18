@@ -6,9 +6,16 @@
 # every fixture's digest at run time, uploads to OBJECT_STORE_*, inserts
 # its own snapshot rows and reference data (ON CONFLICT DO NOTHING) --
 # works equally against a fresh migrations-only database or one already
-# seeded. Run this three times to satisfy CONVENTIONS.md's suite
-# discipline: twice against a seeded scratch DB, once against a fresh
-# migrations-only DB with no seed.
+# seeded, THE FIRST TIME. Run this three times to satisfy CONVENTIONS.md's
+# suite discipline: twice, EACH AGAINST ITS OWN FRESH DATABASE, plus once
+# more against a fresh migrations-only DB with no seed -- three fresh
+# databases total, never the same database run twice.
+#
+# NOT SAFE TO RERUN against an already-populated (post-run) database (P23,
+# README finding #30): this script's own assertions (check_p5_acceptance.py)
+# assert a first-run A->B->A shape; a completed run leaves the database
+# already past that shape, and a second run against it produces a real
+# failed assertion, not a false alarm -- reproduced directly, not assumed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

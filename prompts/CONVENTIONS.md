@@ -52,7 +52,24 @@ If a package needs to override one of these, it says so explicitly and gives the
 - **Never infer a category from arithmetic.** If three buckets should balance, query the
   third rather than subtracting.
 - **Run every suite twice**, and once against a fresh migrations-only database with no seed.
-  CI never runs `db/seeds/`.
+  CI never runs `db/seeds/`. **Twice means twice, each against its own fresh database, never
+  twice against the same one** — this has been the actual, honest interpretation for
+  `run_p5_acceptance.sh`/`run_phaseb_acceptance.sh` since they existed, not a new rule
+  (P23, README findings #29/#30): both assert a specific A→B state *transition*, not a
+  steady-state idempotent operation, and a completed run leaves the database in state B,
+  not A — a second run against that same database starts from the wrong state and its own
+  assertions, written for a first run, read as if starting from A again. Confirmed
+  directly, not assumed from either suite going unquestioned: a same-database rerun
+  produces a failed assertion in `run_p5_acceptance.sh`
+  (`check_p5_acceptance.py:220-224`) and an unhandled `UniqueViolation` crash in
+  `run_phaseb_acceptance.sh`. Every earlier package's own "ran it twice" for these two
+  suites already meant twice-on-independent-fresh-databases, never a same-database
+  rerun — this is a correction to the record, not only a rule change going forward. Both
+  suites now state this loudly as a precondition in their own header, the same shape P14
+  used for `db/tests/invariants.sql`'s own class-2 permanence note. A suite that genuinely
+  is idempotent under a same-database rerun (`db/tests/invariants.sql`,
+  `migrate`/`migrate-verify`) is unaffected — this exception is scoped to suites that model
+  a one-time transition, not a blanket weakening of "twice."
 - **Run `make migrate-verify` before citing any local database as evidence, and state the
   result.** "Queried the real database" is only as strong as the claim that its schema is
   what its own ledger says — and CI cannot see this gap at all: every CI run starts from an

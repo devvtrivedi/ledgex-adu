@@ -77,3 +77,26 @@ forbidden_modules =
     api
     pipelines
     geo
+
+; P22/finding #29: §2 self-contradicted on whether core/ may import infra/
+; -- one bullet said "core/* may import core/model and stdlib/third-party
+; only" (predates infra/'s existence: written at v1.7, infra/ introduced at
+; v1.21, confirmed via git history, that older line simply never updated),
+; another bullet and the repo-layout diagram both said "any of core/,
+; commerce/, jurisdictions/, pipelines/, api/ may import infra/". Amended
+; in prose to the latter (1.38) -- this is that decision's mechanical
+; enforcement, not just documentation. A "layers" contract, not another
+; "forbidden" one: it is the one shape here that states BOTH directions
+; correctly in a single contract -- core/commerce (independent of each
+; other, "|") sit above infra/, meaning they MAY import it; infra/ sits
+; below and may never import either, which the forbidden contract above
+; already enforced but this restates as part of the same, explicit,
+; two-sided rule. jurisdictions/pipelines/api aren't real packages yet
+; (see this file's own header) so aren't listed as layers -- only
+; forbidden_modules targets can name a not-yet-existing package.
+[importlinter:contract:core-commerce-layers-above-infra]
+name = core/commerce may import infra/; infra/ may never import upward (finding #29)
+type = layers
+layers =
+    core | commerce
+    infra

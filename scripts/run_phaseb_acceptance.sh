@@ -10,7 +10,17 @@
 # this script's own job: it inserts the minimal licence/jurisdiction/
 # source/field_definition rows itself, ON CONFLICT DO NOTHING, so it works
 # equally against a fresh migrations-only database or one already carrying
-# db/seeds/day4_sources.sql).
+# db/seeds/day4_sources.sql) -- THE FIRST TIME. Per CONVENTIONS.md's suite
+# discipline: run three times, EACH AGAINST ITS OWN FRESH DATABASE (two
+# plus one fresh migrations-only), never the same database twice.
+#
+# NOT SAFE TO RERUN against an already-populated (post-run) database (P23,
+# README finding #30): this is an A->B->A state-transition script, not an
+# idempotent one -- a completed run leaves the database already past the
+# final A-again state, and a second run crashes outright, reproduced
+# directly: psycopg2.errors.UniqueViolation on
+# parcel_exception_one_open_per_detector_reason_coalesced, not a soft
+# assertion failure.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 

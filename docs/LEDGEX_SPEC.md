@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.37
+# LedgeX / ADU.X — Engineering Reference Spec v1.38
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.37 | Machine-executed build contract. |
+| 1 | This Spec v1.38 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -117,7 +117,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.37 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.38 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -148,16 +148,19 @@ ledgex/
 ├── infra/                                         ← env var access, DB connection construction,
 │                                                     value-normalization helpers. Zero business logic,
 │                                                     zero layer (not L0-L8) -- NOT core/: core/* may
-│                                                     import only core/model and stdlib/third-party (a
-│                                                     rule about jurisdiction-free domain logic), and
+│                                                     import core/model, infra/, and stdlib/third-party
+│                                                     only (a rule about jurisdiction-free domain logic;
 │                                                     infra/ has no domain content to be free of in the
-│                                                     first place. Not ops/ either -- "ops" conventionally
-│                                                     means deployment tooling that depends on the app,
-│                                                     not a runtime dependency the app imports. May be
-│                                                     imported by any of core/, commerce/, jurisdictions/,
-│                                                     pipelines/, api/; imports stdlib/third-party only,
-│                                                     not even core/model, so nothing downstream can ever
-│                                                     come to depend on it for a domain type.
+│                                                     first place, so importing it does not compromise
+│                                                     that rule -- README finding #29, closed P23).
+│                                                     Not ops/
+│                                                     either -- "ops" conventionally means deployment
+│                                                     tooling that depends on the app, not a runtime
+│                                                     dependency the app imports. May be imported by any
+│                                                     of core/, commerce/, jurisdictions/, pipelines/,
+│                                                     api/; imports stdlib/third-party only, not even
+│                                                     core/model, so nothing downstream can ever come to
+│                                                     depend on it for a domain type.
 ├── commerce/                                      ← orders, disclosure, payment. §13. Currently an
 │                                                     empty scaffold, same reason as core/ above.
 │                                                     May import core/model. Never imported by core.
@@ -180,7 +183,9 @@ ledgex/
 
 Import rules (enforced).
 
-- core/* may import core/model and stdlib/third-party only.
+- core/* may import core/model, infra/, and stdlib/third-party only. (Amended
+1.38, finding #29 -- this line predated infra/'s own existence, v1.7 through
+v1.20; the infra/ bullet below and the diagram above were both correct.)
 - core/* may never import from jurisdictions/, api/, pipelines/, geo/ or commerce/.
 - commerce/* may import core/model and core/compose only. It may not import core/store and may not write to any
 public table. (I15)
@@ -191,10 +196,15 @@ jurisdictions/, pipelines/, api/ may import infra/.
 
 Enforced today (0038's follow-on, see §12's 1.21 entry): .importlinter carries the core/jurisdictions/api/
 pipelines/geo/commerce and commerce/core.store contracts above as real, running import-linter "forbidden"
-contracts against empty core/ and commerce/ scaffolds -- near-vacuous (nothing under either yet to violate them)
-but genuinely running, not aspirational text. build/check_jurisdiction_names.py covers the half import-linter
-structurally cannot: a bare jurisdiction-id or source-field-name string literal with no import attached at all.
-Both wired into make check-boundary alongside qa_check.py.
+contracts, plus an infra-is-a-leaf "forbidden" contract (infra/* may import nothing under this repo) --
+near-vacuous against the still-mostly-empty core/ and commerce/ scaffolds but genuinely running, not
+aspirational text. A fourth contract (1.38, finding #29) makes core/commerce/infra's relationship a real
+"layers" contract -- core and commerce as independent siblings, both permitted to import infra, infra
+permitted to import neither -- so the core*/infra ambiguity this amendment resolves in prose is also
+resolved in the one place a verbatim spec reading cannot reach: the actual import graph.
+build/check_jurisdiction_names.py covers the half import-linter structurally cannot: a bare jurisdiction-id
+or source-field-name string literal with no import attached at all. All wired into make check-boundary
+alongside qa_check.py.
 
 ## 3. Database schema
 
@@ -1772,7 +1782,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.37
+Engineering Reference Spec v1.38
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1833,7 +1843,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.37
+Engineering Reference Spec v1.38
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1864,7 +1874,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.37
+Engineering Reference Spec v1.38
 
 ## 9. Refusal and error codes
 
@@ -2821,6 +2831,24 @@ rather than folded into a blanket pass, the same exit-code discipline 1.36
 applied to make golden. New requirements.txt (pydantic) and requirements-
 test.txt (pytest, pytest-postgresql) at repo root -- scripts/requirements.txt
 is scoped to the ingest scripts and stays that way.
+
+Aug 2026             1.38                 Section 2 self-contradicted on whether core/ may import infra/ -- "core/* may  P23, README findings #29/#30. #29: retroactively
+import core/model and stdlib/third-party only" against the repo-layout         would have unblocked P22's Fact.value option (a)
+diagram and a second bullet both saying infra/ may be imported by core/ (and   (native value, insert_facts() doing json.dumps with
+commerce/, jurisdictions/, pipelines/, api/). Confirmed via git history, not   infra.values.decimal_default) -- not revisited,
+inferred: the first line predates infra/'s own existence (present at v1.7,     since option (b) stands on its own merits
+this repo's first commit; infra/ introduced at v1.21) and was never updated    independent of the import question. #30:
+when infra/ landed. Both statements amended to agree -- core/* may import      run_p5_acceptance.sh cannot be rerun against its own
+core/model, infra/, and stdlib/third-party only -- and a new .importlinter     already-populated database
+"layers" contract (core/commerce as independent siblings above infra/, infra/  (check_p5_acceptance.py:220-224 asserts a first-run-
+never above) makes the resolved direction real, not just prose: RED-proven by  only shape); confirmed run_phaseb_acceptance.sh has
+planting infra/env.py importing core.model (both this contract and the         the identical property, not assumed safe from
+existing infra-is-a-leaf one fired), then planting core/store.py importing     silence. CONVENTIONS.md:54's "run every suite twice"
+infra.values and confirming zero contracts objected, before removing both      corrected to "twice, each against a fresh database"
+plants. CONVENTIONS.md's own "twice" suite discipline amended for an           -- the rule as literally written has been
+unrelated reason -- see this row's own reason column.                          unsatisfiable for both suites since they existed;
+every prior package's own "ran it twice" already
+meant twice-on-fresh, not twice-in-a-row.
 
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
