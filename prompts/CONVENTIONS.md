@@ -51,6 +51,16 @@ If a package needs to override one of these, it says so explicitly and gives the
 - **Every check must be seen to fail at least once.** Break it deliberately, show it red,
   unbreak it, show it green. Include the diff of the deliberate break. A test only ever
   observed green is a comment.
+- **A deliberate-break commit contains ONLY the break, nothing else.** Its revert must be
+  a pure inverse — mechanical, reviewable as exactly "undo this and nothing else." Any real
+  work sharing that commit (a report doc, an unrelated fix) makes the revert destructive
+  (it deletes that work too, whether or not anyone notices) and makes a "deliberate break +
+  revert, evidence not work" annotation false for the commit it's attached to. Found for
+  real, not hypothetical: P30's own `9a45566` bundled its 214-line report doc into the same
+  commit as the break — caught and hand-amended before push that time, but the row's own
+  "evidence not work" label would have told a later session filtering out evidence commits
+  to skip the one commit the report actually landed in. Land the break alone; land anything
+  else that needs to travel with it in a separate commit, before or after.
 - **Show output, not summaries.** Counts, statuses and "verified" claims need the query or
   command output beneath them. A docstring asserting that a reproduction happened is
   testimony, not evidence.
