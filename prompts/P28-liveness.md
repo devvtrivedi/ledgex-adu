@@ -218,26 +218,59 @@ stand-in) — verified via direct query afterward:
 {"missing_fields": ["parcel.NONEXISTENT_FIELD_P28_RED_PROOF"]}`. Restored, re-confirmed
 clean.
 
-Both proven locally first (real network calls, no CI risk while iterating). The real-
-runner proof — since `liveness.yml` is not push-triggered, the break-then-revert
-CONVENTIONS asks for is done via two real commits plus a manual `workflow_dispatch` run
-each, not a push that would auto-trigger it — is recorded in §6 (close-out) with the real
-run IDs.
+Both proven locally first (real network calls, no CI risk while iterating). Then on the
+real runner, since `liveness.yml` is not push-triggered: baseline dispatch confirmed green
+first (run [32180367376](https://github.com/devvtrivedi/ledgex-adu/actions/runs/32180367376),
+before any plant existed) — the same "real input passes" check CONVENTIONS asks for, done
+on the runner, not only locally. `9e702cd` planted the same `parcel.NONEXISTENT_FIELD_P28_
+RED_PROOF` break, pushed (no auto-trigger — `liveness.yml` is schedule/`workflow_dispatch`
+only), then manually dispatched: run
+[32180505074](https://github.com/devvtrivedi/ledgex-adu/actions/runs/32180505074) —
+`conclusion: failure`, the job's own log line matches the local proof exactly: `[FAIL]
+ca_san_jose.parcels: responded 200 but missing declared field(s):
+['parcel.NONEXISTENT_FIELD_P28_RED_PROOF']`, `zoning_districts`/`building_permits_active`
+both still `[PASS]`. Reverted in the immediately following commit (`c321b2f`), dispatched
+again: run [32180636098](https://github.com/devvtrivedi/ledgex-adu/actions/runs/32180636098)
+— `conclusion: success`.
 
 ---
 
-### 5. Close-out plan
+### 5. Close-out
 
 `Makefile`: new `liveness:` target, `.PHONY` updated. `CONVENTIONS.md`: "this repo has
 two" corrected to three, "must be green before a package starts" scoped to the push/PR-
 gated two. `docs/LEDGEX_SPEC.md`: §6.4's liveness line updated to state it is schedule-
-triggered, not push-gated, and why (pointer to this package); §1.2's table gains a seventh
-row ("Six make targets" → "Seven"), naming the real scope and the named gaps (federal
-sources, non-active sources, prefix-only field presence not full-content validation).
-Spec bump, §12 row. No schema change — `make migrate-verify` and a clean `make schema-dump`
-confirm this. All CI jobs (three push-gated jobs across `db.yml`/`docs.yml`, plus a manual
-`liveness.yml` dispatch) green, wall-clock near a minute each for the push-gated ones.
-P28 row added.
+triggered, not push-gated, and why; §1.2's table gains a seventh row ("Six make targets" →
+"Seven"), naming the real scope and the named gaps (federal sources, non-active sources,
+prefix-only field presence not full-content validation). `scripts/check_conformance.py`'s
+own `NOT_YET_CHECKED` list updated too — "endpoint liveness ... a separate unbuilt target"
+was itself now a stale claim the moment this package landed; conformance's own coverage
+count dropped from four named gaps to three, confirmed by re-running it after the fix
+(`CONFORMANCE SUMMARY: ... NOT covered: rights broadening ...; dependency cascades ...;
+mappings ...` — three, not four). Spec bumped 1.40 → 1.41, real §12 row (verified rendered,
+not just written to the `.txt` source — `make docs && make qa` confirmed "20 invariants
+and 7 make targets verbatim in both artifacts" and a clean website regen).
+
+No schema change — `make migrate-verify` (51 migrations, MATCH) and a clean `make
+schema-dump`, both against `ledgex_schema_check`, confirm this before and after.
+
+Full CI-order local simulation (fresh scratch database, every `schema`-job step in real
+order including the new `make liveness`) green throughout: `make test` 167 tests, `make
+golden` 2/4 fixture classes, `make conformance` now 3 named gaps. The two acceptance
+suites (`p5-acceptance`, `phaseb-acceptance`) were not re-run locally — nothing in this
+package touches `ingest_parcels.py`/`ingest_zoning_permits.py`'s own functions, only reads
+their already-existing, unmodified constants — and both came back green on the real
+runner regardless (below), so the local skip cost nothing.
+
+**Real runner, all four jobs, main build (`21a0095`)**: `db.yml` run
+[32180241295](https://github.com/devvtrivedi/ledgex-adu/actions/runs/32180241295) —
+`schema`/`p5-acceptance`/`phaseb-acceptance` all `success`, ~55s each (baseline, unaffected
+by this package). `docs.yml` run
+[32180241294](https://github.com/devvtrivedi/ledgex-adu/actions/runs/32180241294) —
+`success`. `liveness.yml`'s own three-run break-then-revert cycle is in §4 above.
+
+Final commits: `21a0095` (main build), `9e702cd`/`c321b2f` (deliberate break/revert,
+evidence not work). P28 row added to `prompts/README.md`.
 
 ### 6. Report: what's left after this, and is anything else honestly buildable
 
