@@ -29,7 +29,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P22 | [Finding #27 reopened, then core/model.Fact adopted at the loaders](P22-fact-adoption.md) | done, pushed | `00fd1e2`, `349ebb2`, `5c79dbf` (CI-only pydantic-install gap, caught on the real runner, not locally) |
 | P23 | [Two contradictions in the authority layer: findings #29 and #30](P23-authority-contradictions.md) | done, pushed | `7975063` |
 | P24 | [ParcelException adopted, then the build-direction report](P24-parcel-exception-and-build-direction.md) | done, pushed | `4651ea7` |
-| P25 | [Geometry-disabled Base Core: the L7 refusal path and a fourth golden fixture](P25-geometry-disabled-base-core.md) | pending | — |
+| P25 | [Geometry-disabled Base Core: the L7 refusal path and a fourth golden fixture](P25-geometry-disabled-base-core.md) | done, pushed | `8a1da6d` (`f936232`/`8869f8d`: deliberate CI-gate break + revert, evidence not work) |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic

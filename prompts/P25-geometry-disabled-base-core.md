@@ -133,7 +133,25 @@ itself for the real break-then-revert proof below.
 
 **Wired into CI, broken for real on the runner, reverted in the immediately following
 commit** — per this repo's own deliberate-break discipline (P12), heeding its own
-recorded lesson ("the revert was never written").
+recorded lesson ("the revert was never written"):
+
+- `f936232` — drifted `GEOMETRY_TIER_DISABLED`'s own message text ("3DEP gate not
+  cleared" → "3DEP gate not satisfied"), the same targeted-break shape P20 used.
+  Confirmed locally first: both fixtures' full-object compares fail; every positive
+  presence/code/stage/conclusion-name assertion still passes.
+- Pushed. `db.yml` run `32106785392` — `schema` job (`95617736082`): **failure**,
+  isolated exactly to the `make golden` step — every step before it (`make schema`,
+  `migrate-verify`, `db-test`, the snapshot-race test) green;
+  `scripts/test_compose_geometry_tier_used.py`, `make test`, `make schema-dump` all
+  correctly `skipped` since the job failed before reaching them. `p5-acceptance`/
+  `phaseb-acceptance` unaffected (neither invokes the composer).
+- `8869f8d` — `git revert f936232`, restoring the message text verbatim. Confirmed
+  locally first (exit 0, `GOLDEN SUMMARY: PASSED`), then pushed. `db.yml` run
+  `32106924248` — `schema`, `p5-acceptance`, `phaseb-acceptance` all green; `docs`/`qa`
+  run `32106924357` green too.
+
+Main never carried the break unrecoverable — revert commit exists, landed, confirmed
+green on the real runner before this package closed.
 
 ---
 
