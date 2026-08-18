@@ -53,6 +53,18 @@ If a package needs to override one of these, it says so explicitly and gives the
   third rather than subtracting.
 - **Run every suite twice**, and once against a fresh migrations-only database with no seed.
   CI never runs `db/seeds/`.
+- **Run `make migrate-verify` before citing any local database as evidence, and state the
+  result.** "Queried the real database" is only as strong as the claim that its schema is
+  what its own ledger says — and CI cannot see this gap at all: every CI run starts from an
+  empty database and applies every migration fresh, so a shared local database drifting
+  behind its own `schema_migrations` ledger is invisible to CI by construction. Only a
+  session that stops and checks catches it before citing that database's row counts, live
+  constraint behavior, or "confirmed against a real database" as proof. Found three times so
+  far, all incidentally, never by anything looking for it: six migrations behind before P6,
+  two behind (missing `0048`/`0049`) at the start of P16, one behind (missing `0051`) at the
+  start of P21 (README finding #27 — reopened as a recurring condition, not a one-time
+  incident, P22). `make migrate-verify` already exists and already works; the missing half
+  was never tooling, it was remembering to run it before trusting what the database says.
 - **Mark every item verified / unverified / assumed.** Those three words, no others.
 - **Verify a commit's contents with `git show --stat` before reporting it as landed.**
   `git status` after the commit is not enough. This has failed three times now, in
