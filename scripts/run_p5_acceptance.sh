@@ -22,7 +22,38 @@ PYTHON="${PYTHON:-.venv-ingest/bin/python3}"
 export OBJECT_STORE_URL="${OBJECT_STORE_URL:-http://localhost:19000}"
 export OBJECT_STORE_ACCESS_KEY="${OBJECT_STORE_ACCESS_KEY:-scratchkey}"
 export OBJECT_STORE_SECRET_KEY="${OBJECT_STORE_SECRET_KEY:-scratchsecret}"
-export OBJECT_STORE_BUCKET="${OBJECT_STORE_BUCKET:-ledgex-snapshots-locked}"
+
+# P20, README finding #28: NOT "${OBJECT_STORE_BUCKET:-...}" -- .env
+# unconditionally exports the real OBJECT_STORE_BUCKET
+# (ledgex-snapshots-locked), and a developer who has sourced .env for
+# other real work (real credentials live nowhere else) would have that
+# value already set before this script ever runs, silently defeating a
+# same-named fallback. ledgex-snapshots-locked is Object-Locked (WORM,
+# COMPLIANCE mode, ~100yr retention, confirmed live in P19/P20) --
+# permanently unrecoverable if fixture objects land there, not even by
+# the account root. This script reads its OWN variable,
+# ACCEPTANCE_OBJECT_STORE_BUCKET, and sets OBJECT_STORE_BUCKET (what
+# _p5_setup.py and every function under test actually read) FROM it,
+# overriding whatever a sourced .env already exported.
+export OBJECT_STORE_BUCKET="${ACCEPTANCE_OBJECT_STORE_BUCKET:-ledgex-acceptance-scratch}"
+
+# Create the scratch bucket if it doesn't exist yet -- same idempotent
+# create-if-missing shape db.yml's own "Create the object store bucket"
+# step already uses for ledgex-snapshots-ci, so a first-time bare
+# invocation works instead of merely failing safe.
+"$PYTHON" - <<PYEOF
+import boto3, botocore.exceptions
+s3 = boto3.client("s3", endpoint_url="$OBJECT_STORE_URL",
+                   aws_access_key_id="$OBJECT_STORE_ACCESS_KEY",
+                   aws_secret_access_key="$OBJECT_STORE_SECRET_KEY")
+try:
+    s3.create_bucket(Bucket="$OBJECT_STORE_BUCKET")
+    print("bucket created: $OBJECT_STORE_BUCKET")
+except botocore.exceptions.ClientError as e:
+    if e.response["Error"]["Code"] not in ("BucketAlreadyOwnedByYou", "BucketAlreadyExists"):
+        raise
+    print("bucket already exists: $OBJECT_STORE_BUCKET")
+PYEOF
 
 FIXTURES="db/fixtures/p5"
 PHASEB_FIXTURES="db/fixtures/phaseb"
