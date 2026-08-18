@@ -123,7 +123,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
 from infra.values import is_blank, decimal_default, canonicalize_identifier  # noqa: E402
-from core.model import Fact  # noqa: E402
+from core.model import Fact, ParcelException  # noqa: E402
 from core.store import insert_facts  # noqa: E402
 from core.exceptions import insert_exceptions, close_resolved_exceptions, relink_reopened_exceptions  # noqa: E402
 
@@ -716,19 +716,19 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
             if (parcel_id, REASON_NO_CONTAINING_DISTRICT) in existing_open:
                 exception_skipped += 1
                 continue
-            exception_rows.append((
-                parcel_id, JURISDICTION_ID, "coverage_gap", "info",
-                DETECTOR_KEY_ZONING_UNRESOLVABLE, DETECTOR_VERSION_ZONING_UNRESOLVABLE,
-                json.dumps({"reason": REASON_NO_CONTAINING_DISTRICT}),
+            exception_rows.append(ParcelException(
+                parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID, type="coverage_gap", severity="info",
+                detector_key=DETECTOR_KEY_ZONING_UNRESOLVABLE, detector_version=DETECTOR_VERSION_ZONING_UNRESOLVABLE,
+                detail={"reason": REASON_NO_CONTAINING_DISTRICT},
             ))
         for parcel_id in ambiguous:
             if (parcel_id, REASON_MULTIPLE_CONTAINING_DISTRICTS) in existing_open:
                 exception_skipped += 1
                 continue
-            exception_rows.append((
-                parcel_id, JURISDICTION_ID, "coverage_gap", "info",
-                DETECTOR_KEY_ZONING_UNRESOLVABLE, DETECTOR_VERSION_ZONING_UNRESOLVABLE,
-                json.dumps({"reason": REASON_MULTIPLE_CONTAINING_DISTRICTS}),
+            exception_rows.append(ParcelException(
+                parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID, type="coverage_gap", severity="info",
+                detector_key=DETECTOR_KEY_ZONING_UNRESOLVABLE, detector_version=DETECTOR_VERSION_ZONING_UNRESOLVABLE,
+                detail={"reason": REASON_MULTIPLE_CONTAINING_DISTRICTS},
             ))
         # Non-blocking: written for a parcel that ALSO got a fact above.
         # Resolving the value and recording the polygon-overlap anomaly
@@ -738,14 +738,14 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                 if (parcel_id, REASON_MULTIPLE_POLYGONS_AGREE) in existing_open:
                     exception_skipped += 1
                     continue
-                exception_rows.append((
-                    parcel_id, JURISDICTION_ID, "coverage_gap", "info",
-                    DETECTOR_KEY_ZONING_UNRESOLVABLE, DETECTOR_VERSION_ZONING_UNRESOLVABLE,
-                    json.dumps({
+                exception_rows.append(ParcelException(
+                    parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID, type="coverage_gap", severity="info",
+                    detector_key=DETECTOR_KEY_ZONING_UNRESOLVABLE, detector_version=DETECTOR_VERSION_ZONING_UNRESOLVABLE,
+                    detail={
                         "reason": REASON_MULTIPLE_POLYGONS_AGREE,
                         "zoning": data["zoning"],
                         **data["anomaly"],
-                    }),
+                    },
                 ))
         print(f"  exceptions: {len(exception_rows):,} new, {exception_skipped:,} skipped "
               f"(already open at this detector_version)")

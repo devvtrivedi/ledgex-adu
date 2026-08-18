@@ -79,7 +79,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
 from infra.values import is_blank, decimal_default, canonicalize_identifier  # noqa: E402
-from core.model import Fact  # noqa: E402
+from core.model import Fact, ParcelException  # noqa: E402
 from core.store import insert_facts  # noqa: E402
 from core.exceptions import insert_exceptions, close_exceptions_for_parcels, relink_reopened_exceptions  # noqa: E402
 
@@ -1231,10 +1231,10 @@ def phase_e(snapshot_id):
                 if unresolvable:
                     unresolvable_count += 1
                     reason_counts[reason] += 1
-                    exception_rows.append((
-                        parcel_id, JURISDICTION_ID, "coverage_gap", "info",
-                        DETECTOR_KEY_APN_UNRESOLVABLE, DETECTOR_VERSION_APN_UNRESOLVABLE,
-                        json.dumps({"raw_apn": apn_raw, "reason": reason}),
+                    exception_rows.append(ParcelException(
+                        parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID, type="coverage_gap", severity="info",
+                        detector_key=DETECTOR_KEY_APN_UNRESOLVABLE, detector_version=DETECTOR_VERSION_APN_UNRESOLVABLE,
+                        detail={"raw_apn": apn_raw, "reason": reason},
                     ))
                 else:
                     resolvable_count += 1
@@ -1314,10 +1314,10 @@ def phase_e(snapshot_id):
                         # write already goes through -- no second write path.
                         fact_ids_to_supersede.append(apn_fact_id)
                         parcel_apn_cache_updates.append((parcel_id, None))
-                        exception_rows.append((
-                            parcel_id, JURISDICTION_ID, "coverage_gap", "info",
-                            DETECTOR_KEY_APN_UNRESOLVABLE, DETECTOR_VERSION_APN_UNRESOLVABLE,
-                            json.dumps({"raw_apn": apn_raw, "reason": incoming_unresolvable_reason}),
+                        exception_rows.append(ParcelException(
+                            parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID, type="coverage_gap", severity="info",
+                            detector_key=DETECTOR_KEY_APN_UNRESOLVABLE, detector_version=DETECTOR_VERSION_APN_UNRESOLVABLE,
+                            detail={"raw_apn": apn_raw, "reason": incoming_unresolvable_reason},
                         ))
                         unresolvable_count += 1
                         reason_counts[incoming_unresolvable_reason] += 1
@@ -1425,14 +1425,14 @@ def phase_e(snapshot_id):
                     ))
                     disappeared_count += 1
 
-                    exception_rows.append((
-                        parcel_id, JURISDICTION_ID, "record_to_ground", "warning",
-                        DETECTOR_KEY_PARCEL_DISAPPEARED, DETECTOR_VERSION_PARCEL_DISAPPEARED,
-                        json.dumps({
+                    exception_rows.append(ParcelException(
+                        parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID, type="record_to_ground", severity="warning",
+                        detector_key=DETECTOR_KEY_PARCEL_DISAPPEARED, detector_version=DETECTOR_VERSION_PARCEL_DISAPPEARED,
+                        detail={
                             "reason": "parcel_absent_from_source_snapshot",
                             "source_feature_id": source_feature_id,
                             "live_facts_from_other_sources": live_facts_by_parcel.get(parcel_id, []),
-                        }),
+                        },
                     ))
 
         peak_rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss

@@ -305,6 +305,35 @@ class TestParcelExceptionConstraints:
 
 
 # ---------------------------------------------------------------------------
+# ParcelException.detail's encoding contract -- P24, design decision (d).
+# Settled separately from Fact.value's (P22, decision (c)), not inherited --
+# see core/model.py's own module docstring for the reproduction this
+# formalizes.
+# ---------------------------------------------------------------------------
+
+
+class TestParcelExceptionDetailEncoding:
+    def test_native_dict_accepted(self):
+        pe = ParcelException(**_exception_kwargs(detail={"reason": "x"}))
+        assert pe.detail == {"reason": "x"}
+
+    def test_default_empty_dict_accepted(self):
+        pe = ParcelException(**_exception_kwargs())
+        assert pe.detail == {}
+
+    def test_pre_encoded_json_string_rejected(self):
+        """The opposite of Fact.value's contract, deliberately: detail is
+        dict[str, Any], so a pre-encoded string is the WRONG type here,
+        not the right one."""
+        with pytest.raises(ValidationError, match="detail"):
+            ParcelException(**_exception_kwargs(detail='{"reason": "x"}'))
+
+    def test_non_json_serializable_value_rejected(self):
+        with pytest.raises(ValidationError, match="must be JSON-serializable"):
+            ParcelException(**_exception_kwargs(detail={"bad": {1, 2, 3}}))
+
+
+# ---------------------------------------------------------------------------
 # Refusal -- I8
 # ---------------------------------------------------------------------------
 

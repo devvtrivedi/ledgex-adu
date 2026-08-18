@@ -13,28 +13,41 @@ winner -- nothing in the record justifies forcing one number on every
 caller, and unifying it would be a behavior change dressed as a
 refactor.
 
-Same jurisdiction-free shape as core/store.insert_facts -- but NOT the
-same tuple-not-type shape any more (P22): insert_exceptions() still
-takes positional 7-tuples, deliberately, not core/model.ParcelException,
-even though core/store.insert_facts() was rewritten to list[Fact] in the
-same package. Considered, not assumed: detector_key and detector_version
-(0010_exceptions.sql: both `text NOT NULL`, no CHECK on either) are the
-same shape of hazard confidence_rule_id/pack_version were for Fact --
-transposing them would insert cleanly, and would corrupt the exact-
-version matching close_resolved_exceptions()/close_exceptions_for_
-parcels()/relink_reopened_exceptions()/retire_stranded_exceptions() all
-rely on (0045/0047/0049/0050's own precedent: an exact-key match is load-
-bearing, not incidental). Deferred anyway, to a named later package, on
-blast radius and severity, not on the hazard being smaller: insert_
-exceptions() has 4 call sites across 3 files (phase_e, load_zoning, and
-BOTH detectors in scripts/flag_invalid_geometry.py -- a script this
-package never otherwise touches), against Fact's 11 sites across the 2
-files this package was already rewriting; and a parcel_exception row,
-unlike a fact row, carries no whole-row immutability trigger (0017/0040
-are Fact-specific) -- a transposed detector_key/detector_version is
-theoretically correctable later by a migration UPDATE, where a
-transposed fact column is not. Real hazard, smaller stakes, separate
-package -- reported here rather than left unmentioned.
+Same jurisdiction-free shape as core/store.insert_facts, and now (P24)
+the same tuple-not-type shape too: insert_exceptions() takes
+list[core.model.ParcelException], not positional 7-tuples -- P22
+deferred this adoption deliberately (real hazard: detector_key/
+detector_version, both `text NOT NULL` with no CHECK in
+0010_exceptions.sql, are the same shape of transposition risk
+confidence_rule_id/pack_version were for Fact, and corrupting either
+would break the exact-version matching close_resolved_exceptions()/
+close_exceptions_for_parcels()/relink_reopened_exceptions()/
+retire_stranded_exceptions() all rely on) but on blast radius and
+severity, not on the hazard being smaller -- 4 call sites across 3
+files, against a database row with no whole-row immutability trigger
+(unlike fact/0017/0040), so a transposed value here is theoretically
+correctable later by a migration UPDATE. P22's own report named this
+explicitly, not left unmentioned; P24 is that named later package.
+
+detail's encoding contract settled separately from Fact.value's, not
+inherited from it -- see core/model.ParcelException's own docstring,
+design decision (d). Unlike Fact.value, detail keeps its native
+dict[str, Any] typing (already committed since P21): every real caller's
+payload is plain, Decimal-free, geometry-free strings, so nothing forces
+the infra/-import question Fact.value's option (a) hit. insert_
+exceptions() does the json.dumps() itself now -- one encoding rule, in
+one place; callers pass a real dict, never a pre-encoded string.
+
+ParcelException does NOT have nine unwritten fields the way Fact did
+(checked, not assumed): of its 15 fields, 7 are written here; of the 8
+that are not, 7 are legitimately never caller-set at insert time
+(id/detected_at/outcome are DB-defaulted; resolved_at/resolved_by/
+resolution_notes/reopened_from_id are lifecycle state this module's own
+closure functions below set later, never at detection). Exactly one --
+ruleset_version -- is a real choice not yet forced by any caller, and is
+refused the same way Fact's nine were: a ParcelException carrying a
+value there gets a loud, immediate error naming the field, not a silent
+drop.
 
 close_resolved_exceptions() and relink_reopened_exceptions() (P9,
 prompts/P9-exception-resolution.md) are the closure half of exception
@@ -62,7 +75,11 @@ Triggered once, by whoever bumps a DETECTOR_VERSION_* constant, not by
 any regular ingest run -- no call site wires this in automatically,
 deliberately, unlike every function above it in this file.
 """
+import json
+
 import psycopg2.extras
+
+from core.model import ParcelException
 
 EXCEPTION_COLUMNS = (
     "parcel_id, jurisdiction_id, type, severity, "
@@ -70,11 +87,51 @@ EXCEPTION_COLUMNS = (
 )
 EXCEPTION_TEMPLATE = "(%s, %s, %s, %s, %s, %s, %s::jsonb)"
 
+# The one ParcelException field insert_exceptions() does not write -- see
+# this module's own docstring for why it's one, not Fact's nine.
+_UNWRITTEN_FIELDS_AND_DEFAULTS = (
+    ("ruleset_version", None),
+)
 
-def insert_exceptions(cur, exception_rows, page_size=2000):
-    """exception_rows: list of 7-tuples, positional, in EXCEPTION_COLUMNS'
-    order. page_size default (2000) matches two of the four original call
-    sites; the other two pass 500 explicitly -- see module docstring."""
+
+def _check_no_unwritten_fields(pe):
+    for field_name, default in _UNWRITTEN_FIELDS_AND_DEFAULTS:
+        value = getattr(pe, field_name)
+        if value != default:
+            raise ValueError(
+                f"ParcelException.{field_name}={value!r} was set, but "
+                f"insert_exceptions() does not write that column (see "
+                f"core/exceptions.py's own module docstring) -- it would "
+                f"be silently dropped, not persisted."
+            )
+
+
+def insert_exceptions(cur, exceptions, page_size=2000):
+    """exceptions: list[core.model.ParcelException]. Builds the same
+    7-tuple this table has always taken (EXCEPTION_COLUMNS' order,
+    unchanged) from each ParcelException's named fields -- see this
+    module's docstring for which field is refused rather than silently
+    ignored, and for detail's own encoding contract. page_size default
+    (2000) matches two of the four original call sites; the other two
+    pass 500 explicitly -- see module docstring.
+
+    Refuses anything that is not actually a ParcelException -- notably a
+    bare tuple, the exact shape every call site used to hand-build,
+    same reasoning as core/store.insert_facts()."""
+    for pe in exceptions:
+        if not isinstance(pe, ParcelException):
+            raise TypeError(
+                f"insert_exceptions() requires core.model.ParcelException "
+                f"instances, got {type(pe).__name__!r}."
+            )
+        _check_no_unwritten_fields(pe)
+    exception_rows = [
+        (
+            str(pe.parcel_id), pe.jurisdiction_id, pe.type, pe.severity,
+            pe.detector_key, pe.detector_version, json.dumps(pe.detail),
+        )
+        for pe in exceptions
+    ]
     psycopg2.extras.execute_values(
         cur,
         f"INSERT INTO parcel_exception ({EXCEPTION_COLUMNS}) VALUES %s",

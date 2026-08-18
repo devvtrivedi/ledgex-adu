@@ -173,6 +173,27 @@ decide that without a caller stating it, and none of the three shapes
 above changes that. tests/core/test_fact_adoption_hazard.py proves both
 halves of this claim explicitly, not just the one that flatters the
 fix.
+
+P24, DESIGN DECISION (d) -- ParcelException.detail's encoding contract,
+settled separately from Fact.value, not inherited from it: see that
+class's own docstring for the reproduction and the reasoning. Where
+Fact.value ended up (b) (pre-encoded string) specifically to avoid
+core/store.py needing infra/ for geometry's Decimal handling, detail has
+no such forced need -- every real caller's payload is plain,
+Decimal-free, geometry-free strings -- so it keeps its existing
+dict[str, Any] typing and core/exceptions.insert_exceptions() does the
+json.dumps() itself. Different call sites, different constraints,
+different correct answers -- proven independently, not assumed to match.
+
+Also settled here: ParcelException does NOT have nine unwritten fields
+the way Fact did (checked, not assumed the count carries over). Of its
+15 fields, 7 are written by insert_exceptions(); of the 8 that are not,
+7 are legitimately never caller-set at insert time (id/detected_at/
+outcome are DB-defaulted; resolved_at/resolved_by/resolution_notes/
+reopened_from_id are lifecycle state an exception only acquires later,
+via core/exceptions.py's closure functions, never at detection). Exactly
+one -- ruleset_version -- is a real choice not yet forced by any caller,
+the same shape as Fact's nine, just fewer of them here.
 """
 from __future__ import annotations
 
@@ -626,7 +647,27 @@ ExceptionOutcome = Literal[
 
 
 class ParcelException(BaseModel):
-    """Mirrors db/schema.sql's live `parcel_exception` table."""
+    """Mirrors db/schema.sql's live `parcel_exception` table.
+
+    P24, design decision (d) -- detail's encoding contract, settled
+    separately from Fact.value (P22, decision (c)), not inherited from
+    it: reproduced against a real scratch database before assuming the
+    same answer applied. A native Python dict passed directly into the
+    %s::jsonb slot FAILS the identical way Fact's did --
+    psycopg2.ProgrammingError, "can't adapt type 'dict'" -- but a
+    pre-encoded JSON string succeeds, exactly like Fact.value.
+
+    Fact.value chose (b), pre-encoded string, specifically to avoid
+    core/store.py needing infra.values.decimal_default for geometry's
+    Decimal fields (P22, README finding #29). detail has no such forced
+    need -- every real caller's payload (see core/exceptions.py's own
+    docstring) is a plain dict of strings, never Decimal, never
+    geometry. So detail KEEPS its existing dict[str, Any] typing
+    (already committed since P21, not reopened here) and
+    core/exceptions.insert_exceptions() does the json.dumps() itself --
+    P22's rejected-for-Fact option (a), correct here because nothing
+    forces the alternative. One encoding rule, in one place; callers
+    pass a real dict, not a string they have to remember to pre-encode."""
 
     model_config = ConfigDict(frozen=True)
 
@@ -645,6 +686,19 @@ class ParcelException(BaseModel):
     resolved_by: str | None = None
     resolution_notes: str | None = None
     reopened_from_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _check_detail_is_json_serializable(self) -> "ParcelException":
+        """detail is jsonb NOT NULL; dict[str, Any] means a caller CAN
+        put a non-JSON-serializable value (a raw datetime, Decimal, set,
+        custom object) in it, which would otherwise reach INSERT and
+        fail there with a raw driver error naming no field -- caught
+        here instead, at construction."""
+        try:
+            json.dumps(self.detail)
+        except TypeError as e:
+            raise ValueError(f"ParcelException.detail must be JSON-serializable: {e}") from e
+        return self
 
     @model_validator(mode="after")
     def _check_outcome_resolution_biconditional(self) -> "ParcelException":

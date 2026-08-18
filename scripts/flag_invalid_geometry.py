@@ -90,6 +90,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
 from infra.values import decimal_default  # noqa: E402
+from core.model import ParcelException  # noqa: E402
 from core.exceptions import insert_exceptions  # noqa: E402
 
 JURISDICTION_ID = "ca_san_jose"
@@ -182,8 +183,11 @@ def flag_parcel_geometry(conn):
 
             existing_open = existing_open_parcels(cur, DETECTOR_KEY_PARCEL_GEOM, DETECTOR_VERSION)
             exception_rows = [
-                (pid, jid, "record_to_ground", "warning", DETECTOR_KEY_PARCEL_GEOM, DETECTOR_VERSION,
-                 json.dumps({"reason": reason}))
+                ParcelException(
+                    parcel_id=pid, jurisdiction_id=jid, type="record_to_ground", severity="warning",
+                    detector_key=DETECTOR_KEY_PARCEL_GEOM, detector_version=DETECTOR_VERSION,
+                    detail={"reason": reason},
+                )
                 for pid, jid, reason in invalid
                 if pid not in existing_open
             ]
@@ -261,12 +265,15 @@ def flag_zoning_source_geometry(conn):
 
             existing_open = existing_open_parcels(cur, DETECTOR_KEY_ZONING_SOURCE_GEOM, DETECTOR_VERSION)
             exception_rows = [
-                (parcel_id, jid, "record_to_ground", "info", DETECTOR_KEY_ZONING_SOURCE_GEOM, DETECTOR_VERSION,
-                 json.dumps({
-                     "zoning_source_reason": reason_by_id[zid],
-                     "zoning_value_assigned": zoning_by_id[zid],
-                     "note": "parcel's own geometry is valid; its zoning.district fact was derived using ST_MakeValid's repaired copy of an invalid source polygon, not the polygon as published",
-                 }))
+                ParcelException(
+                    parcel_id=parcel_id, jurisdiction_id=jid, type="record_to_ground", severity="info",
+                    detector_key=DETECTOR_KEY_ZONING_SOURCE_GEOM, detector_version=DETECTOR_VERSION,
+                    detail={
+                        "zoning_source_reason": reason_by_id[zid],
+                        "zoning_value_assigned": zoning_by_id[zid],
+                        "note": "parcel's own geometry is valid; its zoning.district fact was derived using ST_MakeValid's repaired copy of an invalid source polygon, not the polygon as published",
+                    },
+                )
                 for zid, parcel_id, jid in affected
                 if parcel_id not in existing_open
             ]
