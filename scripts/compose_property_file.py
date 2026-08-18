@@ -228,7 +228,7 @@ def compose(conn, parcel_id, channel, as_of=None):
         refusals.append({
             "code": "RIGHTS_BLOCKED",
             "stage": "L8",
-            "message": f"Licence {licence_id} does not permit channel {channel} for touched field(s): {', '.join(field_keys)}.",
+            "message": f"Licence {licence_id} forbids channel {channel} for touched field(s): {', '.join(field_keys)}.",
             "detail": {"licence_id": licence_id, "channel": channel, "field_keys": field_keys},
         })
 
