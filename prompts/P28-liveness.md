@@ -254,9 +254,12 @@ and 7 make targets verbatim in both artifacts" and a clean website regen).
 No schema change — `make migrate-verify` (51 migrations, MATCH) and a clean `make
 schema-dump`, both against `ledgex_schema_check`, confirm this before and after.
 
-Full CI-order local simulation (fresh scratch database, every `schema`-job step in real
-order including the new `make liveness`) green throughout: `make test` 167 tests, `make
-golden` 2/4 fixture classes, `make conformance` now 3 named gaps. The two acceptance
+Full CI-order local simulation (fresh scratch database, every real `schema`-job step, in
+real order) green throughout: `make test` 167 tests, `make golden` 2/4 fixture classes,
+`make conformance` now 3 named gaps. `make liveness` was run in the same local pass for
+convenience, not as a stand-in for its own CI reality — it is deliberately NOT a `schema`-
+job step (§2's whole argument), and was proven separately, on the real runner, via its own
+`liveness.yml` (§4/§5 below), not folded into `db.yml`'s job order. The two acceptance
 suites (`p5-acceptance`, `phaseb-acceptance`) were not re-run locally — nothing in this
 package touches `ingest_parcels.py`/`ingest_zoning_permits.py`'s own functions, only reads
 their already-existing, unmodified constants — and both came back green on the real
@@ -291,21 +294,33 @@ commerce/ and §13/§15 territory that does not exist — this report confirms t
 rather than re-deriving it, since P24's own build-direction report already reached the
 identical conclusion for the identical reason and nothing material has changed since.
 
-**Plainly: nothing in this repo can honestly move next on any of those six.** Building any
-one of them means writing `commerce/` schema and code against zero real rows, zero real
-review evidence, and zero real entitlement state — which means either inventing the state
-that would make it testable (the one thing this entire session has refused to do,
-consistently, since finding #3) or building untestable scaffolding whose own tests would
-have to assert against fabricated fixtures standing in for a clearance that has not
-happened. Both are the same failure this session's own hard rules exist to prevent.
+**Corrected by P29: this claim over-generalized.** What the evidence above actually
+supports is narrower: nothing in `make test`'s six named areas (review, entitlement,
+outcome observation, provider slot, edge guard, billing independence) can honestly move
+next — every one of them is `commerce/` or §13/§15 schema that does not exist, gated
+directly on `STANDING-BLOCKER.md`'s licence-clearance signature. That finding stands,
+unchanged. Generalizing from "these six are blocked" to "nothing in this repo can move" was
+not checked against the rule pack + L5 (§5's own runtime-workflow stage, I11, `rule`/0009)
+at all before being written — and that axis is NOT gated by `STANDING-BLOCKER.md`.
+`STANDING-BLOCKER.md`'s own gate is specifically `licence_channel`'s rights clearance for
+*data sources* (`licence`, `licence_id`, §1.1's internal-fact rights argument) — `rule`
+(0009) has no `licence_id` column and no FK to `licence` at all; its own review-mode CHECK
+is satisfied by `review_mode = 'solo_founder_attestation'` with `reviewed_by = authored_by`
+and a non-null `attestation_uri` — the founder's own attestation of a rule's citation and
+interpretation, not counsel's data-rights sign-off. §3.9 confirms this reading verbatim,
+not just the migration. A rule pack is startable today; P29's own package scopes it.
 
-This is not a new blocker P28 discovered — it is the same one, confirmed still standing,
-now that the two gates that WERE buildable without it (`make conformance`, `make
-liveness`) are both done. The honest state of this project, as of this package: **every
-make target that could be built without STANDING-BLOCKER.md's signature has been built.**
-What remains is not a queue of small packages to pick off one at a time — it is one
-package, `commerce/` plus §13/§15's outcome-observation and provider-slot schemas plus
-`core/compose`'s real composed/partial paths, all gated on and worth planning together
-only once that signature exists. Until then, the correct next action for a future session
-opening this repo is to check whether `STANDING-BLOCKER.md` has changed, not to look for
-another six-area gap to chip away at — there isn't one.
+Building any of `make test`'s six named areas means writing `commerce/` schema and code
+against zero real rows, zero real review evidence, and zero real entitlement state — which
+means either inventing the state that would make it testable (the one thing this entire
+session has refused to do, consistently, since finding #3) or building untestable
+scaffolding whose own tests would have to assert against fabricated fixtures standing in
+for a clearance that has not happened. Both are the same failure this session's own hard
+rules exist to prevent. That much of this report was right, and stands: every make target
+that could be built without `STANDING-BLOCKER.md`'s signature, among the seven CI gates
+themselves, has been built.
+
+But "every make target" is not "everything buildable" — this report never scoped the rule
+pack against the same standard it applied to `commerce/`, and should have before
+generalizing. See P29's own package doc for that scoping, done properly, and its
+recommendation.
