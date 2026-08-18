@@ -48,7 +48,7 @@ sources:
     display_name: Zoning Districts
     steward: City of San José
     method: bulk
-    licence: cc_by_4_0                    # CONFIRMED by audit; Plan App K active
+    licence: cc0                          # P30 DELIBERATE BREAK -- proving make conformance fails red on the real runner; reverted next commit
     phase_status: active
     phase_status_reason: "CC BY confirmed; attribution attached automatically."
     cadence_stated: "weekly, Mondays"
