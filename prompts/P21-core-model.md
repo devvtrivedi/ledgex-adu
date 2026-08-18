@@ -140,13 +140,23 @@ requirements-test.txt`.
 (P12) — heeding P12's own recorded lesson explicitly ("P12's break sat on main once because
 the revert was never written"):
 
-- `<BREAK_SHA>` — [describe the specific constraint edit made].
-- Pushed. `db.yml` run `<RUN_ID>` — `schema` job: **failure**, isolated to `make test`.
-- `<REVERT_SHA>` — reverted, confirmed green locally first, then on the real runner
-  (`db.yml` run `<RUN_ID>`).
+- `cc84fe6` — dropped the `retrieved_at is None or source_url is None` half of
+  `_check_provenance_complete`'s retrieved-fact branch, leaving only the
+  `source_id`/`snapshot_id` check. Confirmed locally first (predicted, then observed): 14
+  failures — the 2 shape tests naming `retrieved_at`/`source_url` directly, plus 12 of the
+  equivalence test's parametrized combinations (`direct`/`bulk` × `ret=False` or
+  `url=False`) — `make test` exit 1.
+- Pushed. `db.yml` run `32093940151` — `schema` job (`95581512203`): **failure**, isolated
+  exactly to the `make test` step — every step before it (`make schema`, `migrate-verify`,
+  `db-test`, the snapshot-race test, `make golden`) green, `make schema-dump` correctly
+  `skipped` since the job failed before reaching it. `p5-acceptance`/`phaseb-acceptance`
+  unaffected.
+- `896ce71` — `git revert cc84fe6`, restoring the check verbatim. Confirmed locally first
+  (142/142 pass, exit 0), then pushed. `db.yml` run `32094062716` — `schema`,
+  `p5-acceptance`, `phaseb-acceptance` all green; `docs`/`qa` run `32094062701` green too.
 
 Main never carried the break unrecoverable — revert commit exists, landed, confirmed green
-before this package closed.
+on the real runner before this package closed.
 
 ---
 
@@ -170,7 +180,11 @@ docs`/`make site` regenerated; `website/index.html`'s own hardcoded version stri
 (the known gap `make site` doesn't cover, same as every prior bump this session);
 `qa_check.py` and `make check-boundary` both confirmed passing after the bump.
 
-All CI jobs confirmed green on `<REVERT_SHA>`.
+All CI jobs confirmed green on `896ce71` (the revert): `schema`, `p5-acceptance`,
+`phaseb-acceptance` (`32094062716`), `docs`/`qa` (`32094062701`). The main build itself
+(`9135f79`) was independently confirmed green before the break was ever introduced —
+`schema`, `p5-acceptance`, `phaseb-acceptance` (`32089399280`), `docs`/`qa`
+(`32089399263`).
 
 ---
 

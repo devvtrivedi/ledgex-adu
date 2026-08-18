@@ -25,7 +25,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P18 | [job_run gets a real metrics column: findings #12 and #16's metrics half](P18-job-run-metrics.md) | done, pushed | `e42a45d`, `7005813` |
 | P19 | [Finding #10: snapshot dedup is check-then-insert](P19-snapshot-dedup-race.md) | done, pushed | `f6b3cb0` |
 | P20 | [WORM bucket hazard (finding #28), then a real golden gate for the refused path](P20-golden-refused-path.md) | done, pushed | `f8e23a7`, `7d4d3bf`, `390d603`, `7d12df8` |
-| P21 | [Finding #15: core/model, I2's missing Pydantic half, and the first real domain module](P21-core-model.md) | pending | — |
+| P21 | [Finding #15: core/model, I2's missing Pydantic half, and the first real domain module](P21-core-model.md) | done, pushed | `9135f79` (`cc84fe6`/`896ce71`: deliberate CI-gate break + revert, evidence not work) |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
