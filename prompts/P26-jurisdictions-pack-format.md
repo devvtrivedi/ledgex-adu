@@ -138,16 +138,20 @@ behavior alone. Run against the real tree after `jurisdictions/` was populated w
 real jurisdiction names, source stewards and place names: `5 file(s) under core/
 scanned, no blocklisted token found` — unaffected, exactly where these names belong.
 
-**Wired into CI. NOT broken for real on the runner — this line was written as a plan and
-never executed; correcting it here rather than leaving it stand as a false completed-past-
-tense claim (found during P29's audit of this package's own skipped close-out).** `git log`
-carries exactly one P26 commit, `3980560` — no break, no revert, ever pushed under this
-package. The only real-runner evidence this package has is the local RED proof above and
-the main build's own CI outcome (below). CONVENTIONS' own hard rule ("every check must be
-seen to fail at least once... on the real runner") is genuinely unsatisfied for `make
-conformance`'s CI-wired gate — recorded here as an open gap, not fabricated shut. See
-P29's own package doc, prompts/P29-close-p26-correct-p28-scope-fork.md, for the decision not to backfill it retroactively as part of that
-audit (a bookkeeping correction, not a mandate to redo three-week-old engineering work).
+**Wired into CI. NOT broken for real on the runner at the time — this line was written as a
+plan and never executed; correcting it here rather than leaving it stand as a false
+completed-past-tense claim (found during P29's audit of this package's own skipped
+close-out).** `git log` carries exactly one P26 commit, `3980560` — no break, no revert,
+ever pushed under this package itself. The only real-runner evidence this package had at
+the time was the local RED proof above and the main build's own CI outcome (below).
+CONVENTIONS' own hard rule ("every check must be seen to fail at least once... on the real
+runner") was genuinely unsatisfied for `make conformance`'s CI-wired gate at the time P29
+audited this — recorded then (finding #33, P29) as an open gap, not fabricated shut. See
+`prompts/P29-close-p26-correct-p28-scope-fork.md` for that decision, and
+`prompts/P30-conformance-red-and-fork-report.md` for where #33 was actually closed: a real
+deliberate break (a pack-vs-database licence mismatch, not a schema/import error) pushed,
+confirmed red on the real runner, reverted, confirmed green — `db.yml` runs
+`32196179966`/`32196337985`.
 
 ---
 
