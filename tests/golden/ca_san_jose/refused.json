@@ -1,0 +1,61 @@
+{
+  "property_file": {
+    "as_of": "2099-01-01T00:00:00+00:00",
+    "assumptions": {},
+    "attribution": [],
+    "channel": "paid_property_file",
+    "composed_at": "<TS>",
+    "composer_version": "<COMPOSER_VERSION:shape-checked-only>",
+    "delivered_at": null,
+    "geometry_tier_used": false,
+    "id": "<UUID:1>",
+    "jurisdiction_id": "ca_san_jose",
+    "omitted_for_rights": [],
+    "pack_version": "v1.0",
+    "parcel_id": "<UUID:2>",
+    "payload": {
+      "attribution": [],
+      "omitted_for_rights": [],
+      "refusals": [
+        {
+          "code": "RIGHTS_BLOCKED",
+          "detail": {
+            "channel": "paid_property_file",
+            "field_keys": [
+              "parcel.apn"
+            ],
+            "licence_id": "cc_by_4_0"
+          },
+          "message": "Licence cc_by_4_0 forbids channel paid_property_file for touched field(s): parcel.apn.",
+          "stage": "L8"
+        }
+      ],
+      "status": "refused"
+    },
+    "payload_hash": "fbddf4e0118cbc127719238cb05061ac2783f2018c73d66bddf6d4d692574c5a",
+    "refusals": [
+      {
+        "code": "RIGHTS_BLOCKED",
+        "detail": {
+          "channel": "paid_property_file",
+          "field_keys": [
+            "parcel.apn"
+          ],
+          "licence_id": "cc_by_4_0"
+        },
+        "message": "Licence cc_by_4_0 forbids channel paid_property_file for touched field(s): parcel.apn.",
+        "stage": "L8"
+      }
+    ],
+    "ruleset_version": "unevaluated -- refused before L5 Rules",
+    "status": "refused",
+    "unmet_fields": []
+  },
+  "property_file_fact": [
+    {
+      "fact_id": "<UUID:3>",
+      "snapshot_id": "ca_san_jose.parcels:sha256:394a29ded73dd6d109344bc038ebf18bba564bdabf0058d8498b75364b52fab0",
+      "use": "input"
+    }
+  ]
+}

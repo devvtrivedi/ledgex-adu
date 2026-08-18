@@ -126,6 +126,19 @@ jobs:
       - name: scripts/test_snapshot_race_invariant.py
         run: python3 scripts/test_snapshot_race_invariant.py
 
+      # P20: make golden's refused-path fixture (scripts/check_golden.py,
+      # tests/golden/ca_san_jose/refused.json) -- same reasoning as the
+      # snapshot-race test above, no new job: this is a real database
+      # check, this job already has one live and disposable. Runs after
+      # the snapshot-race test, before schema-dump, for the same reason --
+      # it only adds parcel/fact/property_file rows, invisible to
+      # schema-dump's schema-only diff. Exit code here means ONLY that the
+      # refused-path check itself passed -- see check_golden.py's own
+      # module docstring for why that is not the same claim as "golden
+      # covers all four fixture classes."
+      - name: make golden
+        run: make golden DATABASE_URL="$DATABASE_URL" PYTHON=python3
+
       # Spec §1.2 make schema-dump: "No diff; missing or stale generated DDL
       # fails." Regenerates db/schema.sql from the now-migrated (and
       # db-tested, though schema-only means test data doesn't affect this)

@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.35
+# LedgeX / ADU.X — Engineering Reference Spec v1.36
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.35 | Machine-executed build contract. |
+| 1 | This Spec v1.36 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -98,7 +98,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 | **make schema-dump** | Regenerate db/schema.sql from the applied database and compare the committed dump. | No diff; missing or stale generated DDL fails. |
 | **make conformance** | Parameterized pack suite for sources, mappings, rights, dependency cascades and endpoint liveness. | Every enabled pack passes; no rights broadening or silent missing dependency. |
 | **make test** | Unit and integration suites, including review, entitlement, outcome observation, provider slot, edge guard and billing independence. | All required tests pass with zero skips and no external network dependency in CI. |
-| **make golden** | Normalized composed, partial, refused and geometry-disabled Base Core fixtures. | Output matches approved fixtures; intended changes require reviewed fixture updates. |
+| **make golden** | Normalized refused Base Core fixture (P20) -- composed, partial and geometry-disabled are not yet reachable; STANDING-BLOCKER.md. | Refused-path output matches the approved fixture; the exit code reflects only that check. The three remaining classes are named explicitly on every run, never silently counted as covered. |
 
 ## 15. Architecture Addendum A-1
 
@@ -117,7 +117,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.35 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.36 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -1188,6 +1188,17 @@ as_of                                                                           
 Ordering of unmet_fields, refusals, attribution and omitted_for_rights is sorted lexically before comparison.
 Refusals are asserted as positively as values — a golden file that lost a refusal is a regression.
 
+P20 implementation note, refused-path only (see §12's 1.36 entry for the full record). Two deviations from
+the table above, both reported rather than silently resolved. composer_version is git-SHA-derived
+("compose@<sha>[-dirty]") and therefore changes on every commit, including ones that never touch the
+composer — literal exact-match retention would fail golden on the next unrelated commit, permanently, which
+is not what "a version bump" means here. scripts/check_golden.py retains the field (it is present in the
+fixture) but asserts its SHAPE rather than pinning one frozen SHA; whether composer_version needs a separate,
+coarser "composition logic version" distinct from its own git-SHA provenance value remains an open question,
+not decided by P20. as_of is pinned for real, not merely normalised: compose_property_file.py's compose()
+gained an optional as_of parameter so the golden check can pass a fixed, far-future timestamp instead of the
+composer's own default live-clock read — the composer's real CLI path is unchanged.
+
 ### 6.7 Annex — the human-review queue, considered and cut
 
 v1.0 of this spec specified a review_task table, three queue endpoints, timed task instrumentation and a portal
@@ -1755,7 +1766,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.35
+Engineering Reference Spec v1.36
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1816,7 +1827,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.35
+Engineering Reference Spec v1.36
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1847,7 +1858,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.35
+Engineering Reference Spec v1.36
 
 ## 9. Refusal and error codes
 
@@ -2759,6 +2770,31 @@ is what a specific run, under the code that existed then, actually wrote, and
 rewriting the column would rewrite that history, not correct a wrong value.
 db/tests/invariants.sql gained T90-T91 (floor 106 -> 108), RED against the
 pre-0051 schema, GREEN after.
+
+Aug 2026             1.36                 scripts/check_golden.py (section 1.2, section 6.6) makes make golden real for  P20, README finding #28 (the WORM bucket
+the refused Base Core fixture class -- the only one of the four (composed,     contamination) and the golden-coverage question this
+partial, refused, geometry-disabled) reachable today.                          row itself answers. STANDING-BLOCKER.md unchanged
+tests/golden/ca_san_jose/refused.json is compose_property_file.py's real       and still true -- every licence_channel row is
+output, normalised per section 6.6: uuids to positional tokens, timestamps to  allowed=false, pending counsel/owner clearance -- so
+<TS>, cost/duration fields stripped,                                           composed/partial fixtures would mean fabricating a
+snapshot_id/payload_hash/pack_version/ruleset_version retained exactly,        clearance that does not exist. Wired into db.yml's
+refusals/attribution sorted lexically and asserted positively (not just full-  existing schema job, no fourth job, same reasoning
+object equality). The coverage trap settled, not defaulted: golden's own exit  P19's snapshot-race test already established for
+code tracks ONLY the refused-path check's own correctness -- 0 when it         that job. Broken for real on the actual runner (a
+passes, 1 when it fails -- never a blanket 1 regardless of correctness (which  refusal message edited, confirmed red, reverted,
+would make a real pass indistinguishable from a broken one) and never a        confirmed green) before landing, per this repo's own
+blanket 0 once any one class passes (which would make partial coverage         deliberate-break discipline (P12).
+indistinguishable from full). The three absent classes are named explicitly,
+unconditionally, on every single run. Two reported deviations from section
+6.6's literal table: composer_version is git-SHA-derived and changes every
+commit, so it is shape-checked rather than pinned to one frozen SHA; as_of is
+pinned for real via a new optional parameter on compose(), not merely
+normalised after the fact. Also in this package: the Object-Locked ledgex-
+snapshots-locked bucket's existing fixture-derived contamination counted
+directly (302 object versions, ~2.16 GB, 20 distinct keys) and its two
+acceptance runners fixed at the source (their own
+ACCEPTANCE_OBJECT_STORE_BUCKET, defaulting to a disposable local bucket,
+overriding whatever a sourced .env already exported).
 
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

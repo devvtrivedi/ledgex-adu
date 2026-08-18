@@ -13,7 +13,7 @@ Invariant I17: these strings are authoritative only when read verbatim from the
 filesystem. Change the text HERE, once, then regenerate both artifacts.
 """
 
-SPEC_VERSION = "1.35"
+SPEC_VERSION = "1.36"
 RULES_VERSION = "1.4"
 PHASE = "Phase 1, Step 1 - City of San Jose"
 REVISION_DATE = "August 2026"
@@ -141,10 +141,11 @@ MAKE_TARGETS = [
      "All required tests pass with zero skips and no external network "
      "dependency in CI."),
     ("make golden",
-     "Normalized composed, partial, refused and geometry-disabled Base Core "
-     "fixtures.",
-     "Output matches approved fixtures; intended changes require reviewed "
-     "fixture updates."),
+     "Normalized refused Base Core fixture (P20) -- composed, partial and "
+     "geometry-disabled are not yet reachable; STANDING-BLOCKER.md.",
+     "Refused-path output matches the approved fixture; the exit code "
+     "reflects only that check. The three remaining classes are named "
+     "explicitly on every run, never silently counted as covered."),
 ]
 
 # --------------------------------------------------------------------------

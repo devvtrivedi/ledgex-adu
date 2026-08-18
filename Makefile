@@ -326,11 +326,20 @@ test:
 	@echo "test: not implemented in Phase 1 (core/, commerce/ suites). Database invariants are covered separately -- see 'make db-test'." && exit 1
 
 # Spec §1.2 make golden: "Normalized composed, partial, refused and
-# geometry-disabled Base Core fixtures." Fails rather than reporting a pass:
-# the composer and tests/golden/ca_san_jose fixtures don't exist in this
-# repo yet. Must keep failing until a real fixture suite backs it.
+# geometry-disabled Base Core fixtures." P20: one of the four classes is
+# real now -- refused, via scripts/check_golden.py and tests/golden/
+# ca_san_jose/refused.json -- the other three are not (composed/partial
+# would mean fabricating a licence clearance STANDING-BLOCKER.md says
+# does not exist; geometry-disabled needs its own decision). This
+# target's own exit code tracks ONLY the refused-path check's own
+# correctness (0 = it passed, 1 = it failed) -- it does NOT mean "all
+# four classes covered." scripts/check_golden.py prints the three
+# missing classes explicitly on every single run, pass or fail -- see
+# that script's own module docstring for the full argument against
+# either silently inflating this to "done" or silently keeping it at
+# an uninformative permanent exit 1.
 golden:
-	@echo "golden: not implemented in Phase 1" && exit 1
+	$(PYTHON) scripts/check_golden.py
 
 clean:
 	rm -rf dist build/__pycache__ $(SCHEMA_DUMP).tmp

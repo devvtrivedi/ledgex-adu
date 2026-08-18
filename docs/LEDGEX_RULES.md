@@ -8,7 +8,7 @@
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | Engineering Reference Spec v1.35 | Machine-executed build contract. |
+| 1 | Engineering Reference Spec v1.36 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement of the Spec. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -52,7 +52,7 @@ A target name without execution scope and a pass condition is not a definition o
 | **make schema-dump** | Regenerate db/schema.sql from the applied database and compare the committed dump. | No diff; missing or stale generated DDL fails. |
 | **make conformance** | Parameterized pack suite for sources, mappings, rights, dependency cascades and endpoint liveness. | Every enabled pack passes; no rights broadening or silent missing dependency. |
 | **make test** | Unit and integration suites, including review, entitlement, outcome observation, provider slot, edge guard and billing independence. | All required tests pass with zero skips and no external network dependency in CI. |
-| **make golden** | Normalized composed, partial, refused and geometry-disabled Base Core fixtures. | Output matches approved fixtures; intended changes require reviewed fixture updates. |
+| **make golden** | Normalized refused Base Core fixture (P20) -- composed, partial and geometry-disabled are not yet reachable; STANDING-BLOCKER.md. | Refused-path output matches the approved fixture; the exit code reflects only that check. The three remaining classes are named explicitly on every run, never silently counted as covered. |
 
 ## 3. A-1 scope
 
@@ -189,7 +189,7 @@ run.
 > **READ VERBATIM**
 
 Business Plan 2.1.4 - commercial boundary
-Engineering Reference Spec v1.35 - executable contract
+Engineering Reference Spec v1.36 - executable contract
 Implementation Rules v1.4 - operational restatement
 
 PRESERVE

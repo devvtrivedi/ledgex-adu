@@ -136,7 +136,17 @@ def resolve_parcel_id_by_apn(conn, apn):
     return rows[0][0]
 
 
-def compose(conn, parcel_id, channel):
+def compose(conn, parcel_id, channel, as_of=None):
+    """as_of: normally None -- the real CLI path below always composes
+    against the live clock (SELECT clock_timestamp()), unchanged. An
+    explicit value is a testability seam for scripts/check_golden.py
+    only (P20): SPEC.md §6.6 says a golden fixture's as_of is "pinned by
+    the fixture, not by now()" -- distinct from composed_at/delivered_at/
+    retrieved_at/fetched_at, which are merely normalised to <TS> after
+    the fact. Pinning it for real (passing a fixed value in) rather than
+    normalising it away is the more faithful reading: it makes
+    current_fact_at's point-in-time read itself deterministic, not just
+    the comparison after the read already happened."""
     t0 = time.monotonic()
     composer_version = get_composer_version()
 
@@ -152,8 +162,9 @@ def compose(conn, parcel_id, channel):
         # the write would silently break it with no error. Explicit
         # capture makes as_of correct by construction instead of by
         # transaction scoping.
-        cur.execute("SELECT clock_timestamp()")
-        as_of = cur.fetchone()[0]
+        if as_of is None:
+            cur.execute("SELECT clock_timestamp()")
+            as_of = cur.fetchone()[0]
 
         # By id, never by apn: 0034 dropped (jurisdiction_id, apn)
         # uniqueness (Fix 3) -- a WHERE apn = %s / fetchone() here would
