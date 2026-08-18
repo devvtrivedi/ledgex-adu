@@ -304,11 +304,6 @@ class Fact(BaseModel):
                     "a retrieved fact (method != 'derived') requires both source_id "
                     "and snapshot_id (fact_provenance_complete, I2)"
                 )
-            if self.retrieved_at is None or self.source_url is None:
-                raise ValueError(
-                    "a retrieved fact (method != 'derived') requires both retrieved_at "
-                    "and source_url (fact_provenance_complete, I2)"
-                )
         return self
 
     @model_validator(mode="after")
