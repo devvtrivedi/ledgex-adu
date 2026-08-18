@@ -126,3 +126,47 @@ one level below any of this repo's own code: `apt-get` itself sat there for twen
 on two of three jobs while the third finished in six seconds, on the same push. Bounding
 the one step that actually stalled, tightly, is the honest fix — inventing a database lock
 bug that isn't there would have fixed nothing and hidden the real, external cause.
+
+### 5. Close-out
+
+Proof of the actual fix, on the real runner, not locally: `sleep 400` planted ahead of the
+real commands in the `schema` job's `Install postgresql-client-16` step (`6465b46`),
+pushed. Predicted the step would fail at ~5 minutes rather than the job's 20-minute bound
+or the old 360-minute default, `p5-acceptance`/`phaseb-acceptance` unaffected — confirmed
+exactly: the step ran `19:03:30`–`19:08:43` (5m13s), job `failure`, the other two jobs
+`success`. Reverted in the immediately following commit (`0c8145a`).
+
+A stale comment surfaced by the revert diff itself: `schema`'s `timeout-minutes: 20`
+comment, written in step 1 before the diagnosis in step 2/3 existed, still named
+`test_snapshot_race_invariant.py`'s lock wait as the found cause — the opposite of what
+step 3 had by then established. Corrected (`689c022`) rather than left to keep disagreeing
+with the doc that disproves it, same discipline as P23's spec-vs-code contradiction.
+
+A second, real, **unplanted** occurrence of the exact apt-get stall happened live during
+this close-out, on `689c022`'s own CI run (`32175073655`): `p5-acceptance`'s
+`Install postgresql-client-16` step ran `19:10:25`–`19:15:38` (5m13s) and failed on its own
+new `timeout-minutes: 5` — not induced, not predicted in advance, just the same real-world
+flakiness recurring naturally within the hour. Confirms the fix works outside the
+deliberate-break scaffolding too. `gh run rerun --failed` reran only that job; it passed in
+55s the second time. All four jobs green, final commit `689c022`; every job's wall-clock is
+back at its historical ~1 minute (schema 52s, phaseb-acceptance 55s, p5-acceptance rerun
+55s, docs 17s) — not a slow green, a fast one.
+
+### 6. Report: does anything else in the suite carry the same lock-wait exposure?
+
+No. Grepped every `get_db()` call site in `scripts/` (`ingest_parcels.py`,
+`ingest_zoning_permits.py`, both acceptance suites' setup/check modules, all five
+`test_*_invariant.py` siblings, `check_golden.py`, `check_conformance.py`,
+`flag_invalid_geometry.py`, `compose_property_file.py`). Exactly one file opens two
+connections against rows that could conflict —
+`scripts/test_snapshot_race_invariant.py` itself — and it's already safe, argued above.
+Every other multi-connection site (`test_apn_canonicalization_invariant.py`,
+`test_zoning_ambiguity_invariant.py`, `test_refresh_failure_invariant.py`) uses a second
+connection only for a read-only check *after* the write connection already committed and
+closed — not a race, sequential by construction. Both acceptance suites
+(`run_p5_acceptance.sh`, `run_phaseb_acceptance.sh`) open exactly one connection at a
+time, run real loader subprocesses one after another — grepped for backgrounding (`&`,
+`wait`) in both scripts, none exists. Nothing in this repo currently opens two connections
+that could contend for the same uncommitted row the way the prompt's hypothesis described
+— the one place shaped to do that on purpose already closes over its own commit before the
+second connection acts.
