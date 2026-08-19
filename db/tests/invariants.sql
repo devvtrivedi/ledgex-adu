@@ -3327,15 +3327,19 @@ END $$;
 -- ============================================================================
 -- TEST T60: property_file.refusals rejects a code outside §9's vocabulary
 -- (0038's original vocabulary, widened by 0053 -- ELECTION_REQUIRED,
--- ELECTION_NOT_SUPPORTED, P34, README finding #35), enforced since P10 by
--- what is now 0053's property_file_refusal_codes_known_election. Renamed
--- twice, same DROP+ADD-with-a-new-name discipline
--- 0020_lifecycle_constraints.sql established each time: 0038's own
--- original name, property_file_refusal_codes_known, was DROPped and
--- replaced by 0048's property_file_refusal_codes_known_shape_checked
--- (tightened NULL/shape validation), itself DROPped and replaced by
--- 0053's own name below (vocabulary widened; see 0053's own header for
--- why the REFUSAL_CODES_BEGIN/END sync-check markers moved here too).
+-- ELECTION_NOT_SUPPORTED, P34, README finding #35 -- and again by 0055 --
+-- PARCEL_REFERENCE_UNKNOWN, PARCEL_NO_FACTS, P37, README finding #40),
+-- enforced since P10 by what is now 0055's
+-- property_file_refusal_codes_known_parcel. Renamed three times, same
+-- DROP+ADD-with-a-new-name discipline 0020_lifecycle_constraints.sql
+-- established each time: 0038's own original name,
+-- property_file_refusal_codes_known, was DROPped and replaced by 0048's
+-- property_file_refusal_codes_known_shape_checked (tightened NULL/shape
+-- validation), which was DROPped and replaced by 0053's
+-- property_file_refusal_codes_known_election (vocabulary widened), which
+-- was itself DROPped and replaced by 0055's own name below (vocabulary
+-- widened again; see 0055's own header for why the REFUSAL_CODES_BEGIN/END
+-- sync-check markers moved here too, again).
 -- Proves the CHECK is actually wired to refusals_codes_valid() and
 -- actually fires, not just that the function returns false in isolation
 -- (already confirmed directly against a scratch database while writing
@@ -3366,7 +3370,7 @@ BEGIN
     EXCEPTION
         WHEN check_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'property_file_refusal_codes_known_election' THEN
+            IF v_constraint = 'property_file_refusal_codes_known_parcel' THEN
                 RAISE NOTICE 'PASS T60: unknown refusal code rejected';
                 INSERT INTO test_pass VALUES ('T60');
             ELSE
@@ -4332,7 +4336,7 @@ BEGIN
     EXCEPTION
         WHEN check_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'property_file_refusal_codes_known_election' THEN
+            IF v_constraint = 'property_file_refusal_codes_known_parcel' THEN
                 RAISE NOTICE 'PASS T79: refusals element with no code key rejected';
                 INSERT INTO test_pass VALUES ('T79');
             ELSE
@@ -4371,7 +4375,7 @@ BEGIN
     EXCEPTION
         WHEN check_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'property_file_refusal_codes_known_election' THEN
+            IF v_constraint = 'property_file_refusal_codes_known_parcel' THEN
                 RAISE NOTICE 'PASS T80: refusals element with code: null rejected';
                 INSERT INTO test_pass VALUES ('T80');
             ELSE
@@ -4409,7 +4413,7 @@ BEGIN
     EXCEPTION
         WHEN check_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'property_file_refusal_codes_known_election' THEN
+            IF v_constraint = 'property_file_refusal_codes_known_parcel' THEN
                 RAISE NOTICE 'PASS T81: non-object refusals element rejected';
                 INSERT INTO test_pass VALUES ('T81');
             ELSE
@@ -4450,7 +4454,7 @@ BEGIN
     EXCEPTION
         WHEN check_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'property_file_refusal_codes_known_election' THEN
+            IF v_constraint = 'property_file_refusal_codes_known_parcel' THEN
                 RAISE NOTICE 'PASS T82: non-array refusals rejected cleanly (no raw jsonb error)';
                 INSERT INTO test_pass VALUES ('T82');
             ELSE
@@ -4989,7 +4993,7 @@ BEGIN
     EXCEPTION
         WHEN check_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'property_file_refusal_codes_known_election' THEN
+            IF v_constraint = 'property_file_refusal_codes_known_parcel' THEN
                 RAISE NOTICE 'PASS T98: unknown code still rejected after widening';
                 INSERT INTO test_pass VALUES ('T98');
             ELSE
@@ -5140,6 +5144,110 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T103: refusals_codes_valid ACCEPTS PARCEL_REFERENCE_UNKNOWN (0055,
+-- P37, README finding #40). Positive control -- proves the widened
+-- vocabulary admits the code, independent of whether compose() itself ever
+-- writes a row carrying it (it does not -- see 0055's own header: this
+-- code is returned as a typed Result directly, never persisted). The
+-- schema-level vocabulary and the one real writer's own usage pattern are
+-- two different claims; this test is about the former only.
+-- ============================================================================
+
+\echo '### TEST T103: refusals accepts PARCEL_REFERENCE_UNKNOWN (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO property_file (
+        parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+        ruleset_version, composer_version, geometry_tier_used, refusals,
+        payload, payload_hash, compose_ms, election
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        'v1.0', 'v1.0', false,
+        '[{"code": "PARCEL_REFERENCE_UNKNOWN", "stage": "L0", "message": "test"}]'::jsonb,
+        '{}'::jsonb, 'testhash_t103', 1, NULL
+    );
+
+    RAISE NOTICE 'PASS T103: refusals containing PARCEL_REFERENCE_UNKNOWN accepted';
+    INSERT INTO test_pass VALUES ('T103');
+END $$;
+
+-- ============================================================================
+-- TEST T104: refusals_codes_valid ACCEPTS PARCEL_NO_FACTS (0055, P37,
+-- README finding #40). Positive control, the second of the two codes 0055
+-- added -- this one IS a real, reachable shape (compose() writes it).
+-- ============================================================================
+
+\echo '### TEST T104: refusals accepts PARCEL_NO_FACTS (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO property_file (
+        parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+        ruleset_version, composer_version, geometry_tier_used, refusals,
+        payload, payload_hash, compose_ms, election
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        'v1.0', 'v1.0', false,
+        '[{"code": "PARCEL_NO_FACTS", "stage": "L8", "message": "test"}]'::jsonb,
+        '{}'::jsonb, 'testhash_t104', 1, NULL
+    );
+
+    RAISE NOTICE 'PASS T104: refusals containing PARCEL_NO_FACTS accepted';
+    INSERT INTO test_pass VALUES ('T104');
+END $$;
+
+-- ============================================================================
+-- TEST T105: refusals_codes_valid, POST-0055-WIDENING, still REJECTS a
+-- genuinely unknown code. Own fresh literal (not T60's or T98's) -- T98's
+-- own lesson, repeated: a widening that accidentally turned into "accept
+-- everything" would leave every earlier rejection test green too, since
+-- none of them assert anything about the SIZE of the accepted vocabulary,
+-- only that their own one literal is rejected.
+-- ============================================================================
+
+\echo '### TEST T105: refusals still rejects an unknown code after the 0055 widening (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, refusals,
+            payload, payload_hash, compose_ms, election
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+            'v1.0', 'v1.0', false,
+            '[{"code": "STILL_NOT_A_REAL_CODE_T105", "stage": "L0", "message": "test"}]'::jsonb,
+            '{}'::jsonb, 'testhash_t105', 1, NULL
+        );
+        RAISE EXCEPTION 'FAIL T105: an unknown code was accepted after the 0055 widening';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_refusal_codes_known_parcel' THEN
+                RAISE NOTICE 'PASS T105: unknown code still rejected after the 0055 widening';
+                INSERT INTO test_pass VALUES ('T105');
+            ELSE
+                RAISE EXCEPTION 'FAIL T105: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -5214,13 +5322,19 @@ END $$;
 -- T101-T102 the two legitimate combinations are still accepted (T98's own
 -- lesson: a rejection proof alone does not prove a constraint isn't
 -- rejecting everything).
+-- Raised 119 -> 122 by 0055 (P37, README finding #40, re-graded):
+-- T103 refusals_codes_valid accepts PARCEL_REFERENCE_UNKNOWN (schema-level
+-- vocabulary, not a shape compose() itself ever persists); T104 accepts
+-- PARCEL_NO_FACTS (a real, reachable shape); T105 still rejects a
+-- genuinely unknown code after this widening, its own fresh literal
+-- (T98's lesson, repeated).
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 119 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 119 passing tests, got %', v_pass_count;
+    IF v_pass_count < 122 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 122 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

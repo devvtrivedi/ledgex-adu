@@ -230,6 +230,16 @@ jobs:
       - name: scripts/test_compose_election.py
         run: python3 scripts/test_compose_election.py
 
+      # P37, README finding #40 (re-graded): PARCEL_REFERENCE_UNKNOWN and
+      # PARCEL_NO_FACTS -- same reasoning as the two tests above, no new
+      # job. Proves compose() now returns a typed Result (no property_file
+      # row) for a caller-supplied parcel_id that does not resolve, and a
+      # normal refused row (zero property_file_fact links) for a resolved
+      # parcel with zero current facts -- both used to raise SystemExit,
+      # crashing the process, for any caller, not merely once api/ exists.
+      - name: scripts/test_compose_parcel_refusals.py
+        run: python3 scripts/test_compose_parcel_refusals.py
+
       # P21: core/model's real pytest suite (tests/core/) -- same reasoning
       # as golden and the snapshot-race test above, no new job. TEST_DATABASE_URL,
       # not DATABASE_URL (own Makefile variable, same reason db-test reads

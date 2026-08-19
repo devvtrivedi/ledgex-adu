@@ -324,7 +324,7 @@ def check_spec_references_migrations():
             f"exist on disk: {', '.join(phantom_in_spec)}")
 
 
-REFUSAL_CODE_MIGRATION = MIGRATIONS_DIR / "0053_refusal_codes_election.sql"
+REFUSAL_CODE_MIGRATION = MIGRATIONS_DIR / "0055_parcel_refusal_codes.sql"
 MODEL_FILE = ROOT / "core" / "model.py"
 SPEC_SECTION_9_RE = re.compile(r"## 9\. Refusal and error codes(.*?)### 9\.1", re.S)
 REFUSAL_CODE_IN_PROSE_RE = re.compile(r"\b[A-Z][A-Z]*(?:_[A-Z]+)+\b")
@@ -354,15 +354,17 @@ def check_refusal_codes_match_spec():
     itself names CONFIDENCE_BELOW_THRESHOLD, a code removed in v1.2, which
     is exactly the kind of stale entry this check must not treat as live.
 
-    REFUSAL_CODE_MIGRATION moved 0038 -> 0053 (P34): 0038 is forward-only
-    and can never be edited, so its own markers could only ever describe
-    the vocabulary as it stood the day 0038 merged. 0048 widened the
-    NULL/shape validation but deliberately kept the vocabulary
-    byte-identical so this pointer would never have to move (see 0048's own
-    header). 0053 is the first migration to actually widen the vocabulary
-    (ELECTION_REQUIRED, ELECTION_NOT_SUPPORTED) -- the markers move with it,
-    onto the migration that is now actually current, not left pointing at
-    a historical snapshot.
+    REFUSAL_CODE_MIGRATION moved 0038 -> 0053 (P34), now 0053 -> 0055 (P37):
+    0038 is forward-only and can never be edited, so its own markers could
+    only ever describe the vocabulary as it stood the day 0038 merged.
+    0048 widened the NULL/shape validation but deliberately kept the
+    vocabulary byte-identical so this pointer would never have to move
+    (see 0048's own header). 0053 widened it for real (ELECTION_REQUIRED,
+    ELECTION_NOT_SUPPORTED) and became the new target; 0053 itself is now
+    forward-only in turn, so 0055's own widening (PARCEL_REFERENCE_UNKNOWN,
+    PARCEL_NO_FACTS, README finding #40) moves the pointer again, onto the
+    migration that is now actually current -- the same move, repeated, not
+    a one-time fix.
 
     P21: extended to a THIRD copy, core/model.py's Refusal.code Literal
     (REFUSAL_CODES tuple) -- the same drift risk, the same reason a

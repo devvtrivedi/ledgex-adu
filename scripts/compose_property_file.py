@@ -55,7 +55,13 @@ code table, none invented for this script: RIGHTS_BLOCKED (L8),
 GEOMETRY_TIER_DISABLED (L7, P25), RULE_UNAVAILABLE (L5, P31),
 ELECTION_REQUIRED and ELECTION_NOT_SUPPORTED (both L5, P34, README
 finding #35 -- see 0053's own migration header for why these are two
-codes, not one, and not folded into RULE_UNAVAILABLE).
+codes, not one, and not folded into RULE_UNAVAILABLE), PARCEL_REFERENCE_
+UNKNOWN (L0) and PARCEL_NO_FACTS (L8, both P37, README finding #40 --
+see 0055's own migration header for why neither reuses PARCEL_NOT_FOUND
+or COVERAGE_GAP/INSUFFICIENT_COVERAGE despite the adjacent names).
+PARCEL_REFERENCE_UNKNOWN is the one code this script returns as a typed
+Result directly, never as a property_file row -- see compose()'s own
+docstring.
 """
 import argparse
 import hashlib
@@ -73,6 +79,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
 from core.calc import evaluate_geometry_dependent_conclusion  # noqa: E402
+from core.model import Refusal, Result  # noqa: E402
 from core.rules import select_effective_rule  # noqa: E402
 
 # P31: Shape 1 -- a hardcoded, narrowly-scoped constant naming which
@@ -221,7 +228,32 @@ def compose(conn, parcel_id, channel, election=None, as_of=None):
     a partial/pending request and waits for election to arrive later --
     it is read from this exact call, once, or the composition refuses in
     this same call and returns. A follow-up is always a brand-new
-    request, never a resumed one."""
+    request, never a resumed one.
+
+    Return value -- deliberately heterogeneous, not a uniform Result[T]
+    (P37, README finding #40). Three shapes, not one:
+      Result.refuse(Refusal(code="PARCEL_REFERENCE_UNKNOWN", ...))
+        -- parcel_id does not resolve. No property_file row is written --
+           cannot be: parcel_id is NOT NULL REFERENCES parcel(id), and
+           there is no parcel to attach one to. This is the one case a
+           typed in-memory return value, not a database row, is the only
+           honest artifact this function can produce.
+      str (the new property_file.id)
+        -- a row was written, refused or not; covers every other refusal
+           this function accumulates (GEOMETRY_TIER_DISABLED, L5's three
+           outcomes, RIGHTS_BLOCKED, PARCEL_NO_FACTS) the same way it
+           always has.
+      None
+        -- the rights gate passed and no geometry/L5/parcel-coverage
+           refusal fired either; nothing composed, nothing written (see
+           this function's own print statement for why that is not
+           itself evidence of readiness). Unchanged since before this
+           package -- Result.ok(None) is itself invalid (core.model.
+           Result's own __init__ guard: exactly one of value/refusal,
+           never neither), so this state was never expressible as a
+           Result and still isn't; it was never a refusal to begin with.
+    Callers must check isinstance(result, Result) FIRST -- see __main__
+    below for the pattern."""
     if election is not None and election not in KNOWN_ELECTIONS:
         raise ValueError(
             f"election={election!r} is not one of {KNOWN_ELECTIONS!r} -- a caller/"
@@ -255,10 +287,33 @@ def compose(conn, parcel_id, channel, election=None, as_of=None):
         # a colliding apn. parcel_id is the only identifier this function
         # trusts; --parcel-apn (see resolve_parcel_id_by_apn / __main__)
         # resolves to one BEFORE calling in, erroring loudly if it can't.
+        #
+        # P37, README finding #40: a caller-supplied parcel_id that does
+        # not resolve is a deterministic runtime condition (I8), not a
+        # programmer error -- re-graded from the SystemExit this used to
+        # raise, live today for any caller, not merely once api/ exists.
+        # No property_file row is possible here (parcel_id is NOT NULL
+        # REFERENCES parcel(id), and there is no parcel to attach one to)
+        # -- Result.refuse() is the only honest artifact, returned
+        # directly, not written. Distinct from PARCEL_NOT_FOUND (§9,
+        # stage L0, "APN not present in any parcel layer") -- that is an
+        # ADDRESS/APN resolution failure; this is a by-id lookup of an
+        # already-internal identifier, a different condition a customer
+        # acts on differently (see 0055's own header for the full
+        # argument).
         cur.execute("SELECT id, jurisdiction_id, apn FROM parcel WHERE id = %s", (parcel_id,))
         row = cur.fetchone()
         if row is None:
-            raise SystemExit(f"no parcel with id={parcel_id!r}")
+            return Result.refuse(Refusal(
+                code="PARCEL_REFERENCE_UNKNOWN",
+                stage="L0",
+                message=(
+                    f"No parcel exists with id={parcel_id!r}. This is a direct-by-id "
+                    f"lookup, not an APN resolution -- distinct from PARCEL_NOT_FOUND "
+                    f"(§9: 'APN not present in any parcel layer')."
+                ),
+                detail={"parcel_id": str(parcel_id)},
+            ))
         parcel_id, jurisdiction_id, apn = row
 
         cur.execute("SELECT pack_version, geometry_tier_enabled FROM jurisdiction WHERE id = %s", (jurisdiction_id,))
@@ -329,8 +384,29 @@ def compose(conn, parcel_id, channel, election=None, as_of=None):
             (as_of, parcel_id),
         )
         touched = cur.fetchall()
+        # P37, README finding #40: a resolved parcel with zero current
+        # facts is also a deterministic runtime condition, not a
+        # programmer error -- re-graded from the SystemExit this used to
+        # raise. UNLIKE the parcel-not-found case above, a property_file
+        # row CAN be written here (parcel_id/jurisdiction_id are both
+        # real, satisfying every FK) and IS -- accumulated into `refusals`
+        # below the same way GEOMETRY_TIER_DISABLED/L5's outcomes already
+        # are (P25: refusals accumulate, never short-circuit). Not
+        # COVERAGE_GAP/INSUFFICIENT_COVERAGE -- both presuppose a
+        # "required fields" mechanism this composer has never built (see
+        # 0055's own header); zero facts is a distinct, prior condition,
+        # its own code, not either of those by default.
+        no_facts_refusal = None
         if not touched:
-            raise SystemExit(f"parcel {parcel_id} (apn={apn!r}) has no current facts -- nothing to compose or gate")
+            no_facts_refusal = {
+                "code": "PARCEL_NO_FACTS",
+                "stage": "L8",
+                "message": (
+                    f"parcel {parcel_id} (apn={apn!r}) has no current facts as of "
+                    f"{as_of} -- nothing for this composer to gate or deliver."
+                ),
+                "detail": {"parcel_id": str(parcel_id), "apn": apn},
+            }
 
         print(f"parcel {parcel_id} (apn={apn!r}): {len(touched)} touched facts")
         for fact_id, field_key, licence_id, value in touched:
@@ -365,6 +441,11 @@ def compose(conn, parcel_id, channel, election=None, as_of=None):
     geometry_result = evaluate_geometry_dependent_conclusion("placement", geometry_tier_enabled)
     if geometry_result.is_refused:
         refusals.append(geometry_result.refusal.model_dump())
+
+    # PARCEL_NO_FACTS (P37, README finding #40): folded in here, same
+    # accumulation reasoning as L7/L5/L8 -- never a short-circuit.
+    if no_facts_refusal is not None:
+        refusals.append(no_facts_refusal)
 
     # L5 (P34, generalizing P31): fold this stage's own refusal into the
     # same accumulated list -- same reasoning as L7 above, a straight-line
@@ -475,6 +556,15 @@ if __name__ == "__main__":
     conn = get_db()
     try:
         parcel_id = args.parcel_id or resolve_parcel_id_by_apn(conn, args.parcel_apn)
-        compose(conn, parcel_id, args.channel, election=args.election)
+        result = compose(conn, parcel_id, args.channel, election=args.election)
+        # P37, README finding #40: compose()'s own docstring names three
+        # possible return shapes -- Result (refused before any row could
+        # be written), str (a row was written), None (rights gate passed,
+        # nothing written). Checked first, not assumed str/None.
+        if isinstance(result, Result):
+            refusal = result.refusal
+            print(f"\nREFUSED before any property_file could be written: "
+                  f"{refusal.code}: {refusal.message}")
+            sys.exit(1)
     finally:
         conn.close()

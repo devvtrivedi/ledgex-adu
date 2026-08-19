@@ -684,7 +684,7 @@ CREATE FUNCTION public.refusals_codes_valid(refusals jsonb) RETURNS boolean
 -- reads the quoted string literals between these two markers and diffs
 -- them against §9's vocabulary in docs/LEDGEX_SPEC.md. Keep the list here,
 -- and only here -- do not duplicate it elsewhere in this file. Moved here
--- from 0038 by 0053 -- see this file's own header for why.
+-- from 0053 by 0055 -- see this file's own header for why.
                     'JURISDICTION_UNRESOLVED',
                     'JURISDICTION_UNSUPPORTED',
                     'JURISDICTION_BOUNDARY_CONFLICT',
@@ -705,7 +705,9 @@ CREATE FUNCTION public.refusals_codes_valid(refusals jsonb) RETURNS boolean
                     'DISCLOSURE_NOT_ACCEPTED',
                     'ACCESS_NOT_ENTITLED',
                     'ELECTION_REQUIRED',
-                    'ELECTION_NOT_SUPPORTED'
+                    'ELECTION_NOT_SUPPORTED',
+                    'PARCEL_REFERENCE_UNKNOWN',
+                    'PARCEL_NO_FACTS'
 -- REFUSAL_CODES_END
                )
         )
@@ -1068,7 +1070,7 @@ CREATE TABLE public.property_file (
     CONSTRAINT property_file_compute_cost_micros_nonnegative CHECK ((compute_cost_micros >= 0)),
     CONSTRAINT property_file_election_known CHECK (((election IS NULL) OR (election = ANY (ARRAY['city'::text, 'state'::text])))),
     CONSTRAINT property_file_election_refusal_consistent CHECK (public.property_file_election_refusal_consistent(election, refusals)),
-    CONSTRAINT property_file_refusal_codes_known_election CHECK (public.refusals_codes_valid(refusals)),
+    CONSTRAINT property_file_refusal_codes_known_parcel CHECK (public.refusals_codes_valid(refusals)),
     CONSTRAINT property_file_source_calls_nonnegative CHECK ((source_calls >= 0)),
     CONSTRAINT property_file_storage_cost_micros_nonnegative CHECK ((storage_cost_micros >= 0))
 );
