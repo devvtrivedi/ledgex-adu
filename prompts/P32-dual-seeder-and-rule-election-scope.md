@@ -66,16 +66,33 @@ CONTEXT:  PL/pgSQL function rule_no_destructive_update() line 19 at RAISE
 ```
 Reverted; re-run on the same database, clean (`GOLDEN SUMMARY: PASSED`).
 
-**Deliberately not pushed to CI, and why, stated plainly rather than silently skipped.**
-`db.yml`'s `schema` job never runs `db/seeds/` and nothing else in that job seeds a `rule`
-row before `make golden` does — the very first time `make golden` runs in any fresh CI
-database, `check_golden.py`'s own `INSERT` hits no conflict at all, so `ON CONFLICT`'s two
-branches are structurally unreachable in a single, fresh CI run. Pushing this exact break to
-CI would not reproduce the failure — it would insert the drifted citation cleanly as a fresh
-row and (since `ruleset_version` is only `rule_key@version`) the fixture comparison would
-still pass, silently, proving nothing and risking a false "looks fine" read. This class of
-proof genuinely requires a pre-seeded database, which is a local/authorial condition, not
-something this project's own CI structure can exercise without adding an artificial pre-seed
+**CORRECTED BY P33 — the paragraph below was wrong, not merely imprecise. Left in place,
+struck through in spirit, replaced by the corrected reasoning immediately after it, per
+this project's own "correct in place, do not silently rewrite" discipline (P26/P30):**
+
+~~Deliberately not pushed to CI, and why: `db.yml`'s `schema` job never runs `db/seeds/`
+and nothing else in that job seeds a `rule` row before `make golden` does — the very first
+time `make golden` runs in any fresh CI database, `check_golden.py`'s own `INSERT` hits no
+conflict at all, so `ON CONFLICT`'s two branches are structurally unreachable in a single,
+fresh CI run.~~ **False** — see [P33-correct-36-close-37-design-35.md](P33-correct-36-close-37-design-35.md)
+section 1: `check_golden.py`'s own `main()` calls `seed_reference_rows()` **twice** per
+`make golden` run (once per fixture class), so the second call hits `ON CONFLICT` on every
+single CI run, confirmed empirically via `pg_stat_user_tables` (`n_tup_upd` 0→1).
+
+**What was actually true, and is the corrected reason this exact break was still not
+pushed**: the break I planted drifted `check_golden.py`'s *own single* citation literal —
+both of its two calls within one run therefore agree with each other (same hardcoded
+string, executed twice), so the second call's `ON CONFLICT DO UPDATE` compares identical
+`OLD`/`NEW` values and the trigger correctly does not fire, exactly as it should not for a
+self-consistent (if wrong) value. Pushing that specific break to CI would still not have
+reproduced a failure — but not because the conflict branch is unreachable; because a
+single seeder drifting against *only itself* can never disagree with itself. What CI
+genuinely cannot exercise is **cross-seeder** drift — `day4_sources.sql` writing one value
+first, `check_golden.py` disagreeing with it second — because CI never runs `db/seeds/` at
+all, so there is never a genuinely different first writer for the second call to conflict
+against. This class of proof genuinely requires a pre-seeded database, which is a
+local/authorial condition, not something this project's own CI structure can exercise
+without adding an artificial pre-seed
 step solely to manufacture a test scenario nothing else needs — not done, for the same
 "anticipated, not forced by need" reason this codebase avoids scope creep elsewhere.
 
