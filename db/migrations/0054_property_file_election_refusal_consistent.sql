@@ -71,6 +71,19 @@
 -- against OLD across an UPDATE) would be the wrong tool here, where there
 -- is no history to consult.
 --
+-- P37 record fix: this function has TWO NULL-sensitive operands, and this
+-- header (unlike 0052's own, which reasons about election's NULL branch at
+-- length) never named the other one. refusals is NOT NULL DEFAULT '[]'::jsonb
+-- (0012; confirmed here directly, not assumed from the dump alone --
+-- `\d property_file` against ledgex_schema_check shows the identical
+-- "not null" on the live column) -- so `refusals @> ...` is total, never
+-- itself produces SQL NULL, and the surrounding NOT (... OR ...) can never
+-- evaluate to NULL either. Both operands are covered: election's NULL
+-- branch is the real, handled, documented case the exclusions are built
+-- around; refusals has no NULL branch to handle at all. A CHECK function
+-- reduces to SQL NULL only when an operand genuinely can be NULL and isn't
+-- guarded -- neither risk exists here.
+--
 -- EXISTING ROWS -- every reachable database re-queried before writing
 -- this migration, not assumed clean from P35's own count (P35 found 0
 -- across 7 rows; re-checked fresh here in case P35's or P36's own runs
