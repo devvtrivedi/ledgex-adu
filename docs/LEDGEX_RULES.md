@@ -8,7 +8,7 @@
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | Engineering Reference Spec v1.41 | Machine-executed build contract. |
+| 1 | Engineering Reference Spec v1.42 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement of the Spec. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -52,7 +52,7 @@ A target name without execution scope and a pass condition is not a definition o
 | **make schema-dump** | Regenerate db/schema.sql from the applied database and compare the committed dump. | No diff; missing or stale generated DDL fails. |
 | **make conformance** | Real for one pack (P26, jurisdictions/ca_san_jose) -- schema validity plus every active source's licence/field_definition/expected_fields agreement with the live database. Mappings, rights broadening against Plan 2.1.4 Appendix K and dependency cascades are not yet checked (endpoint liveness moved to its own real gate, P28). | The one real pack's checks pass; the exit code reflects only that. The three absent areas are named explicitly on every run, never silently counted as covered. |
 | **make test** | core/model's real pytest suite (P21) -- review, entitlement, outcome observation, provider slot, edge guard and billing independence are not yet reachable; none of that scope exists in core/ or commerce/ yet. | core/model's suite passes; the exit code reflects only that. The absent areas are named explicitly on every run, never silently counted as covered. |
-| **make golden** | Normalized refused and geometry-disabled Base Core fixtures (P20, P25) -- composed and partial are not yet reachable; STANDING-BLOCKER.md. | Both refused-path and geometry-disabled-path outputs match their approved fixtures; the exit code reflects only those two checks. The two remaining classes are named explicitly on every run, never silently counted as covered. |
+| **make golden** | Normalized refused and geometry-disabled Base Core fixtures (P20, P25), plus an election_required fixture beyond that taxonomy (P34, README finding #35) -- composed and partial are not yet reachable; STANDING-BLOCKER.md. | All three checked outputs match their approved fixtures; the exit code reflects only those three checks. The two taxonomy classes still not reachable (composed, partial) are named explicitly on every run, never silently counted as covered. |
 | **make liveness** | Real for the pack's three active, ca_san_jose-owned sources (P28) -- a bounded-prefix GET per source (never a full ingest), checked against the raw key(s) each declared field_key depends on. Writes no snapshot row (not a fetch under C7 -- see scripts/check_liveness.py); writes a job_run row per source, using job_run.schema_drift for its own already-declared meaning. Scheduled (daily) plus workflow_dispatch, not push/pull_request-gated -- an external city endpoint has no SLA to this project (see prompts/P28-liveness.md section 2). | All three probed sources respond 200 with every declared field present in the checked prefix; the exit code reflects only that. Federal sources and non-active sources are named explicitly on every run, never silently counted as covered. |
 
 ## 3. A-1 scope
@@ -190,7 +190,7 @@ run.
 > **READ VERBATIM**
 
 Business Plan 2.1.4 - commercial boundary
-Engineering Reference Spec v1.41 - executable contract
+Engineering Reference Spec v1.42 - executable contract
 Implementation Rules v1.4 - operational restatement
 
 PRESERVE
@@ -212,4 +212,4 @@ customer-delivery boundary.
 
 ---
 
-*Generated 2026-08-18 by `build/build_rules.py`. Source of record: `build/ledgex_source.py`.*
+*Generated 2026-08-19 by `build/build_rules.py`. Source of record: `build/ledgex_source.py`.*

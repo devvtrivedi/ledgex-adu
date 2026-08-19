@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.41
+# LedgeX / ADU.X — Engineering Reference Spec v1.42
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.41 | Machine-executed build contract. |
+| 1 | This Spec v1.42 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -98,7 +98,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 | **make schema-dump** | Regenerate db/schema.sql from the applied database and compare the committed dump. | No diff; missing or stale generated DDL fails. |
 | **make conformance** | Real for one pack (P26, jurisdictions/ca_san_jose) -- schema validity plus every active source's licence/field_definition/expected_fields agreement with the live database. Mappings, rights broadening against Plan 2.1.4 Appendix K and dependency cascades are not yet checked (endpoint liveness moved to its own real gate, P28). | The one real pack's checks pass; the exit code reflects only that. The three absent areas are named explicitly on every run, never silently counted as covered. |
 | **make test** | core/model's real pytest suite (P21) -- review, entitlement, outcome observation, provider slot, edge guard and billing independence are not yet reachable; none of that scope exists in core/ or commerce/ yet. | core/model's suite passes; the exit code reflects only that. The absent areas are named explicitly on every run, never silently counted as covered. |
-| **make golden** | Normalized refused and geometry-disabled Base Core fixtures (P20, P25) -- composed and partial are not yet reachable; STANDING-BLOCKER.md. | Both refused-path and geometry-disabled-path outputs match their approved fixtures; the exit code reflects only those two checks. The two remaining classes are named explicitly on every run, never silently counted as covered. |
+| **make golden** | Normalized refused and geometry-disabled Base Core fixtures (P20, P25), plus an election_required fixture beyond that taxonomy (P34, README finding #35) -- composed and partial are not yet reachable; STANDING-BLOCKER.md. | All three checked outputs match their approved fixtures; the exit code reflects only those three checks. The two taxonomy classes still not reachable (composed, partial) are named explicitly on every run, never silently counted as covered. |
 | **make liveness** | Real for the pack's three active, ca_san_jose-owned sources (P28) -- a bounded-prefix GET per source (never a full ingest), checked against the raw key(s) each declared field_key depends on. Writes no snapshot row (not a fetch under C7 -- see scripts/check_liveness.py); writes a job_run row per source, using job_run.schema_drift for its own already-declared meaning. Scheduled (daily) plus workflow_dispatch, not push/pull_request-gated -- an external city endpoint has no SLA to this project (see prompts/P28-liveness.md section 2). | All three probed sources respond 200 with every declared field present in the checked prefix; the exit code reflects only that. Federal sources and non-active sources are named explicitly on every run, never silently counted as covered. |
 
 ## 15. Architecture Addendum A-1
@@ -118,7 +118,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.41 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.42 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -721,6 +721,26 @@ An enum backing this via enum_range() was considered and rejected: enum_range() 
      value that is not a JSON array at all previously crashed the INSERT with a raw jsonb_array_elements() error
      instead of a typed constraint violation; now rejected cleanly by the same CHECK. See §12's 1.33 entry.
 
+     db/migrations/0052_property_file_election.sql adds property_file.election (nullable text, CHECK election IS NULL
+     OR election IN ('city','state')). README finding #35: Bulletin #210 page 3 states an ADU applicant must elect
+     either City (Municipal Code 20.80.175) or State (20.80.176) development standards -- "the standards cannot be
+     mixed" -- and the two regimes give materially different answers for the same conclusion. election is stamped
+     from scripts/compose_property_file.py's own request-scoped election parameter (I13: an applicant's design
+     choice about their project, not a claim about the world -- never written to the fact ledger), so a stored file
+     whose ruleset_version depended on an election records which one, reproducibly. NULL is a real, handled case, not
+     an unconstrained gap: it means no conclusion in this file depended on an election at all, never "unknown" and
+     never a silent default to city -- a composition that DOES need an election with none supplied refuses
+     ELECTION_REQUIRED (0053) before this row is ever written, so NULL here can never mean "the applicant should have
+     picked one and didn't." See §12's 1.37 entry.
+
+     db/migrations/0053_refusal_codes_election.sql widens refusals_codes_valid()'s vocabulary by two codes,
+     ELECTION_REQUIRED and ELECTION_NOT_SUPPORTED (§9), DROP+ADD on property_file_refusal_codes_known_election (same
+     re-validation reasoning 0048 gave). This is the first migration to actually widen the vocabulary since 0038 --
+     0048 kept it byte-identical specifically so build/qa_check.py's REFUSAL_CODE_MIGRATION pointer, hardcoded to one
+     migration file's own REFUSAL_CODES_BEGIN/END markers, would never have to move. It moves here, onto this file,
+     since 0038 itself is forward-only and can never be edited to describe a vocabulary it predates. See §12's 1.37
+     entry.
+
      v1.6: Property File rows carry delivery outcome and cost telemetry only. Commercial access lives in commerce.access_entitlement and
      commerce.subscription; no accepted price or per-file settlement field exists.
 ```
@@ -978,8 +998,11 @@ crosswalk                                                       value; expected 
 absent (schema drift)
 L4 Store                        candidate facts                 persisted facts,                Constraint violation (I2/I3)    fact, fact_input
 superseding prior beliefs       — a bug, not a refusal
-L5 Rules                        jurisdiction + as-of date       applicable rules with           No rule effective at the        reads rule
-citations                       as-of date
+L5 Rules                        jurisdiction + as-of date +     applicable rules with           No rule effective at the        reads rule
+election, when the touched      citations                       as-of date; election required
+conclusion needs one (v1.42)                                    but not supplied; election
+supplied but not yet mapped to
+a rule_key (v1.42)
 L6 Reconcile                    competing facts + rules +       conflict states, confidence,    — (emits, never refuses)        fact.conflict,
 geometry                        exceptions                                                      parcel_exception
 L7 Calculate                    facts + rule params +           derived facts with lineage      Geometry tier disabled;         fact (method='derived'),
@@ -1220,6 +1243,8 @@ compose_ms, source_calls, compute_cost_micros, storage_cost_micros              
 snapshot_id, payload_hash                                                           Retained — a changed snapshot should fail the test
 composer_version, pack_version, ruleset_version                                     Retained — a version bump should fail the test and force a re-blessing
 as_of                                                                               Pinned by the fixture, not by now()
+election                                                                            Retained — a different election is a different answer, not a
+normalised-away detail (v1.42)
 
 Ordering of unmet_fields, refusals, attribution and omitted_for_rights is sorted lexically before comparison.
 Refusals are asserted as positively as values — a golden file that lost a refusal is a regression.
@@ -1234,6 +1259,20 @@ coarser "composition logic version" distinct from its own git-SHA provenance val
 not decided by P20. as_of is pinned for real, not merely normalised: compose_property_file.py's compose()
 gained an optional as_of parameter so the golden check can pass a fixed, far-future timestamp instead of the
 composer's own default live-clock read — the composer's real CLI path is unchanged.
+
+P34 implementation note (README finding #35; see §12's 1.37 entry for the full record). scripts/check_golden.py
+checks three fixture classes as of this revision, not two: refused, geometry-disabled (both P25, unchanged) and
+election_required (new). election_required is deliberately NOT a third member of the original composed / partial
+/ refused / geometry-disabled taxonomy this section's own coverage counter (make golden's own MISSING_CLASSES,
+still ["composed", "partial"]) tracks — it is a refused-status file like the other two, checking a newer, narrower
+concern (README finding #35's election parameter) that postdates that taxonomy. Coverage is reported honestly as
+both counts, not folded into one: "2 of 4" original classes (composed/partial still unreachable —
+STANDING-BLOCKER.md, unchanged) plus this one additional fixture beyond that taxonomy. A second new refusal
+branch, ELECTION_NOT_SUPPORTED (election supplied but not yet mapped to a rule_key), is deliberately NOT given its
+own fourth golden fixture: mechanically identical to election_required's own branch (skip the rule_key lookup,
+append a refusal) with only the code string differing, so a pytest-level proof against compose() directly
+(tests/core/test_compose_election.py) is the check that actually adds coverage; a fourth near-byte-identical
+fixture would not.
 
 ### 6.7 Annex — the human-review queue, considered and cut
 
@@ -1805,7 +1844,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.41
+Engineering Reference Spec v1.42
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1866,7 +1905,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.41
+Engineering Reference Spec v1.42
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1897,7 +1936,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.41
+Engineering Reference Spec v1.42
 
 ## 9. Refusal and error codes
 
@@ -1921,6 +1960,13 @@ SOURCE_DEFERRED                                        L1                       
 CROSSWALK_UNMAPPED                                     L3                                                    Source value has no canonical mapping. Fails
 the build.
 RULE_UNAVAILABLE                                       L5                                                    No rule effective at the as-of date
+ELECTION_REQUIRED                                      L5                                                    v1.42 — an election-dependent conclusion was
+touched and no election was supplied
+ELECTION_NOT_SUPPORTED                                 L5                                                    v1.42 — an election was supplied but this
+composer has no rule_key for that
+(conclusion, election) pairing yet. Distinct
+from RULE_UNAVAILABLE: no as-of query is ever
+attempted
 PERMIT_SERIES_TOO_SHALLOW                              L6                                                    Structure predates the measured series start
 GEOMETRY_TIER_DISABLED                                 L7                                                    3DEP gate not cleared
 COVERAGE_GAP                                           L7/L8                                                 A required field could not be retrieved
@@ -2935,6 +2981,30 @@ two.                                                                           n
 400) and one declared field silently required-but-
 absent each failed red, independently, reverted
 after.
+Aug 2026             1.42                 P34: the election parameter, refuse-first (README finding #35).                P32 chose the design (election as a
+db/migrations/0052_property_file_election.sql adds property_file.election      request parameter, refusal as
+(section 3.12). db/migrations/0053_refusal_codes_election.sql widens           fallback); P33 reported it concretely
+refusals_codes_valid() by two codes, ELECTION_REQUIRED and                     without building it; this revision
+ELECTION_NOT_SUPPORTED (section 9), and moves build/qa_check.py's own          builds it. Two codes, not one,
+REFUSAL_CODE_MIGRATION pointer from 0038 to itself -- 0038 is forward-only     because "no election supplied" and
+and could never describe a vocabulary it predates; 0048 had kept the          "an election was supplied but this
+vocabulary byte-identical specifically so that pointer would never have to     composer has no rule_key for it" are
+move, and this is the first widening since 0038 existed. scripts/             different causes a customer acts on
+compose_property_file.py's compose() gains an election parameter              differently -- collapsing them into
+(None/"city"/"state", request-scoped, never persisted to the fact ledger,     RULE_UNAVAILABLE would make that
+I13); CONCLUSION_RULE_KEYS generalized from {conclusion: rule_key} to          code mean two things, the exact
+{(conclusion, election): rule_key}. election=None on a conclusion that         "subtler lie" shape section 12's 1.20
+needs one refuses ELECTION_REQUIRED before any rule lookup; an election        entry already warned this code
+supplied with no dict entry refuses ELECTION_NOT_SUPPORTED, equally           against. A second State-standards
+before any lookup -- neither is RULE_UNAVAILABLE, which asserts a rule_key     rule was deliberately NOT seeded to
+WAS known and a real as-of query against `rule` found no matching row.         prove this: the refusal paths prove
+scripts/check_golden.py gained a third fixture, election_required (section    both new branches without one: HCD's
+6.6), beyond the original composed/partial/refused/geometry-disabled          own ADU Handbook is the real next
+taxonomy -- coverage reported as both counts, not folded into one.            source, not fetched or read here.
+ELECTION_NOT_SUPPORTED proven at the pytest level instead
+(tests/core/test_compose_election.py), mechanically identical to
+election_required's own branch. Section 5's L5 row updated to name the
+new In/Refuses-when cases.
 
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
@@ -3593,4 +3663,4 @@ These checks are required and not asserted complete by this PDF. Record CI outpu
 
 ---
 
-*Generated 2026-08-18 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*
+*Generated 2026-08-19 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*

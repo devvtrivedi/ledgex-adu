@@ -13,7 +13,7 @@ Invariant I17: these strings are authoritative only when read verbatim from the
 filesystem. Change the text HERE, once, then regenerate both artifacts.
 """
 
-SPEC_VERSION = "1.41"
+SPEC_VERSION = "1.42"
 RULES_VERSION = "1.4"
 PHASE = "Phase 1, Step 1 - City of San Jose"
 REVISION_DATE = "August 2026"
@@ -147,12 +147,14 @@ MAKE_TARGETS = [
      "absent areas are named explicitly on every run, never silently "
      "counted as covered."),
     ("make golden",
-     "Normalized refused and geometry-disabled Base Core fixtures (P20, P25) "
-     "-- composed and partial are not yet reachable; STANDING-BLOCKER.md.",
-     "Both refused-path and geometry-disabled-path outputs match their "
-     "approved fixtures; the exit code reflects only those two checks. "
-     "The two remaining classes are named explicitly on every run, never "
-     "silently counted as covered."),
+     "Normalized refused and geometry-disabled Base Core fixtures (P20, P25), "
+     "plus an election_required fixture beyond that taxonomy (P34, README "
+     "finding #35) -- composed and partial are not yet reachable; "
+     "STANDING-BLOCKER.md.",
+     "All three checked outputs match their approved fixtures; the exit "
+     "code reflects only those three checks. The two taxonomy classes "
+     "still not reachable (composed, partial) are named explicitly on "
+     "every run, never silently counted as covered."),
     ("make liveness",
      "Real for the pack's three active, ca_san_jose-owned sources (P28) -- "
      "a bounded-prefix GET per source (never a full ingest), checked "
