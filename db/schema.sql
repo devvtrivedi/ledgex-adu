@@ -658,6 +658,11 @@ CREATE FUNCTION public.refusals_codes_valid(refusals jsonb) RETURNS boolean
             WHERE jsonb_typeof(elem) IS DISTINCT FROM 'object'
                OR elem ->> 'code' IS NULL
                OR elem ->> 'code' NOT IN (
+-- REFUSAL_CODES_BEGIN -- build/qa_check.py's check_refusal_codes_match_spec
+-- reads the quoted string literals between these two markers and diffs
+-- them against §9's vocabulary in docs/LEDGEX_SPEC.md. Keep the list here,
+-- and only here -- do not duplicate it elsewhere in this file. Moved here
+-- from 0038 by 0053 -- see this file's own header for why.
                     'JURISDICTION_UNRESOLVED',
                     'JURISDICTION_UNSUPPORTED',
                     'JURISDICTION_BOUNDARY_CONFLICT',
@@ -676,7 +681,10 @@ CREATE FUNCTION public.refusals_codes_valid(refusals jsonb) RETURNS boolean
                     'LICENCE_UNKNOWN',
                     'INSUFFICIENT_COVERAGE',
                     'DISCLOSURE_NOT_ACCEPTED',
-                    'ACCESS_NOT_ENTITLED'
+                    'ACCESS_NOT_ENTITLED',
+                    'ELECTION_REQUIRED',
+                    'ELECTION_NOT_SUPPORTED'
+-- REFUSAL_CODES_END
                )
         )
     END;
@@ -1030,15 +1038,24 @@ CREATE TABLE public.property_file (
     compute_cost_micros bigint DEFAULT 0 NOT NULL,
     storage_cost_micros bigint DEFAULT 0 NOT NULL,
     unmet_fields text[] DEFAULT '{}'::text[] NOT NULL,
+    election text,
     CONSTRAINT file_partial_declares_gap CHECK (((status <> 'partial'::public.file_status) OR (cardinality(unmet_fields) > 0) OR (jsonb_array_length(refusals) > 0))),
     CONSTRAINT file_refusal_reason CHECK (((status <> 'refused'::public.file_status) OR (jsonb_array_length(refusals) > 0))),
     CONSTRAINT file_refused_not_delivered CHECK (((status <> 'refused'::public.file_status) OR (delivered_at IS NULL))),
     CONSTRAINT property_file_compose_ms_nonnegative CHECK ((compose_ms >= 0)),
     CONSTRAINT property_file_compute_cost_micros_nonnegative CHECK ((compute_cost_micros >= 0)),
-    CONSTRAINT property_file_refusal_codes_known_shape_checked CHECK (public.refusals_codes_valid(refusals)),
+    CONSTRAINT property_file_election_known CHECK (((election IS NULL) OR (election = ANY (ARRAY['city'::text, 'state'::text])))),
+    CONSTRAINT property_file_refusal_codes_known_election CHECK (public.refusals_codes_valid(refusals)),
     CONSTRAINT property_file_source_calls_nonnegative CHECK ((source_calls >= 0)),
     CONSTRAINT property_file_storage_cost_micros_nonnegative CHECK ((storage_cost_micros >= 0))
 );
+
+
+--
+-- Name: COLUMN property_file.election; Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON COLUMN public.property_file.election IS 'Which of Bulletin #210''s two ADU development-standards regimes (City, Municipal Code 20.80.175; State, 20.80.176) this composition used, when relevant. NULL means no conclusion in this file depended on an election, not "unknown" and not a silent default to city -- a composition that DOES touch an election-dependent conclusion with no election supplied refuses ELECTION_REQUIRED (0053) before this row is ever written. Read-only provenance of a request-scoped parameter (scripts/compose_property_file.py''s compose(), I13) -- never itself a fact, never written back to the fact ledger. See README finding #35 and 0052''s own header for the full argument.';
 
 
 --

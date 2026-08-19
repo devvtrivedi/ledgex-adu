@@ -209,12 +209,15 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 # --------------------------------------------------------------------------
 
 # §9's refusal-code vocabulary, verbatim -- kept in sync with
-# db/migrations/0048_refusals_codes_valid_reject_null_shapes.sql's
-# REFUSAL_CODES_BEGIN/END list and docs/LEDGEX_SPEC.md's own §9 table by
-# build/qa_check.py's check_refusal_codes_match_spec(), extended in this
-# package to a second, identically-shaped diff against this tuple. Do not
-# hand-edit one list without the other two -- qa_check will catch it, but
-# catching a mistake is not the same as it being free to make.
+# db/migrations/0053_refusal_codes_election.sql's REFUSAL_CODES_BEGIN/END
+# list (P34: moved here from 0048's own pointer, which was itself wrong --
+# qa_check.py's REFUSAL_CODE_MIGRATION has always actually pointed at
+# 0038's markers, never 0048's; see 0053's own header) and
+# docs/LEDGEX_SPEC.md's own §9 table by build/qa_check.py's
+# check_refusal_codes_match_spec(), extended in P21 to a second,
+# identically-shaped diff against this tuple. Do not hand-edit one list
+# without the other two -- qa_check will catch it, but catching a mistake
+# is not the same as it being free to make.
 REFUSAL_CODES: Final[tuple[str, ...]] = (
     "JURISDICTION_UNRESOLVED",
     "JURISDICTION_UNSUPPORTED",
@@ -235,6 +238,8 @@ REFUSAL_CODES: Final[tuple[str, ...]] = (
     "INSUFFICIENT_COVERAGE",
     "DISCLOSURE_NOT_ACCEPTED",
     "ACCESS_NOT_ENTITLED",
+    "ELECTION_REQUIRED",
+    "ELECTION_NOT_SUPPORTED",
 )
 RefusalCode = Literal[REFUSAL_CODES]  # type: ignore[valid-type]
 

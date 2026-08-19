@@ -324,7 +324,7 @@ def check_spec_references_migrations():
             f"exist on disk: {', '.join(phantom_in_spec)}")
 
 
-REFUSAL_CODE_MIGRATION = MIGRATIONS_DIR / "0038_refusals_code_check.sql"
+REFUSAL_CODE_MIGRATION = MIGRATIONS_DIR / "0053_refusal_codes_election.sql"
 MODEL_FILE = ROOT / "core" / "model.py"
 SPEC_SECTION_9_RE = re.compile(r"## 9\. Refusal and error codes(.*?)### 9\.1", re.S)
 REFUSAL_CODE_IN_PROSE_RE = re.compile(r"\b[A-Z][A-Z]*(?:_[A-Z]+)+\b")
@@ -342,8 +342,8 @@ def check_refusal_codes_match_spec():
     have given that for free, but enum_range() is STABLE, not IMMUTABLE
     (0038's own header confirms this directly), so it can't honestly back
     an IMMUTABLE CHECK. The hardcoded list closes the vocabulary gap I8
-    identifies but opens a duplication gap of its own: the list inside
-    0038's REFUSAL_CODES_BEGIN/END markers and §9's own table in
+    identifies but opens a duplication gap of its own: the list inside the
+    migration's own REFUSAL_CODES_BEGIN/END markers and §9's own table in
     docs/LEDGEX_SPEC.md are now two independent copies of the same
     vocabulary, and nothing kept them in step before this check existed.
     Same shape as check_spec_references_migrations: extract both sets,
@@ -353,6 +353,16 @@ def check_refusal_codes_match_spec():
     pick up an unrelated ALL_CAPS_TOKEN elsewhere in either file -- §9.1
     itself names CONFIDENCE_BELOW_THRESHOLD, a code removed in v1.2, which
     is exactly the kind of stale entry this check must not treat as live.
+
+    REFUSAL_CODE_MIGRATION moved 0038 -> 0053 (P34): 0038 is forward-only
+    and can never be edited, so its own markers could only ever describe
+    the vocabulary as it stood the day 0038 merged. 0048 widened the
+    NULL/shape validation but deliberately kept the vocabulary
+    byte-identical so this pointer would never have to move (see 0048's own
+    header). 0053 is the first migration to actually widen the vocabulary
+    (ELECTION_REQUIRED, ELECTION_NOT_SUPPORTED) -- the markers move with it,
+    onto the migration that is now actually current, not left pointing at
+    a historical snapshot.
 
     P21: extended to a THIRD copy, core/model.py's Refusal.code Literal
     (REFUSAL_CODES tuple) -- the same drift risk, the same reason a
