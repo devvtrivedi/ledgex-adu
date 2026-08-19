@@ -4747,6 +4747,254 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T92: property_file_election_known (0052, P35, README finding #35)
+-- rejects a non-NULL election outside ('city','state'). Exact constraint-
+-- violation text captured and printed, not just the constraint name --
+-- 0052's own header reasons carefully about what NULL means but never
+-- tested any of it; this is that gap closed.
+-- ============================================================================
+
+\echo '### TEST T92: property_file.election rejects a bogus value (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+    v_message    text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, refusals,
+            payload, payload_hash, compose_ms, election
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+            'v1.0', 'v1.0', false,
+            '[{"code": "RIGHTS_BLOCKED", "stage": "L8", "message": "test"}]'::jsonb,
+            '{}'::jsonb, 'testhash_t92', 1, 'bogus'
+        );
+        RAISE EXCEPTION 'FAIL T92: election=''bogus'' was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME, v_message = MESSAGE_TEXT;
+            IF v_constraint = 'property_file_election_known' THEN
+                RAISE NOTICE 'PASS T92: election=''bogus'' rejected -- %', v_message;
+                INSERT INTO test_pass VALUES ('T92');
+            ELSE
+                RAISE EXCEPTION 'FAIL T92: check_violation on unexpected constraint % (%)', v_constraint, v_message;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T93: property_file_election_known ACCEPTS NULL (0052). Not skipped
+-- as obvious -- findings #8 and #19 are both cases where a NULL branch was
+-- assumed to behave as written and did not (elem ->> 'code' IS NULL
+-- silently excluded from the offending set; a NULL-keyed unique index
+-- never conflicts with itself). 0052's own header invokes that precedent
+-- in prose ("NULL is a real, handled case ... not an unconstrained gap")
+-- without ever testing it; this is that gap closed. election IS NULL OR
+-- election IN (...) is the explicit guard CONVENTIONS' NULL-inside-a-
+-- constraint rule requires naming -- this proves the guard's OR actually
+-- lets NULL through, not merely that the migration compiled.
+-- ============================================================================
+
+\echo '### TEST T93: property_file.election accepts NULL (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO property_file (
+        parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+        ruleset_version, composer_version, geometry_tier_used, refusals,
+        payload, payload_hash, compose_ms, election
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        'v1.0', 'v1.0', false,
+        '[{"code": "RIGHTS_BLOCKED", "stage": "L8", "message": "test"}]'::jsonb,
+        '{}'::jsonb, 'testhash_t93', 1, NULL
+    );
+
+    RAISE NOTICE 'PASS T93: election=NULL accepted';
+    INSERT INTO test_pass VALUES ('T93');
+END $$;
+
+-- ============================================================================
+-- TEST T94: property_file_election_known ACCEPTS 'city' (0052) -- the one
+-- real, seeded regime (P31). Positive control alongside T92/T95: the CHECK
+-- constrains the vocabulary, it does not reject every non-NULL value.
+-- ============================================================================
+
+\echo '### TEST T94: property_file.election accepts ''city'' (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO property_file (
+        parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+        ruleset_version, composer_version, geometry_tier_used, refusals,
+        payload, payload_hash, compose_ms, election
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        'v1.0', 'v1.0', false,
+        '[{"code": "RIGHTS_BLOCKED", "stage": "L8", "message": "test"}]'::jsonb,
+        '{}'::jsonb, 'testhash_t94', 1, 'city'
+    );
+
+    RAISE NOTICE 'PASS T94: election=''city'' accepted';
+    INSERT INTO test_pass VALUES ('T94');
+END $$;
+
+-- ============================================================================
+-- TEST T95: property_file_election_known ACCEPTS 'state' (0052) -- not yet
+-- reachable through compose() today (README finding #35: no State-standards
+-- rule_key is mapped in CONCLUSION_RULE_KEYS), but the column and its CHECK
+-- do not themselves know that -- the schema must accept the full vocabulary
+-- Bulletin #210 names, independent of which half compose() currently uses.
+-- ============================================================================
+
+\echo '### TEST T95: property_file.election accepts ''state'' (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO property_file (
+        parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+        ruleset_version, composer_version, geometry_tier_used, refusals,
+        payload, payload_hash, compose_ms, election
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        'v1.0', 'v1.0', false,
+        '[{"code": "RIGHTS_BLOCKED", "stage": "L8", "message": "test"}]'::jsonb,
+        '{}'::jsonb, 'testhash_t95', 1, 'state'
+    );
+
+    RAISE NOTICE 'PASS T95: election=''state'' accepted';
+    INSERT INTO test_pass VALUES ('T95');
+END $$;
+
+-- ============================================================================
+-- TEST T96: refusals_codes_valid ACCEPTS ELECTION_REQUIRED (0053, P35).
+-- Positive control -- proves the widened vocabulary actually admits the new
+-- code, not merely that the migration's own DDL compiled.
+-- ============================================================================
+
+\echo '### TEST T96: refusals accepts ELECTION_REQUIRED (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO property_file (
+        parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+        ruleset_version, composer_version, geometry_tier_used, refusals,
+        payload, payload_hash, compose_ms, election
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        'v1.0', 'v1.0', false,
+        '[{"code": "ELECTION_REQUIRED", "stage": "L5", "message": "test"}]'::jsonb,
+        '{}'::jsonb, 'testhash_t96', 1, NULL
+    );
+
+    RAISE NOTICE 'PASS T96: refusals containing ELECTION_REQUIRED accepted';
+    INSERT INTO test_pass VALUES ('T96');
+END $$;
+
+-- ============================================================================
+-- TEST T97: refusals_codes_valid ACCEPTS ELECTION_NOT_SUPPORTED (0053, P35).
+-- Same positive-control reasoning as T96, the second of the two codes 0053
+-- added.
+-- ============================================================================
+
+\echo '### TEST T97: refusals accepts ELECTION_NOT_SUPPORTED (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO property_file (
+        parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+        ruleset_version, composer_version, geometry_tier_used, refusals,
+        payload, payload_hash, compose_ms, election
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        'v1.0', 'v1.0', false,
+        '[{"code": "ELECTION_NOT_SUPPORTED", "stage": "L5", "message": "test"}]'::jsonb,
+        '{}'::jsonb, 'testhash_t97', 1, 'state'
+    );
+
+    RAISE NOTICE 'PASS T97: refusals containing ELECTION_NOT_SUPPORTED accepted';
+    INSERT INTO test_pass VALUES ('T97');
+END $$;
+
+-- ============================================================================
+-- TEST T98: refusals_codes_valid, POST-WIDENING, still REJECTS a genuinely
+-- unknown code (0053, P35). T60 already covers this in general and predates
+-- 0053, but T60's own code literal is not specific to 0053's widening --
+-- a widening that accidentally turned into "accept everything" (an OR
+-- chain wired wrong, a stray TRUE) would leave T60 green too, since T60
+-- never asserts anything about the SIZE of the accepted vocabulary, only
+-- that its own one literal is rejected. This test uses its own, fresh
+-- literal and exists specifically to regression-guard the widening itself,
+-- not merely re-prove the pre-existing mechanism. RED proof (not left live
+-- in this file, per T60's own precedent for 0038): a scratch database with
+-- refusals_codes_valid() temporarily replaced by a body returning TRUE
+-- unconditionally -- simulating exactly the "widening accidentally accepts
+-- everything" failure mode -- let this exact INSERT succeed; reverted to
+-- 0053's real function, confirmed rejected again. See
+-- prompts/P35-election-invariants-and-fk-report.md section 2 for the full
+-- transcript.
+-- ============================================================================
+
+\echo '### TEST T98: refusals still rejects an unknown code after widening (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, refusals,
+            payload, payload_hash, compose_ms, election
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+            'v1.0', 'v1.0', false,
+            '[{"code": "STILL_NOT_A_REAL_CODE_T98", "stage": "L5", "message": "test"}]'::jsonb,
+            '{}'::jsonb, 'testhash_t98', 1, NULL
+        );
+        RAISE EXCEPTION 'FAIL T98: an unknown code was accepted after the 0053 widening';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_refusal_codes_known_election' THEN
+                RAISE NOTICE 'PASS T98: unknown code still rejected after widening';
+                INSERT INTO test_pass VALUES ('T98');
+            ELSE
+                RAISE EXCEPTION 'FAIL T98: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -4795,13 +5043,21 @@ END $$;
 -- retirement UPDATE targets only the exact stranded version; T89 a second
 -- run of it is a no-op). Raised 106 -> 108 by 0051 (P18, findings #12/#16:
 -- T90 job_run.metrics accepts a JSON object; T91 rejects a bare array).
+-- Raised 108 -> 115 by 0052/0053 (P35, README finding #35 -- P34 added
+-- both migrations but no invariant tests; P35 is the DB-layer half P34
+-- skipped): T92 property_file_election_known rejects a bogus value;
+-- T93-T95 accepts NULL, 'city', 'state'; T96-T97 refusals_codes_valid
+-- accepts ELECTION_REQUIRED, ELECTION_NOT_SUPPORTED; T98 still rejects a
+-- genuinely unknown code after the widening (its own fresh literal, not
+-- T60's -- guards the widening itself, not merely the pre-existing
+-- mechanism T60 already covered before 0053 existed).
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 108 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 108 passing tests, got %', v_pass_count;
+    IF v_pass_count < 115 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 115 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 
