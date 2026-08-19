@@ -346,10 +346,14 @@ class TestRefusal:
         with pytest.raises(ValidationError):
             Refusal(code="NOT_A_REAL_CODE", stage="L8", message="x")
 
-    def test_all_19_spec_codes_individually_accepted(self):
+    def test_all_spec_codes_individually_accepted(self):
         """Exercises every code in REFUSAL_CODES, not just one -- a typo
         in the middle of the tuple would not be caught by testing only
-        the first/last entries."""
+        the first/last entries. 19 codes at P21; 21 as of P34
+        (ELECTION_REQUIRED, ELECTION_NOT_SUPPORTED) -- iterates the real
+        tuple rather than a hardcoded count, so this test needed no
+        change when the vocabulary grew; only its own name, which did
+        hardcode the count, was stale."""
         for code in REFUSAL_CODES:
             Refusal(code=code, stage="L0", message="x")
 

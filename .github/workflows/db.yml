@@ -186,6 +186,19 @@ jobs:
       - name: scripts/test_compose_geometry_tier_used.py
         run: python3 scripts/test_compose_geometry_tier_used.py
 
+      # P34, README finding #35: the election parameter's three distinct
+      # L5 outcomes (ELECTION_REQUIRED, ELECTION_NOT_SUPPORTED,
+      # RULE_UNAVAILABLE) -- same reasoning as the two tests above, no new
+      # job. Not covered by make golden's own election_required fixture
+      # alone: that fixture only proves election=None; this proves
+      # election="state" and election="city" reach genuinely different
+      # code paths too (a synthetic jurisdiction with no seeded rule at
+      # all, so RULE_UNAVAILABLE fires against a real query -- see the
+      # test's own module docstring for why that third case is the one
+      # that actually matters).
+      - name: scripts/test_compose_election.py
+        run: python3 scripts/test_compose_election.py
+
       # P21: core/model's real pytest suite (tests/core/) -- same reasoning
       # as golden and the snapshot-race test above, no new job. TEST_DATABASE_URL,
       # not DATABASE_URL (own Makefile variable, same reason db-test reads

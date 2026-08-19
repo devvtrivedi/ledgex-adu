@@ -3322,11 +3322,16 @@ END $$;
 
 -- ============================================================================
 -- TEST T60: property_file.refusals rejects a code outside §9's vocabulary
--- (0038's vocabulary, enforced since P10 by 0048's
--- property_file_refusal_codes_known_shape_checked -- 0038's own original
--- constraint name, property_file_refusal_codes_known, was DROPped and
--- replaced in 0048, same DROP+ADD-with-a-new-name discipline
--- 0020_lifecycle_constraints.sql established; see 0048's own header).
+-- (0038's original vocabulary, widened by 0053 -- ELECTION_REQUIRED,
+-- ELECTION_NOT_SUPPORTED, P34, README finding #35), enforced since P10 by
+-- what is now 0053's property_file_refusal_codes_known_election. Renamed
+-- twice, same DROP+ADD-with-a-new-name discipline
+-- 0020_lifecycle_constraints.sql established each time: 0038's own
+-- original name, property_file_refusal_codes_known, was DROPped and
+-- replaced by 0048's property_file_refusal_codes_known_shape_checked
+-- (tightened NULL/shape validation), itself DROPped and replaced by
+-- 0053's own name below (vocabulary widened; see 0053's own header for
+-- why the REFUSAL_CODES_BEGIN/END sync-check markers moved here too).
 -- Proves the CHECK is actually wired to refusals_codes_valid() and
 -- actually fires, not just that the function returns false in isolation
 -- (already confirmed directly against a scratch database while writing
@@ -3357,7 +3362,7 @@ BEGIN
     EXCEPTION
         WHEN check_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'property_file_refusal_codes_known_shape_checked' THEN
+            IF v_constraint = 'property_file_refusal_codes_known_election' THEN
                 RAISE NOTICE 'PASS T60: unknown refusal code rejected';
                 INSERT INTO test_pass VALUES ('T60');
             ELSE
@@ -4323,7 +4328,7 @@ BEGIN
     EXCEPTION
         WHEN check_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'property_file_refusal_codes_known_shape_checked' THEN
+            IF v_constraint = 'property_file_refusal_codes_known_election' THEN
                 RAISE NOTICE 'PASS T79: refusals element with no code key rejected';
                 INSERT INTO test_pass VALUES ('T79');
             ELSE
@@ -4362,7 +4367,7 @@ BEGIN
     EXCEPTION
         WHEN check_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'property_file_refusal_codes_known_shape_checked' THEN
+            IF v_constraint = 'property_file_refusal_codes_known_election' THEN
                 RAISE NOTICE 'PASS T80: refusals element with code: null rejected';
                 INSERT INTO test_pass VALUES ('T80');
             ELSE
@@ -4400,7 +4405,7 @@ BEGIN
     EXCEPTION
         WHEN check_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'property_file_refusal_codes_known_shape_checked' THEN
+            IF v_constraint = 'property_file_refusal_codes_known_election' THEN
                 RAISE NOTICE 'PASS T81: non-object refusals element rejected';
                 INSERT INTO test_pass VALUES ('T81');
             ELSE
@@ -4441,7 +4446,7 @@ BEGIN
     EXCEPTION
         WHEN check_violation THEN
             GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
-            IF v_constraint = 'property_file_refusal_codes_known_shape_checked' THEN
+            IF v_constraint = 'property_file_refusal_codes_known_election' THEN
                 RAISE NOTICE 'PASS T82: non-array refusals rejected cleanly (no raw jsonb error)';
                 INSERT INTO test_pass VALUES ('T82');
             ELSE
