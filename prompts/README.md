@@ -35,6 +35,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P28 | [make liveness: the last named gate that does not exist](P28-liveness.md) | done, pushed | `21a0095` (`9e702cd`/`c321b2f`: deliberate break + revert on `liveness.yml`, via `workflow_dispatch` since it is schedule-only, evidence not work) |
 | P29 | [Close P26 properly, correct P28's close-out, then decide the fork](P29-close-p26-correct-p28-scope-fork.md) | done, pushed | `322b314`, `21dd7be`, `fbce774` |
 | P30 | [Prove make conformance red on the real runner, then report (b)'s two open decisions](P30-conformance-red-and-fork-report.md) | done, pushed | `b5ea1a3`, `9a45566`, `6e8a5f9` (`9a45566` is NOT evidence-only despite containing the deliberate break — it also carries `prompts/P30-conformance-red-and-fork-report.md`, real work, a bundling mistake caught and hand-amended before push; `2936f25` reverts `9a45566`'s `sources.yaml` change only, cleanly, and is the genuine evidence-not-work commit — see CONVENTIONS.md's new rule, P31) |
+| P31 | [The prevention P30 skipped, then L5: refuse-first, one real rule](P31-l5-refuse-first-one-real-rule.md) | pending | — |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic

@@ -339,3 +339,22 @@ record, found from a primary source, before it could have become a silent wrong 
 day someone tried to build the general case.
 
 ---
+
+### 7. Close-out
+
+`make migrate-verify` against `ledgex_schema_check` before citing it — 51 migrations,
+`MATCH`. Clean `make schema-dump` — no diff (no schema change in this package; only
+application code and data seeds). `make test` (168), `make golden` (re-blessed, 2/4
+classes, 0 failures), `make conformance` (0 failures, 3 named gaps), `make check-boundary`
+(import-linter 5/5 kept, jurisdiction-name grep clean, `make qa` clean) all green. Both
+acceptance suites run twice each, each against its own fresh database, locally:
+`run_p5_acceptance.sh` — `P5 ACCEPTANCE: ALL CHECKPOINTS PASSED`, twice; `run_phaseb_
+acceptance.sh` — `ALL ASSERTIONS PASSED`, twice. Neither suite touches `core/rules.py`,
+`compose_property_file.py`, or `check_golden.py` — unaffected, confirmed rather than
+assumed.
+
+All real commits, real runner, confirmed green: `f5e2cf1` (step 1), `5c020bb` (step 2),
+`6dca93c` (step 3a, evidence), `e795bbe` (step 3b, seed + trigger proof), `cfb70e6` (step
+4, placeholder replaced, golden re-blessed) — `db.yml` run `32200159946` on `cfb70e6`
+confirmed `schema`/`p5-acceptance`/`phaseb-acceptance` all `success` on the real runner,
+the first time `make golden` called L5 for real in CI.
