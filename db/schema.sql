@@ -644,6 +644,28 @@ $$;
 
 
 --
+-- Name: property_file_election_refusal_consistent(text, jsonb); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.property_file_election_refusal_consistent(election text, refusals jsonb) RETURNS boolean
+    LANGUAGE sql IMMUTABLE
+    AS $$
+    SELECT NOT (
+        (refusals @> '[{"code":"ELECTION_REQUIRED"}]'::jsonb AND election IS NOT NULL)
+        OR
+        (refusals @> '[{"code":"ELECTION_NOT_SUPPORTED"}]'::jsonb AND election IS NULL)
+    );
+$$;
+
+
+--
+-- Name: FUNCTION property_file_election_refusal_consistent(election text, refusals jsonb); Type: COMMENT; Schema: public; Owner: -
+--
+
+COMMENT ON FUNCTION public.property_file_election_refusal_consistent(election text, refusals jsonb) IS 'README finding #39 / P36. Two one-way exclusions only, not the full election-IS-NULL-IFF-ELECTION_REQUIRED biconditional -- see this migration''s own header for why the biconditional is deliberately not enforced (it holds today only by the coincidence that every conclusion this composer evaluates currently needs an election, the same shape as finding #22).';
+
+
+--
 -- Name: refusals_codes_valid(jsonb); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1045,6 +1067,7 @@ CREATE TABLE public.property_file (
     CONSTRAINT property_file_compose_ms_nonnegative CHECK ((compose_ms >= 0)),
     CONSTRAINT property_file_compute_cost_micros_nonnegative CHECK ((compute_cost_micros >= 0)),
     CONSTRAINT property_file_election_known CHECK (((election IS NULL) OR (election = ANY (ARRAY['city'::text, 'state'::text])))),
+    CONSTRAINT property_file_election_refusal_consistent CHECK (public.property_file_election_refusal_consistent(election, refusals)),
     CONSTRAINT property_file_refusal_codes_known_election CHECK (public.refusals_codes_valid(refusals)),
     CONSTRAINT property_file_source_calls_nonnegative CHECK ((source_calls >= 0)),
     CONSTRAINT property_file_storage_cost_micros_nonnegative CHECK ((storage_cost_micros >= 0))

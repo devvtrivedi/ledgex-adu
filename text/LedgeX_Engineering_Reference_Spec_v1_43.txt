@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.42
+ Engineering Reference Spec v1.43
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -44,7 +44,7 @@ LEDGEX / ADU.X
 
  Authority order
 
-   1        This Spec v1.42                                       Machine-executed build contract.
+   1        This Spec v1.43                                       Machine-executed build contract.
 
    2        Business Plan 2.1.4                                  Commercial product and threshold boundary.
 
@@ -771,6 +771,17 @@ db/schema.sql is the generated record of the applied result.
      migration file's own REFUSAL_CODES_BEGIN/END markers, would never have to move. It moves here, onto this file,
      since 0038 itself is forward-only and can never be edited to describe a vocabulary it predates. See §12's 1.37
      entry.
+
+     db/migrations/0054_property_file_election_refusal_consistent.sql adds
+     property_file_election_refusal_consistent(election text, refusals jsonb), a LANGUAGE sql IMMUTABLE function
+     backing a new CHECK -- the same single-row shape refusals_codes_valid() already is, not a trigger. README
+     finding #39: nothing tied property_file.election (0052) to ELECTION_REQUIRED/ELECTION_NOT_SUPPORTED (0053) in
+     refusals -- a row could carry election='city' AND ELECTION_REQUIRED, or election IS NULL AND
+     ELECTION_NOT_SUPPORTED, both self-contradictory. Enforces exactly two one-way exclusions (ELECTION_REQUIRED
+     present implies election IS NULL; ELECTION_NOT_SUPPORTED present implies election IS NOT NULL) -- deliberately
+     NOT the full biconditional, which holds today only by the coincidence that "placement" is the sole,
+     always-election-dependent conclusion this composer evaluates (the same coincidence-masks-it shape as the
+     geometry_tier_used finding). See §12's 1.38 entry.
 
      v1.6: Property File rows carry delivery outcome and cost telemetry only. Commercial access lives in commerce.access_entitlement and
      commerce.subscription; no accepted price or per-file settlement field exists.
@@ -1861,7 +1872,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.42
+                     Engineering Reference Spec v1.43
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1922,7 +1933,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.42
+                   Engineering Reference Spec v1.43
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1951,7 +1962,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.42
+                Engineering Reference Spec v1.43
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -3002,6 +3013,27 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              (tests/core/test_compose_election.py), mechanically identical to
                                              election_required's own branch. Section 5's L5 row updated to name the
                                              new In/Refuses-when cases.
+   Aug 2026             1.43                 P36: finding #39's CHECK, finding #38 built, finding #40 recorded.              P35 designed and recommended the
+                                             db/migrations/0054_property_file_election_refusal_consistent.sql adds a        CHECK; P36 decided explicitly to
+                                             LANGUAGE sql IMMUTABLE function (property_file_election_refusal_consistent,     build it now rather than inherit
+                                             same shape refusals_codes_valid() already is) backing a CHECK on               that recommendation unexamined,
+                                             property_file: ELECTION_REQUIRED present in refusals implies election IS       distinguished explicitly from
+                                             NULL; ELECTION_NOT_SUPPORTED present implies election IS NOT NULL. Two          finding #11's own "stays open,
+                                             one-way exclusions only, not the full biconditional -- that holds today        forced by need" precedent (that fix
+                                             only because "placement" is the sole always-election-dependent conclusion      needs real design work against a
+                                             this composer evaluates, the same coincidence-masks-it shape as the            jurisdiction that doesn't exist;
+                                             geometry_tier_used finding. Four new invariants (T99-T102), floor 115 ->        this one is mechanical and fully
+                                             119. db.yml's schema job gains a step applying db/seeds/day4_sources.sql       testable today, and this repo
+                                             before make golden (README finding #38, built, no longer scope creep) --       already lived through the
+                                             makes finding #36's cross-seeder drift gap for `rule` reachable in CI for       counter-scenario once,
+                                             the first time; the new CI order rehearsed locally first, every                job_run.schema_drift). Finding #40
+                                             downstream step confirmed unchanged. README finding #40 recorded (not          recorded, not fixed: there is no
+                                             built): compose_property_file.py raises Python exceptions for four            api/ to fix it against yet, and
+                                             distinct caller-supplied values (election vocabulary; two SystemExits          building one now, or restructuring
+                                             inside compose() itself for an unresolvable parcel_id or zero current          error handling in anticipation of
+                                             facts; two more in its CLI-only apn-resolution helper) that would become       one, would be the exact anticipation
+                                             customer request input the moment api/ exists -- an I8 violation at            CONVENTIONS warns against.
+                                             exactly the boundary I8 governs, once that happens.
 
                                                                                           vocabulary.
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no

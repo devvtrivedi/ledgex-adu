@@ -357,10 +357,14 @@ CREATE TEMP TABLE known_gaps (name text PRIMARY KEY, note text);
 -- day4_sources.sql) is neither a pass (its assertion did not run) nor an
 -- unenforceable invariant (it enforces something real, when it can run).
 -- P6 finding: S1 used to INSERT INTO test_pass on its own skip branch,
--- counted in the floor -- meaning CI (always migrations-only, no seed) ran
--- S1 zero times yet recorded it passing, every run. Same defect class I5c
--- was already fixed for (a gap counted as coverage); same fix, its own
--- table so a skip is never mistaken for either a pass or a permanent gap.
+-- counted in the floor -- meaning make db-test's own CI invocation (always
+-- migrations-only, no seed applied yet at that point in the job -- true at
+-- the time of this finding and, per P36/README finding #38's own ordering,
+-- still true today: db.yml's schema job now DOES apply db/seeds/
+-- day4_sources.sql, but only after make db-test has already run) ran S1
+-- zero times yet recorded it passing, every run. Same defect class I5c was
+-- already fixed for (a gap counted as coverage); same fix, its own table
+-- so a skip is never mistaken for either a pass or a permanent gap.
 CREATE TEMP TABLE test_skipped (name text PRIMARY KEY, note text);
 
 DO $$
@@ -4995,6 +4999,147 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T99: property_file_election_refusal_consistent (0054, P36, README
+-- finding #39) rejects election='city' co-occurring with an
+-- ELECTION_REQUIRED refusal -- self-contradictory (ELECTION_REQUIRED means
+-- "none was supplied"). Exact constraint-violation text not merely relied
+-- on to exist -- the constraint name asserted, same shape T92 already
+-- established for property_file_election_known.
+-- ============================================================================
+
+\echo '### TEST T99: election=''city'' with ELECTION_REQUIRED rejected (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, refusals,
+            payload, payload_hash, compose_ms, election
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+            'v1.0', 'v1.0', false,
+            '[{"code": "ELECTION_REQUIRED", "stage": "L5", "message": "test"}]'::jsonb,
+            '{}'::jsonb, 'testhash_t99', 1, 'city'
+        );
+        RAISE EXCEPTION 'FAIL T99: election=''city'' with ELECTION_REQUIRED was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_election_refusal_consistent' THEN
+                RAISE NOTICE 'PASS T99: election=''city'' with ELECTION_REQUIRED rejected';
+                INSERT INTO test_pass VALUES ('T99');
+            ELSE
+                RAISE EXCEPTION 'FAIL T99: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T100: property_file_election_refusal_consistent rejects election IS
+-- NULL co-occurring with an ELECTION_NOT_SUPPORTED refusal -- self-
+-- contradictory the other direction (ELECTION_NOT_SUPPORTED means "one WAS
+-- supplied, just unmapped").
+-- ============================================================================
+
+\echo '### TEST T100: election IS NULL with ELECTION_NOT_SUPPORTED rejected (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id  uuid;
+    v_constraint text;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    BEGIN
+        INSERT INTO property_file (
+            parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+            ruleset_version, composer_version, geometry_tier_used, refusals,
+            payload, payload_hash, compose_ms, election
+        ) VALUES (
+            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+            'v1.0', 'v1.0', false,
+            '[{"code": "ELECTION_NOT_SUPPORTED", "stage": "L5", "message": "test"}]'::jsonb,
+            '{}'::jsonb, 'testhash_t100', 1, NULL
+        );
+        RAISE EXCEPTION 'FAIL T100: election IS NULL with ELECTION_NOT_SUPPORTED was accepted';
+    EXCEPTION
+        WHEN check_violation THEN
+            GET STACKED DIAGNOSTICS v_constraint = CONSTRAINT_NAME;
+            IF v_constraint = 'property_file_election_refusal_consistent' THEN
+                RAISE NOTICE 'PASS T100: election IS NULL with ELECTION_NOT_SUPPORTED rejected';
+                INSERT INTO test_pass VALUES ('T100');
+            ELSE
+                RAISE EXCEPTION 'FAIL T100: check_violation on unexpected constraint %', v_constraint;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
+-- TEST T101: the LEGITIMATE combination election IS NULL with
+-- ELECTION_REQUIRED is still accepted (0054 does not reject everything --
+-- T98's own lesson, one package old: a constraint proven to reject is not
+-- proven correct until the legitimate shape is proven to still pass).
+-- ============================================================================
+
+\echo '### TEST T101: election IS NULL with ELECTION_REQUIRED accepted (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO property_file (
+        parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+        ruleset_version, composer_version, geometry_tier_used, refusals,
+        payload, payload_hash, compose_ms, election
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        'v1.0', 'v1.0', false,
+        '[{"code": "ELECTION_REQUIRED", "stage": "L5", "message": "test"}]'::jsonb,
+        '{}'::jsonb, 'testhash_t101', 1, NULL
+    );
+
+    RAISE NOTICE 'PASS T101: election IS NULL with ELECTION_REQUIRED accepted';
+    INSERT INTO test_pass VALUES ('T101');
+END $$;
+
+-- ============================================================================
+-- TEST T102: the LEGITIMATE combination election='state' with
+-- ELECTION_NOT_SUPPORTED is still accepted -- same reasoning as T101, the
+-- other direction.
+-- ============================================================================
+
+\echo '### TEST T102: election=''state'' with ELECTION_NOT_SUPPORTED accepted (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO property_file (
+        parcel_id, jurisdiction_id, channel, status, as_of, pack_version,
+        ruleset_version, composer_version, geometry_tier_used, refusals,
+        payload, payload_hash, compose_ms, election
+    ) VALUES (
+        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        'v1.0', 'v1.0', false,
+        '[{"code": "ELECTION_NOT_SUPPORTED", "stage": "L5", "message": "test"}]'::jsonb,
+        '{}'::jsonb, 'testhash_t102', 1, 'state'
+    );
+
+    RAISE NOTICE 'PASS T102: election=''state'' with ELECTION_NOT_SUPPORTED accepted';
+    INSERT INTO test_pass VALUES ('T102');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -5024,10 +5169,22 @@ END $$;
 -- test_skipped is ALSO not part of this floor, for a related but distinct
 -- reason (P6 finding). S1's assertion is real and enforceable -- unlike
 -- I5c, it is not a permanent gap -- but it only RUNS when db/seeds/
--- day4_sources.sql has been applied, and CI never applies seeds (this
--- suite's own standard path is migrations-only). The floor below is 95, not
--- 96: the guaranteed count when S1 does not run (the common case, CI
--- included), not the optimistic count from a seeded environment. A seeded
+-- day4_sources.sql has been applied BEFORE this suite runs. CORRECTED, P36
+-- (README finding #38): this used to read "CI never applies seeds (this
+-- suite's own standard path is migrations-only)" -- true when written, no
+-- longer true of db.yml's schema job as a whole, which now DOES apply
+-- db/seeds/day4_sources.sql (finding #38, closing finding #36's own
+-- cross-seeder-drift gap) -- but still true of db-test's OWN invocation
+-- specifically: the seed step runs strictly after make db-test in that
+-- job's step order (see db.yml's own comment at that step for why), so
+-- every CI run of make db-test itself still sees a migrations-only
+-- database, S1 still does not run there, and the floor below is
+-- unaffected. A local, standalone `make db-test` run against a database
+-- where day4_sources.sql was applied first (as this file's own header
+-- already documented as possible) is the only path where S1 actually
+-- executes. The floor below is 95, not 96: the guaranteed count when S1
+-- does not run (the common case, including every CI run of make db-test
+-- itself), not the optimistic count from a seeded environment. A seeded
 -- run where S1 executes for real still satisfies `>= 95` -- the floor is a
 -- minimum, not an exact match -- so this is not environment-conditional
 -- logic, just an honest floor. Previously S1 inserted into test_pass on ITS
@@ -5051,13 +5208,19 @@ END $$;
 -- genuinely unknown code after the widening (its own fresh literal, not
 -- T60's -- guards the widening itself, not merely the pre-existing
 -- mechanism T60 already covered before 0053 existed).
+-- Raised 115 -> 119 by 0054 (P36, README finding #39):
+-- T99 rejects election='city' co-occurring with ELECTION_REQUIRED;
+-- T100 rejects election IS NULL co-occurring with ELECTION_NOT_SUPPORTED;
+-- T101-T102 the two legitimate combinations are still accepted (T98's own
+-- lesson: a rejection proof alone does not prove a constraint isn't
+-- rejecting everything).
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 115 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 115 passing tests, got %', v_pass_count;
+    IF v_pass_count < 119 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 119 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 
