@@ -137,8 +137,22 @@ def test_geometry_tier_used_reflects_the_real_column():
     # value/refusal, never neither), so a non-None sentinel stands in.
     # Never inspected by compose_property_file.py beyond .is_refused.
     with mock.patch.object(cpf, "evaluate_geometry_dependent_conclusion", return_value=Result.ok("stub")):
-        pf_id_true = cpf.compose(conn, parcel_id_true, "paid_property_file")
-        pf_id_false = cpf.compose(conn, parcel_id_false, "paid_property_file")
+        result_true = cpf.compose(conn, parcel_id_true, "paid_property_file")
+        result_false = cpf.compose(conn, parcel_id_false, "paid_property_file")
+
+    # P38, README finding #41: compose() returns Result[T] uniformly --
+    # unwrapped explicitly (fail LOUDLY on the wrong shape, not with
+    # check()'s own soft record-and-continue -- a bad value here must
+    # not flow into the SQL query below). Both parcels are real (freshly
+    # seeded above) and STANDING-BLOCKER.md's own rights posture
+    # guarantees at least one refusal (RIGHTS_BLOCKED), so both calls
+    # always write a real row.
+    assert result_true.is_ok and result_true.value is not cpf.NOTHING_COMPOSED, \
+        f"expected a written row, got {result_true}"
+    assert result_false.is_ok and result_false.value is not cpf.NOTHING_COMPOSED, \
+        f"expected a written row, got {result_false}"
+    pf_id_true = result_true.value
+    pf_id_false = result_false.value
 
     with conn.cursor() as cur:
         cur.execute("SELECT geometry_tier_used FROM property_file WHERE id = %s", (pf_id_true,))

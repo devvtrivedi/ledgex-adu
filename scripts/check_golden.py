@@ -451,14 +451,31 @@ def run_composition(apn, digest, election):
     seed_reference_rows(conn)
     parcel_id = make_fixture_parcel_and_fact(conn, apn, ip.snapshot_id_for(digest))
 
-    property_file_id = cpf.compose(conn, parcel_id, GOLDEN_CHANNEL, election=election, as_of=GOLDEN_AS_OF)
-    if property_file_id is None:
+    # P38, README finding #41: compose() returns Result[T] uniformly now
+    # -- .is_refused checked before .value is ever touched. The old
+    # `if property_file_id is None:` here bound the raw return and never
+    # saw a Result at all; fed one (PARCEL_REFERENCE_UNKNOWN), it flowed
+    # on as truthy and failed downstream with a misleading `can't adapt
+    # type 'Result'` -- confirmed directly against a real database before
+    # this fix, not inferred. Genuinely unreachable through this
+    # function's own fixture parcel (created moments above), same as
+    # before -- but no longer silently wrong if that ever changes.
+    result = cpf.compose(conn, parcel_id, GOLDEN_CHANNEL, election=election, as_of=GOLDEN_AS_OF)
+    if result.is_refused:
         raise SystemExit(
-            "compose() returned None (rights gate PASSED) -- this means "
+            f"compose() refused before writing a property_file row: "
+            f"{result.refusal.code}: {result.refusal.message} -- this fixture's own parcel "
+            f"was just created above, so this should be unreachable; see this script's own "
+            f"module docstring."
+        )
+    if result.value is cpf.NOTHING_COMPOSED:
+        raise SystemExit(
+            "compose() returned NOTHING_COMPOSED (rights gate PASSED) -- this means "
             "licence_channel has been flipped to allowed=true since STANDING-BLOCKER.md "
             "was last true. That is real news, not a fixture bug -- see this "
             "script's own module docstring."
         )
+    property_file_id = result.value
 
     with conn.cursor() as cur:
         cur.execute("SELECT * FROM property_file WHERE id = %s", (property_file_id,))

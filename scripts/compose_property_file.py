@@ -126,6 +126,27 @@ CONCLUSION_RULE_KEYS = {
 KNOWN_ELECTIONS = ("city", "state")
 
 
+class _NothingComposed:
+    """P38, README finding #41. compose() returns Result[T] uniformly --
+    see compose()'s own docstring for the full argument (I8's guarded
+    Result.value/.refusal accessors make a caller's forgotten type check
+    raise loudly and automatically, rather than requiring every call site
+    to remember its own isinstance assertion, the discipline gap that
+    produced finding #41 in the first place). Result.ok(None) is itself
+    invalid (core.model.Result's own __init__ guard: exactly one of
+    value/refusal, never neither) -- NOTHING_COMPOSED is the sentinel
+    that stands in for "the rights gate passed, nothing was refused,
+    nothing was written" without smuggling a real None through a
+    wrapper that structurally forbids it. A class, not a bare object(),
+    so its repr is self-describing in a traceback or a stray print,
+    rather than "<object object at 0x...>"."""
+    def __repr__(self):
+        return "NOTHING_COMPOSED"
+
+
+NOTHING_COMPOSED = _NothingComposed()
+
+
 def get_composer_version():
     """Derive composer_version from git, not a hand-typed literal --
     the same defect class as url_verified_at = now(): a column whose
@@ -230,30 +251,46 @@ def compose(conn, parcel_id, channel, election=None, as_of=None):
     this same call and returns. A follow-up is always a brand-new
     request, never a resumed one.
 
-    Return value -- deliberately heterogeneous, not a uniform Result[T]
-    (P37, README finding #40). Three shapes, not one:
+    Return value -- Result[T], UNIFORMLY (P38, README finding #41; P37
+    made this heterogeneous -- Result.refuse(...)/str/None -- and that
+    was itself the bug: check_golden.py's own run_composition() bound
+    the return to property_file_id and checked only `is None`, so a
+    Result arrived truthy and flowed on as a uuid, failing downstream
+    with a misleading `can't adapt type 'Result'` -- confirmed directly
+    against a real database, not inferred. Reachable the moment ANY
+    caller's parcel_id can be wrong, not merely today's fixture-scoped
+    callers). Every caller now gets exactly one contract: call
+    .is_refused / .is_ok before touching .value -- Result's own guarded
+    accessors (core/model.py) raise RuntimeError immediately, by name,
+    if that check is skipped, rather than requiring every call site to
+    remember its own isinstance assertion (the discipline gap finding
+    #41 itself is an instance of). Three states, ALL wrapped, not three
+    shapes:
       Result.refuse(Refusal(code="PARCEL_REFERENCE_UNKNOWN", ...))
         -- parcel_id does not resolve. No property_file row is written --
            cannot be: parcel_id is NOT NULL REFERENCES parcel(id), and
            there is no parcel to attach one to. This is the one case a
            typed in-memory return value, not a database row, is the only
            honest artifact this function can produce.
-      str (the new property_file.id)
+      Result.ok(property_file_id)  (a real str)
         -- a row was written, refused or not; covers every other refusal
            this function accumulates (GEOMETRY_TIER_DISABLED, L5's three
            outcomes, RIGHTS_BLOCKED, PARCEL_NO_FACTS) the same way it
            always has.
-      None
+      Result.ok(NOTHING_COMPOSED)
         -- the rights gate passed and no geometry/L5/parcel-coverage
            refusal fired either; nothing composed, nothing written (see
            this function's own print statement for why that is not
-           itself evidence of readiness). Unchanged since before this
-           package -- Result.ok(None) is itself invalid (core.model.
-           Result's own __init__ guard: exactly one of value/refusal,
-           never neither), so this state was never expressible as a
-           Result and still isn't; it was never a refusal to begin with.
-    Callers must check isinstance(result, Result) FIRST -- see __main__
-    below for the pattern."""
+           itself evidence of readiness). Result.ok(None) is itself
+           invalid (core.model.Result's own __init__ guard: exactly one
+           of value/refusal, never neither) -- NOTHING_COMPOSED (this
+           module's own sentinel, above) is what stands in for that
+           state instead of smuggling a real None past a wrapper that
+           structurally forbids it. It was never a refusal to begin
+           with, so Result.ok(...), not Result.refuse(...), is correct
+           here -- callers distinguish it from a written row with
+           `result.value is NOTHING_COMPOSED`, not by its own type.
+    """
     if election is not None and election not in KNOWN_ELECTIONS:
         raise ValueError(
             f"election={election!r} is not one of {KNOWN_ELECTIONS!r} -- a caller/"
@@ -495,7 +532,7 @@ def compose(conn, parcel_id, channel, election=None, as_of=None):
               f"composer. This is the expected outcome only when a licence_channel row "
               f"has been deliberately flipped for verification; do not treat it as "
               f"evidence anything is ready to ship.")
-        return None
+        return Result.ok(NOTHING_COMPOSED)
 
     payload = {"status": "refused", "refusals": refusals, "attribution": [], "omitted_for_rights": []}
     payload_json = json.dumps(payload, sort_keys=True)
@@ -536,7 +573,7 @@ def compose(conn, parcel_id, channel, election=None, as_of=None):
           f"{len(touched)} touched facts linked, compose_ms={elapsed_ms})")
     for r in refusals:
         print(f"  {r['code']}: {r['message']}")
-    return property_file_id
+    return Result.ok(property_file_id)
 
 
 if __name__ == "__main__":
@@ -557,14 +594,17 @@ if __name__ == "__main__":
     try:
         parcel_id = args.parcel_id or resolve_parcel_id_by_apn(conn, args.parcel_apn)
         result = compose(conn, parcel_id, args.channel, election=args.election)
-        # P37, README finding #40: compose()'s own docstring names three
-        # possible return shapes -- Result (refused before any row could
-        # be written), str (a row was written), None (rights gate passed,
-        # nothing written). Checked first, not assumed str/None.
-        if isinstance(result, Result):
+        # P38, README finding #41: compose() now returns Result[T]
+        # uniformly -- is_refused/is_ok checked explicitly before .value
+        # is ever touched, the one contract every caller shares.
+        if result.is_refused:
             refusal = result.refusal
             print(f"\nREFUSED before any property_file could be written: "
                   f"{refusal.code}: {refusal.message}")
             sys.exit(1)
+        elif result.value is NOTHING_COMPOSED:
+            pass  # compose()'s own RIGHTS GATE PASSED print already said everything
+        # else: result.value is the written property_file_id; compose()
+        # itself already printed the full summary.
     finally:
         conn.close()

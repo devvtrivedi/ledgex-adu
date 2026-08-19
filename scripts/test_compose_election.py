@@ -120,6 +120,18 @@ def _seed(conn, suffix):
     return jurisdiction_id, parcel_id
 
 
+def _compose_ok(conn, parcel_id, channel, election):
+    """P38, README finding #41: compose() returns Result[T] uniformly --
+    unwraps the written property_file_id, asserting is_ok loudly (not
+    silently) rather than letting a Result flow on as if it were a str,
+    the exact bug this finding closed. Every call in this file expects a
+    written row -- a real, freshly-seeded parcel always exists."""
+    result = cpf.compose(conn, parcel_id, channel, election=election)
+    assert result.is_ok, f"expected a written row, got a refusal: {result.refusal}"
+    assert result.value is not cpf.NOTHING_COMPOSED, "expected a written row, got NOTHING_COMPOSED"
+    return result.value
+
+
 def _refusal_codes(conn, property_file_id):
     with conn.cursor() as cur:
         cur.execute("SELECT refusals, election FROM property_file WHERE id = %s", (property_file_id,))
@@ -132,7 +144,7 @@ def test_election_none_refuses_election_required_no_rule_query():
     suffix = uuid.uuid4().hex[:8]
     _jid, parcel_id = _seed(conn, f"{suffix}_none")
 
-    pf_id = cpf.compose(conn, parcel_id, "paid_property_file", election=None)
+    pf_id = _compose_ok(conn, parcel_id, "paid_property_file", election=None)
     codes, election = _refusal_codes(conn, pf_id)
 
     check("election=None: ELECTION_REQUIRED present", "ELECTION_REQUIRED" in codes, f"got {codes}")
@@ -149,7 +161,7 @@ def test_election_state_refuses_election_not_supported_no_rule_query():
     suffix = uuid.uuid4().hex[:8]
     _jid, parcel_id = _seed(conn, f"{suffix}_state")
 
-    pf_id = cpf.compose(conn, parcel_id, "paid_property_file", election="state")
+    pf_id = _compose_ok(conn, parcel_id, "paid_property_file", election="state")
     codes, election = _refusal_codes(conn, pf_id)
 
     check("election='state': ELECTION_NOT_SUPPORTED present", "ELECTION_NOT_SUPPORTED" in codes, f"got {codes}")
@@ -174,7 +186,7 @@ def test_election_city_reaches_a_real_rule_query_and_refuses_rule_unavailable():
     suffix = uuid.uuid4().hex[:8]
     _jid, parcel_id = _seed(conn, f"{suffix}_city")
 
-    pf_id = cpf.compose(conn, parcel_id, "paid_property_file", election="city")
+    pf_id = _compose_ok(conn, parcel_id, "paid_property_file", election="city")
     codes, election = _refusal_codes(conn, pf_id)
 
     check("election='city', no seeded rule: RULE_UNAVAILABLE present", "RULE_UNAVAILABLE" in codes, f"got {codes}")

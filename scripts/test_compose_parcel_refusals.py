@@ -39,7 +39,6 @@ sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 import compose_property_file as cpf  # noqa: E402 -- module under test
-from core.model import Result  # noqa: E402
 from infra.env import get_db  # noqa: E402
 
 failures = []
@@ -73,12 +72,13 @@ def test_nonexistent_parcel_id_refuses_parcel_reference_unknown_no_row():
         cur.execute("SELECT count(*) FROM property_file")
         before = cur.fetchone()[0]
 
+    # P38, README finding #41: compose() returns Result[T] uniformly now
+    # -- isinstance(result, Result) is always true, so that check itself
+    # is no longer the interesting assertion; is_refused is.
     result = cpf.compose(conn, fake_parcel_id, "paid_property_file", election="city")
 
-    check("nonexistent parcel_id: returns a Result, not a str/None", isinstance(result, Result),
-          f"got {type(result)}")
-    if isinstance(result, Result):
-        check("nonexistent parcel_id: Result.is_refused", result.is_refused)
+    check("nonexistent parcel_id: Result.is_refused", result.is_refused, f"got {result}")
+    if result.is_refused:
         check("nonexistent parcel_id: code is PARCEL_REFERENCE_UNKNOWN",
               result.refusal.code == "PARCEL_REFERENCE_UNKNOWN", f"got {result.refusal.code!r}")
         check("nonexistent parcel_id: stage is L0", result.refusal.stage == "L0",
@@ -110,12 +110,16 @@ def test_zero_facts_refuses_parcel_no_facts_real_row_zero_links():
 
     result = cpf.compose(conn, parcel_id, "paid_property_file", election="city")
 
-    check("zero facts: returns a str (a row was written)", isinstance(result, str), f"got {type(result)}")
-    if isinstance(result, str):
+    check("zero facts: Result.is_ok (a row was written, not refused before one could be)",
+          result.is_ok, f"got {result}")
+    if result.is_ok:
+        check("zero facts: value is a written property_file_id, not NOTHING_COMPOSED",
+              result.value is not cpf.NOTHING_COMPOSED, f"got {result.value}")
+        pf_id = result.value
         with conn.cursor() as cur:
-            cur.execute("SELECT refusals FROM property_file WHERE id = %s", (result,))
+            cur.execute("SELECT refusals FROM property_file WHERE id = %s", (pf_id,))
             refusals = cur.fetchone()[0]
-            cur.execute("SELECT count(*) FROM property_file_fact WHERE property_file_id = %s", (result,))
+            cur.execute("SELECT count(*) FROM property_file_fact WHERE property_file_id = %s", (pf_id,))
             link_count = cur.fetchone()[0]
         codes = [r.get("code") for r in refusals]
         check("zero facts: PARCEL_NO_FACTS present", "PARCEL_NO_FACTS" in codes, f"got {codes}")
