@@ -70,6 +70,25 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
 from core.calc import evaluate_geometry_dependent_conclusion  # noqa: E402
+from core.rules import select_effective_rule  # noqa: E402
+
+# P31: Shape 1 -- a hardcoded, narrowly-scoped constant naming which
+# rule_key each conclusion this composer knows about depends on, for
+# ONE jurisdiction only. NOT a general mechanism: a second jurisdiction's
+# own rule for "placement" forces this exact dict to be rewritten (at
+# minimum keyed on jurisdiction_id too) -- accepted knowingly, per the
+# founder's own ratified decision (prompts/P31-l5-refuse-first-one-real-
+# rule.md section 2). jurisdictions/ca_san_jose/conclusions.yaml (sec
+# 7.4) remains undesigned and is not what this constant is.
+#
+# Lives here, not in core/rules.py: this is a jurisdiction-scoped fact,
+# and core/ must contain no jurisdiction name (I1) -- confirmed via
+# make check-boundary, not assumed. This is the same home
+# ingest_parcels.py/ingest_zoning_permits.py already use for their own
+# jurisdiction-scoped SOURCE_ID/JURISDICTION_ID constants.
+CONCLUSION_RULE_KEYS = {
+    "placement": "adu.detached.max_height.city_standards",
+}
 
 
 def get_composer_version():
@@ -193,6 +212,18 @@ def compose(conn, parcel_id, channel, as_of=None):
         cur.execute("SELECT pack_version, geometry_tier_enabled FROM jurisdiction WHERE id = %s", (jurisdiction_id,))
         pack_version, geometry_tier_enabled = cur.fetchone()
 
+        # L5 (P31): rule selection, refuse-first (core/rules.py). Runs
+        # unconditionally, same shape as L7's geometry gate below --
+        # accumulated into the same refusals list, not a short-circuit.
+        # "placement" is the only conclusion this minimal composer knows
+        # about today (P25); CONCLUSION_RULE_KEYS names the one rule_key
+        # it depends on. selected_rule stays None when L5 refuses --
+        # ruleset_version below reflects whichever happened, honestly,
+        # never the old hardcoded placeholder either way.
+        selected_rule = None
+        required_rule_key = CONCLUSION_RULE_KEYS.get("placement")
+        rule_result = select_effective_rule(cur, jurisdiction_id, required_rule_key, as_of)
+
         # C5 (0036): the point-in-time read path, not the cached matview --
         # this is a live composition, not a report against a stale refresh.
         # Same as_of captured above, not a second now().
@@ -238,6 +269,28 @@ def compose(conn, parcel_id, channel, as_of=None):
     if geometry_result.is_refused:
         refusals.append(geometry_result.refusal.model_dump())
 
+    # L5 (P31): fold rule_result's own refusal into the same accumulated
+    # list -- same reasoning as L7 above, a straight-line sequence, never
+    # a short-circuit. selected_rule stays None here when refused.
+    if rule_result.is_refused:
+        refusals.append(rule_result.refusal.model_dump())
+    else:
+        selected_rule = rule_result.value
+
+    # ruleset_version (I11): the real selected rule's own identity when
+    # L5 found one, an honest negative fact when it didn't -- never the
+    # old hardcoded "unevaluated -- L5 Rules not yet built" lie either
+    # way. rule_key@version, not the row's own opaque id: directly
+    # traceable back to CONCLUSION_RULE_KEYS above without a second
+    # lookup.
+    if selected_rule is not None:
+        ruleset_version = f"{selected_rule.rule_key}@{selected_rule.version}"
+    else:
+        ruleset_version = (
+            f"no rule effective: jurisdiction={jurisdiction_id}, "
+            f"rule_key={required_rule_key}, as_of={as_of}"
+        )
+
     # L8 rights gate (unchanged logic, now accumulated with L7 above
     # rather than being the only possible source of a refusal).
     for licence_id in sorted(blocked_by_licence):
@@ -281,7 +334,7 @@ def compose(conn, parcel_id, channel, as_of=None):
             """,
             (
                 property_file_id, parcel_id, jurisdiction_id, channel, as_of,
-                pack_version, "unevaluated -- L5 Rules not yet built", composer_version,
+                pack_version, ruleset_version, composer_version,
                 geometry_tier_enabled, json.dumps(refusals), payload_json, payload_hash, elapsed_ms,
             ),
         )

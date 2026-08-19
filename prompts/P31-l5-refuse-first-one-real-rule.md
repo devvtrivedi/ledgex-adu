@@ -241,3 +241,101 @@ select_effective_rule(cur, "ca_san_jose", "adu.detached.max_height.city_standard
 ```
 
 ---
+
+### 4. The placeholder replaced — predicted RED on both classes, seen, then re-blessed
+
+**Predicted before running anything**: `scripts/compose_property_file.py:284`'s hardcoded
+`"unevaluated -- L5 Rules not yet built"` replaced with L5's real output.
+`check_golden.py`'s `normalize()` does not strip or tokenize `ruleset_version` (confirmed
+by reading `STRIPPED_FIELDS`/`TS_FIELDS` directly — neither contains it), and both
+committed fixtures carry the literal placeholder at line 68 (confirmed by reading both
+files directly). `GOLDEN_AS_OF` is `2099-01-01`, well after the seeded rule's
+`effective_from` (2026-03-05) — the rule **is** effective there, so the re-blessed value
+should be a real selected-rule stamp, not a refusal. Predicted: `make golden` fails on
+**both** classes, with the new value `adu.detached.max_height.city_standards@1` (not a
+`RULE_UNAVAILABLE` refusal) shown as the actual output.
+
+**Seen red first, exactly as predicted, before any bless**:
+```
+[FAIL] refused: normalized property_file matches the committed golden fixture
+  committed:  "ruleset_version": "unevaluated -- L5 Rules not yet built",
+  actual:     "ruleset_version": "adu.detached.max_height.city_standards@1",
+
+[FAIL] geometry-disabled: normalized property_file matches the committed golden fixture
+  committed:  "ruleset_version": "unevaluated -- L5 Rules not yet built",
+  actual:     "ruleset_version": "adu.detached.max_height.city_standards@1",
+
+GOLDEN SUMMARY: FAILED (2 failure(s)).
+```
+No `RULE_UNAVAILABLE` appeared in either fixture's refusals — confirming the rule was
+*found*, not refused, exactly as predicted from the as-of/effective_from relationship. The
+existing `GEOMETRY_TIER_DISABLED` (L7) and `RIGHTS_BLOCKED` (L8) refusals are present and
+unchanged in both — this is a real, minimal, argued behavior change to one field, not a
+different shape entirely. This is free proof, never available before this package: both
+fixtures genuinely have teeth on `ruleset_version` specifically, something no run of
+`make golden` had ever demonstrated (the field never changed value across any prior
+package, so nothing had ever exercised the comparison).
+
+**Re-blessed deliberately** (`check_golden.py --bless`, never part of `make golden`
+itself, per that script's own docstring warning against routine use) — full diff, both
+files, nothing else changed:
+```diff
+--- tests/golden/ca_san_jose/refused.json
++++ tests/golden/ca_san_jose/refused.json
+@@ -68 +68 @@
+-    "ruleset_version": "unevaluated -- L5 Rules not yet built",
++    "ruleset_version": "adu.detached.max_height.city_standards@1",
+
+--- tests/golden/ca_san_jose/geometry_disabled.json
++++ tests/golden/ca_san_jose/geometry_disabled.json
+@@ -68 +68 @@
+-    "ruleset_version": "unevaluated -- L5 Rules not yet built",
++    "ruleset_version": "adu.detached.max_height.city_standards@1",
+```
+Re-run: `GOLDEN SUMMARY: PASSED (0 failure(s)). Coverage this run: 2/4 fixture classes
+(refused, geometry-disabled).` — identical coverage claim as before this package, nothing
+normalized away, nothing bypassed.
+
+`scripts/check_golden.py`'s own `seed_reference_rows()` extended to seed this same real
+rule row — identical values to `db/seeds/day4_sources.sql`'s own, not an independently
+invented copy — for the identical reason its existing seed already exists: CI's `schema`
+job never runs `db/seeds/`, and `make golden` now calls L5 for real.
+
+**Full local CI-order simulation, fresh scratch database, every real step in real order**,
+before any of this was pushed: `make schema` → `make migrate-verify` (MATCH) → `make
+db-test` (own real first pass caught a genuine self-inflicted ordering mistake during
+authoring — running `make golden`'s seed before `db-test` on the same database left a
+half-applied `source` seed state, `invariants.sql`'s own S1 test correctly caught it;
+redone in the correct order, clean) → `scripts/test_snapshot_race_invariant.py` → `make
+golden` (green, re-blessed fixtures) → `scripts/test_compose_geometry_tier_used.py` →
+`make test` (168 passed) → `make conformance` (0 failures, 3 named gaps, unchanged) →
+`make check-boundary` (import-linter 5/5 kept, jurisdiction-name grep clean, `make qa`
+clean) → `make schema-dump` (no diff). All green.
+
+---
+
+### 6. The limit, stated plainly
+
+**The rights gate still refuses every composition.** `licence_channel` has every channel
+`allowed = false` for both real licences — checked fresh for this package, unchanged since
+P28's own report. **No rule APPLICATION reaches a composed file.** L5 only ever *selects* a
+rule's identity; nothing anywhere in this codebase reads a selected rule's `params` to
+compute a conclusion — `core/rules.py`'s own docstring names this explicitly as a real,
+separate future need, not built here. **This package exercises only the RECORDING half of
+I11** — "every rule application records the exact ruleset_version and a human-readable
+citation" — a refused file records a real `ruleset_version` for the first time, but it never
+*applies* anything, because nothing in this pipeline computes a rule-dependent conclusion
+yet. P29 section 3(b) drew this exact distinction before any of this was built; it holds
+unchanged and is not softened by anything in this package.
+
+**What is genuinely new**: a real `ruleset_version` replaces a placeholder lie in stored
+data, on every refused file, for the first time. `0013`'s `rule_no_update`/`rule_no_delete`
+triggers protect a real, non-synthetic row for the first time — proven directly, exact
+exception text, both destructive operations rejected, the one legitimate transition still
+works. `RULE_UNAVAILABLE` is a proven refusal path, raised for the right reason (a real
+effective-window boundary, not an empty table), not merely a constant sitting unused in
+`core/model.REFUSAL_CODES`. And the City/State election problem (finding #35) is on the
+record, found from a primary source, before it could have become a silent wrong answer the
+day someone tried to build the general case.
+
+---

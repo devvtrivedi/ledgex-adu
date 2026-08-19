@@ -189,6 +189,40 @@ def seed_reference_rows(conn):
             ON CONFLICT (field_key) DO NOTHING
             """
         )
+        # P31: same real rule db/seeds/day4_sources.sql seeds for a real
+        # local/production database -- CI's schema job never runs
+        # db/seeds/ (CLAUDE.md's own documented rule), so make golden's
+        # own composition (now calling L5 for real, replacing the old
+        # ruleset_version placeholder) needs this row seeded here too, or
+        # every golden composition would refuse RULE_UNAVAILABLE instead
+        # of finding the real rule GOLDEN_AS_OF (2099-01-01) is well
+        # within. Identical values to day4_sources.sql's own row, not an
+        # independently invented copy -- see that file and
+        # prompts/P31-l5-refuse-first-one-real-rule.md section 3 for the
+        # full citation/attestation argument.
+        cur.execute(
+            """
+            INSERT INTO rule (
+                id, jurisdiction_id, rule_key, version, effective_from, effective_to,
+                citation, source_text_uri, params, pack_version,
+                authored_by, reviewed_by, review_mode, reviewed_at, attestation_uri
+            ) VALUES (
+                'ca_san_jose.adu_detached_max_height_city_standards.v1', %s,
+                'adu.detached.max_height.city_standards', 1, '2026-03-05'::date, NULL,
+                'City of San José Bulletin #210, "ADU Universal Checklist," updated 03/05/2026, '
+                    'Part 3 (Single-Family Properties, City Development Standards, Detached ADU) -- '
+                    'summarizing San José Municipal Code Section 20.80.175, not its verbatim text.',
+                'https://github.com/devvtrivedi/ledgex-adu/blob/6dca93c330e80cb91571bc24955e71eb6fb95954/jurisdictions/ca_san_jose/evidence/bulletin-210-adu-universal-checklist-2026-03-05.pdf',
+                '{"first_story_max_ft": 18, "second_story_max_ft": 25, "max_stories": 2}'::jsonb,
+                'ca_san_jose_rules@0.1.0',
+                'devtrivedi06@gmail.com', 'devtrivedi06@gmail.com', 'solo_founder_attestation',
+                '2026-08-18'::timestamptz,
+                'https://github.com/devvtrivedi/ledgex-adu/blob/6dca93c330e80cb91571bc24955e71eb6fb95954/jurisdictions/ca_san_jose/evidence/attestation-adu-detached-max-height-city-standards.md'
+            )
+            ON CONFLICT (id) DO NOTHING
+            """,
+            (ip.JURISDICTION_ID,),
+        )
         # Fixed, reused snapshots -- ON CONFLICT DO NOTHING, permanent by
         # design (0021), same as the idempotent reference rows above.
         # snapshot_id must be STABLE run to run for sec 6.6's "Retained --
