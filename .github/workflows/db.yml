@@ -151,6 +151,37 @@ jobs:
       - name: scripts/test_snapshot_race_invariant.py
         run: python3 scripts/test_snapshot_race_invariant.py
 
+      # P36, README finding #38 (built, not left as a candidate -- finding
+      # #36's own gap, cross-seeder drift between db/seeds/day4_sources.sql
+      # and scripts/check_golden.py's own rule seed, was CI-unreachable
+      # because this job never ran db/seeds/ at all). Runs after db-test
+      # and the snapshot-race check above (both remain genuinely
+      # migrations-only -- unaffected, still prove what db/tests/
+      # invariants.sql's own floor block, corrected by this same package,
+      # now says it proves), before make golden. day4_sources.sql is
+      # idempotent (ON CONFLICT DO NOTHING throughout, plus the same DO
+      # UPDATE on `rule` finding #36 already established) -- applying it
+      # here changes what every step BELOW this one sees (real source/
+      # licence/jurisdiction/field_definition/rule rows exist from this
+      # point on, not just check_golden.py's/check_conformance.py's own
+      # narrower synthetic seeds), confirmed harmless to each of them
+      # before wiring this in, not assumed: golden, both script-level
+      # compose tests, make test and make conformance all rehearsed
+      # locally in this exact order, seeded, all unchanged (make golden
+      # still PASSED with the identical fixture output; make conformance
+      # already used ON CONFLICT DO UPDATE for its own source rows,
+      # finding #32's fix, specifically so seeding order can never matter
+      # to it). Proves the actual point, not just harmlessness: a
+      # deliberately drifted rule.citation, inserted the same way
+      # check_golden.py's own seed would, now raises 0013's "I18 violated"
+      # for real against this database -- see
+      # prompts/P36-election-check-and-seed-drift.md section 2 for the
+      # full transcript. make schema-dump remains unaffected either way
+      # (schema-only diff, never sees row data).
+      - name: db/seeds/day4_sources.sql
+        run: |
+          "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/seeds/day4_sources.sql
+
       # P20: make golden's refused-path fixture (scripts/check_golden.py,
       # tests/golden/ca_san_jose/refused.json) -- same reasoning as the
       # snapshot-race test above, no new job: this is a real database
