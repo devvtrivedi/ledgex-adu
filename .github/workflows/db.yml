@@ -161,8 +161,18 @@ jobs:
       # refused-path check itself passed -- see check_golden.py's own
       # module docstring for why that is not the same claim as "golden
       # covers all four fixture classes."
+      #
+      # P33, finding #37: GOLDEN_ALLOW_RULE_SEED=1 -- check_golden.py's
+      # own seed_reference_rows() now refuses, by default, to insert the
+      # one real rule row (0013's rule_no_delete makes it permanent,
+      # irreversible) unless explicitly confirmed. ledgex_ci is fresh and
+      # disposable, torn down with this runner regardless of what 0013
+      # blocks, so confirming here is correct -- unlike a bare local
+      # `make golden`, which must NOT be confirmed by default (Makefile's
+      # own DATABASE_URL default is ledgex_schema_check, the real shared
+      # dev database).
       - name: make golden
-        run: make golden DATABASE_URL="$DATABASE_URL" PYTHON=python3
+        run: make golden DATABASE_URL="$DATABASE_URL" PYTHON=python3 GOLDEN_ALLOW_RULE_SEED=1
 
       # P25: property_file.geometry_tier_used regression guard -- same
       # reasoning as the snapshot-race test and golden above, no new job.

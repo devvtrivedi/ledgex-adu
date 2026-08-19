@@ -218,6 +218,39 @@ def seed_reference_rows(conn):
         # (no immutability trigger exists there) -- here, silent drift
         # becomes a loud, correctly-named exception naming exactly which
         # row disagrees, not merely prevented.
+        # P33, finding #37: rule_no_delete (0013) makes this INSERT an
+        # IRREVERSIBLE write -- once it lands, no principal can ever
+        # remove this row from this database again. Gated, not routine:
+        # only the row's genuine first-ever appearance in THIS database
+        # needs confirmation (a second call within the same run, or a
+        # later run against a database that already has it, is just
+        # re-confirming/refreshing an irreversible action that already
+        # happened -- victimless, same as any other idempotent seed
+        # row here). Checked by existence, not by call count, so this
+        # gate is correct regardless of which of the two per-run calls
+        # reaches it first. GOLDEN_ALLOW_RULE_SEED=1 is the explicit
+        # confirmation -- set unconditionally in db.yml (CI's own
+        # databases are disposable, torn down with the runner regardless
+        # of what 0013 blocks) and left UNSET by default locally, so a
+        # bare `make golden` against Makefile's own DATABASE_URL default
+        # (ledgex_schema_check, the real shared dev database) fails
+        # loud, before writing anything, instead of silently planting a
+        # permanent row -- the exact risk finding #37 named.
+        cur.execute("SELECT 1 FROM rule WHERE id = %s", ("ca_san_jose.adu_detached_max_height_city_standards.v1",))
+        rule_row_exists = cur.fetchone() is not None
+        if not rule_row_exists and os.environ.get("GOLDEN_ALLOW_RULE_SEED") != "1":
+            raise SystemExit(
+                "make golden is about to INSERT a rule row "
+                "('ca_san_jose.adu_detached_max_height_city_standards.v1') that CANNOT ever "
+                "be removed from this database again (0013's rule_no_delete raises "
+                "unconditionally) -- this is a permanent, one-way action, not a routine "
+                "check. Refusing by default so a bare `make golden` cannot silently plant "
+                "this into a real, shared database (Makefile's own DATABASE_URL default is "
+                "ledgex_schema_check). If this database is genuinely disposable and you "
+                "intend this, re-run with GOLDEN_ALLOW_RULE_SEED=1. If it is not disposable, "
+                "run `db/seeds/day4_sources.sql` against it deliberately instead, as its own "
+                "considered action, not as a side effect of a check."
+            )
         cur.execute(
             """
             INSERT INTO rule (
