@@ -7,7 +7,7 @@
     "composed_at": "<TS>",
     "composer_version": "<COMPOSER_VERSION:shape-checked-only>",
     "delivered_at": null,
-    "election": "city",
+    "election": null,
     "geometry_tier_used": false,
     "id": "<UUID:1>",
     "jurisdiction_id": "ca_san_jose",
@@ -18,6 +18,14 @@
       "attribution": [],
       "omitted_for_rights": [],
       "refusals": [
+        {
+          "code": "ELECTION_REQUIRED",
+          "detail": {
+            "conclusion": "placement"
+          },
+          "message": "placement depends on which ADU development-standards regime this request elects (Bulletin #210: City, Municipal Code 20.80.175, or State, 20.80.176), and none was supplied.",
+          "stage": "L5"
+        },
         {
           "code": "GEOMETRY_TIER_DISABLED",
           "detail": {
@@ -42,8 +50,16 @@
       ],
       "status": "refused"
     },
-    "payload_hash": "a4c45aac7eba3fe37ceb3f2247481ba136dc504e92d7c7171ca6987662743139",
+    "payload_hash": "37cac43a79603fdbca3dae00e1be7e9df49d1030577094246eb311e712139300",
     "refusals": [
+      {
+        "code": "ELECTION_REQUIRED",
+        "detail": {
+          "conclusion": "placement"
+        },
+        "message": "placement depends on which ADU development-standards regime this request elects (Bulletin #210: City, Municipal Code 20.80.175, or State, 20.80.176), and none was supplied.",
+        "stage": "L5"
+      },
       {
         "code": "GEOMETRY_TIER_DISABLED",
         "detail": {
@@ -66,14 +82,14 @@
         "stage": "L8"
       }
     ],
-    "ruleset_version": "adu.detached.max_height.city_standards@1",
+    "ruleset_version": "no rule selected: ELECTION_REQUIRED",
     "status": "refused",
     "unmet_fields": []
   },
   "property_file_fact": [
     {
       "fact_id": "<UUID:3>",
-      "snapshot_id": "ca_san_jose.parcels:sha256:077621d41e4c0ff40d9aacdcb099232710d9b5b1a4807bce484b2e387719a51c",
+      "snapshot_id": "ca_san_jose.parcels:sha256:36770528494190f807e2320174316ad7c11ab34129fc045af0a3175215acd1f6",
       "use": "input"
     }
   ]

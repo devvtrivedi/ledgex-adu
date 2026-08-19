@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """make golden -- two of SPEC.md sec 1.2's four fixture classes (P20:
-refused; P25: geometry-disabled).
+refused; P25: geometry-disabled), plus one additional fixture beyond
+that taxonomy (P34: election_required, README finding #35 -- see this
+module's own P34 note further down and SPEC.md sec 6.6's own P34
+implementation note for why it is additional, not a fifth taxonomy
+member).
 
 SPEC.md sec 1.2's golden row names four fixture classes: composed, partial,
 refused, and geometry-disabled Base Core. This checks two -- refused and
@@ -51,14 +55,35 @@ make P20's own break-then-revert proof meaningless -- there would be no
 way to observe "red" as distinct from "genuinely covers less than four
 classes."
 
-Decided: exit code tracks ONLY whether the two real, built checks are
-both correct (0 = refused AND geometry-disabled both passed; 1 = either
-failed OR broke). The two absent classes are named explicitly,
-unconditionally, on EVERY run, pass or fail -- never folded into a bare
-"PASSED" that could be misread as full coverage. Same shape as
-db/tests/invariants.sql's known_gaps/test_skipped sections (P9/P14):
-real coverage counted honestly, absence stated loudly, neither silently
-inflated nor silently hidden.
+Decided: exit code tracks ONLY whether the real, built checks are all
+correct (0 = refused AND geometry-disabled AND election_required all
+passed; 1 = any failed OR broke). The two absent taxonomy classes are
+named explicitly, unconditionally, on EVERY run, pass or fail -- never
+folded into a bare "PASSED" that could be misread as full coverage.
+Same shape as db/tests/invariants.sql's known_gaps/test_skipped
+sections (P9/P14): real coverage counted honestly, absence stated
+loudly, neither silently inflated nor silently hidden.
+
+P34 (README finding #35): a third fixture, election_required, checks
+scripts/compose_property_file.py's new election parameter -- passing
+election=None (the one case every pre-P34 caller of compose() already
+exercises, since the parameter is new and optional) reaches L5's
+ELECTION_REQUIRED refusal before any `rule` query is attempted, adding
+a THIRD co-occurring refusal (alongside GEOMETRY_TIER_DISABLED and
+RIGHTS_BLOCKED, same accumulation reasoning P25 already established
+above) to this fixture specifically. The other two fixtures
+(refused, geometry-disabled) now pass election="city" explicitly --
+the one real, seeded rule -- so their own shape and refusal count are
+UNCHANGED by this package; only election_required is new. This is
+deliberately not counted as a fifth/replacement member of sec 1.2's
+own four-class taxonomy (MISSING_CLASSES, below, is unchanged) -- it
+is a real, additional check the taxonomy predates. election's own
+ELECTION_NOT_SUPPORTED branch (election supplied, no CONCLUSION_RULE_KEYS
+entry) is deliberately NOT given a fourth fixture here: mechanically
+identical to this one (skip the `rule` query, append a refusal) with
+only the code string differing -- proven instead at the pytest/script
+level, scripts/test_compose_election.py, which is the check that
+actually adds coverage a fourth near-byte-identical fixture would not.
 
 COMPOSER_VERSION -- a real, reported deviation from SPEC.md sec 6.6's
 literal text, not a silent one. sec 6.6 says composer_version is
@@ -104,8 +129,8 @@ override the fact insert's own timestamps.
 Usage:
   DATABASE_URL=... .venv-ingest/bin/python3 scripts/check_golden.py [--bless]
 
-  --bless overwrites BOTH tests/golden/ca_san_jose/refused.json and
-  tests/golden/ca_san_jose/geometry_disabled.json with this run's own
+  --bless overwrites ALL THREE tests/golden/ca_san_jose/{refused,
+  geometry_disabled,election_required}.json with this run's own
   normalised output, instead of comparing against them -- the "reviewed
   fixture update" sec 1.2's own pass condition names. Never run --bless as
   part of `make golden` itself; it is a human, deliberate action.
@@ -132,10 +157,20 @@ FIXTURE_PATH = os.path.join(REPO_ROOT, "tests", "golden", "ca_san_jose", "refuse
 GEOMETRY_DISABLED_FIXTURE_PATH = os.path.join(
     REPO_ROOT, "tests", "golden", "ca_san_jose", "geometry_disabled.json"
 )
+# P34, README finding #35: a THIRD fixture, election_required -- see this
+# module's own docstring update and SPEC.md sec 6.6's P34 implementation
+# note for why this is deliberately NOT a fifth/replacement member of the
+# original composed/partial/refused/geometry-disabled taxonomy MISSING_CLASSES
+# tracks below (unchanged by this addition), but a real, additional check
+# beyond it.
+ELECTION_REQUIRED_FIXTURE_PATH = os.path.join(
+    REPO_ROOT, "tests", "golden", "ca_san_jose", "election_required.json"
+)
 GOLDEN_CHANNEL = "paid_property_file"
 GOLDEN_AS_OF = datetime.datetime(2099, 1, 1, tzinfo=datetime.timezone.utc)
 GOLDEN_DIGEST = hashlib.sha256(b"golden-refused-fixture-v1").hexdigest()
 GEOMETRY_DISABLED_GOLDEN_DIGEST = hashlib.sha256(b"golden-geometry-disabled-fixture-v1").hexdigest()
+ELECTION_REQUIRED_GOLDEN_DIGEST = hashlib.sha256(b"golden-election-required-fixture-v1").hexdigest()
 
 MISSING_CLASSES = ["composed", "partial"]
 
@@ -222,12 +257,14 @@ def seed_reference_rows(conn):
         # IRREVERSIBLE write -- once it lands, no principal can ever
         # remove this row from this database again. Gated, not routine:
         # only the row's genuine first-ever appearance in THIS database
-        # needs confirmation (a second call within the same run, or a
-        # later run against a database that already has it, is just
+        # needs confirmation (a second or third call within the same run
+        # -- P34 added a third fixture class, so seed_reference_rows()
+        # now runs three times per `make golden`, not two -- or a later
+        # run against a database that already has it, is just
         # re-confirming/refreshing an irreversible action that already
         # happened -- victimless, same as any other idempotent seed
         # row here). Checked by existence, not by call count, so this
-        # gate is correct regardless of which of the two per-run calls
+        # gate is correct regardless of which of the per-run calls
         # reaches it first. GOLDEN_ALLOW_RULE_SEED=1 is the explicit
         # confirmation -- set unconditionally in db.yml (CI's own
         # databases are disposable, torn down with the runner regardless
@@ -295,7 +332,7 @@ def seed_reference_rows(conn):
         # distinct digests (P25) -- one per fixture class, so the refused
         # and geometry-disabled property_files link to their own,
         # separately-identifiable snapshot, not a shared one.
-        for digest in (GOLDEN_DIGEST, GEOMETRY_DISABLED_GOLDEN_DIGEST):
+        for digest in (GOLDEN_DIGEST, GEOMETRY_DISABLED_GOLDEN_DIGEST, ELECTION_REQUIRED_GOLDEN_DIGEST):
             uri = ip.object_uri("golden-fixture-bucket", digest)
             cur.execute(
                 """
@@ -409,12 +446,12 @@ def normalize(pf_row, pf_facts):
     return normalized, facts_normalized, composer_version_shape_ok
 
 
-def run_composition(apn, digest):
+def run_composition(apn, digest, election):
     conn = get_db()
     seed_reference_rows(conn)
     parcel_id = make_fixture_parcel_and_fact(conn, apn, ip.snapshot_id_for(digest))
 
-    property_file_id = cpf.compose(conn, parcel_id, GOLDEN_CHANNEL, as_of=GOLDEN_AS_OF)
+    property_file_id = cpf.compose(conn, parcel_id, GOLDEN_CHANNEL, election=election, as_of=GOLDEN_AS_OF)
     if property_file_id is None:
         raise SystemExit(
             "compose() returned None (rights gate PASSED) -- this means "
@@ -462,17 +499,30 @@ def _geometry_tier_disabled_refusal(refusals):
     return next((r for r in refusals if r.get("code") == "GEOMETRY_TIER_DISABLED"), None)
 
 
-def check_fixture(name, fixture_path, apn, digest, bless, failures):
+def _election_required_refusal(refusals):
+    return next((r for r in refusals if r.get("code") == "ELECTION_REQUIRED"), None)
+
+
+def check_fixture(name, fixture_path, apn, digest, election, expect_election_required, bless, failures):
     """One fixture class's full check: run the real composition, assert
-    both refusals POSITIVELY (sec 6.6: "a golden file that lost a
-    refusal is a regression" -- neither code's presence is left to the
+    every expected refusal POSITIVELY (sec 6.6: "a golden file that lost a
+    refusal is a regression" -- no code's presence is left to the
     full-object compare alone, a bug there should never be able to hide
     a missing refusal), then the full normalized compare. Appends to the
-    shared `failures` list rather than returning its own -- both fixture
-    classes' checks contribute to ONE overall exit code, same as before
-    P25 widened this from one fixture to two."""
+    shared `failures` list rather than returning its own -- all three
+    fixture classes' checks contribute to ONE overall exit code, same as
+    before P25 widened this from one fixture to two and P34 widened it
+    again to three.
+
+    expect_election_required (P34): RIGHTS_BLOCKED and GEOMETRY_TIER_DISABLED
+    are asserted unconditionally, every fixture, every run -- unchanged
+    since P25 (every real composition today hits both). ELECTION_REQUIRED
+    is asserted only for the one fixture that supplies election=None; the
+    other two now pass election="city" explicitly and must NOT carry it,
+    so the expected total refusal count differs (3 vs 2) rather than being
+    hardcoded to one number for every class."""
     print(f"\n--- {name} ---")
-    normalized, facts_normalized, composer_version_shape_ok = run_composition(apn, digest)
+    normalized, facts_normalized, composer_version_shape_ok = run_composition(apn, digest, election)
     output = {"property_file": normalized, "property_file_fact": facts_normalized}
 
     if bless:
@@ -500,10 +550,9 @@ def check_fixture(name, fixture_path, apn, digest, bless, failures):
         expected = json.load(f)
 
     actual_refusals = normalized.get("refusals") or []
-    # P25: BOTH refusals asserted positively, every fixture, every run --
-    # see this module's own docstring for why neither fixture can show
-    # only one of the two today.
-    check("exactly two refusals present", len(actual_refusals) == 2, f"got {len(actual_refusals)}")
+    expected_count = 3 if expect_election_required else 2
+    check(f"exactly {expected_count} refusal(s) present", len(actual_refusals) == expected_count,
+          f"got {len(actual_refusals)}")
 
     rights = _rights_blocked_refusal(actual_refusals)
     check("RIGHTS_BLOCKED refusal present", rights is not None, f"codes present: {[r.get('code') for r in actual_refusals]}")
@@ -527,6 +576,20 @@ def check_fixture(name, fixture_path, apn, digest, bless, failures):
               geometry.get("detail", {}).get("conclusion") == "placement",
               f"got {geometry.get('detail', {}).get('conclusion')!r}")
 
+    election_required = _election_required_refusal(actual_refusals)
+    if expect_election_required:
+        check("ELECTION_REQUIRED refusal present", election_required is not None,
+              f"codes present: {[r.get('code') for r in actual_refusals]}")
+        if election_required:
+            check("ELECTION_REQUIRED stage is L5", election_required.get("stage") == "L5",
+                  f"got {election_required.get('stage')!r}")
+            check("ELECTION_REQUIRED names the refused conclusion (placement)",
+                  election_required.get("detail", {}).get("conclusion") == "placement",
+                  f"got {election_required.get('detail', {}).get('conclusion')!r}")
+    else:
+        check("ELECTION_REQUIRED refusal absent (election='city' was supplied)",
+              election_required is None, f"codes present: {[r.get('code') for r in actual_refusals]}")
+
     check("normalized property_file matches the committed golden fixture",
           output == expected,
           f"\n  expected: {json.dumps(expected, indent=2, sort_keys=True)}"
@@ -540,21 +603,31 @@ def main():
                               "instead of comparing against them")
     args = parser.parse_args()
 
-    print("GOLDEN: checking 2 of 4 fixture classes this run -- refused, geometry-disabled.")
-    print(f"GOLDEN: NOT covered (see scripts/check_golden.py's own module docstring "
-          f"and STANDING-BLOCKER.md for why): {', '.join(MISSING_CLASSES)}.")
+    print("GOLDEN: checking 2 of 4 sec 1.2 fixture classes this run -- refused, geometry-disabled -- "
+          "plus one additional fixture beyond that taxonomy (election_required, P34, README finding #35).")
+    print(f"GOLDEN: NOT covered within sec 1.2's taxonomy (see scripts/check_golden.py's own module "
+          f"docstring and STANDING-BLOCKER.md for why): {', '.join(MISSING_CLASSES)}.")
 
     failures = []
-    check_fixture("refused", FIXTURE_PATH, "GOLDEN-REFUSED-FIXTURE", GOLDEN_DIGEST, args.bless, failures)
+    # P34: refused/geometry-disabled now pass election="city" explicitly --
+    # the one real, seeded rule -- so their own shape and refusal count are
+    # unchanged by this package. election_required passes election=None,
+    # the one case every pre-P34 caller already exercised (the parameter is
+    # new and optional), and expects a third, additional refusal.
+    check_fixture("refused", FIXTURE_PATH, "GOLDEN-REFUSED-FIXTURE", GOLDEN_DIGEST,
+                  "city", False, args.bless, failures)
     check_fixture("geometry-disabled", GEOMETRY_DISABLED_FIXTURE_PATH, "GOLDEN-GEOMETRY-DISABLED-FIXTURE",
-                  GEOMETRY_DISABLED_GOLDEN_DIGEST, args.bless, failures)
+                  GEOMETRY_DISABLED_GOLDEN_DIGEST, "city", False, args.bless, failures)
+    check_fixture("election-required", ELECTION_REQUIRED_FIXTURE_PATH, "GOLDEN-ELECTION-REQUIRED-FIXTURE",
+                  ELECTION_REQUIRED_GOLDEN_DIGEST, None, True, args.bless, failures)
 
     if args.bless:
         return 0
 
     print(f"\nGOLDEN SUMMARY: {'PASSED' if not failures else 'FAILED'} "
-          f"({len(failures)} failure(s)). Coverage this run: 2/4 fixture classes "
-          f"(refused, geometry-disabled). NOT covered: {', '.join(MISSING_CLASSES)}.")
+          f"({len(failures)} failure(s)). Coverage this run: 2/4 sec 1.2 fixture classes "
+          f"(refused, geometry-disabled) plus 1 additional fixture beyond that taxonomy "
+          f"(election_required). NOT covered within sec 1.2's taxonomy: {', '.join(MISSING_CLASSES)}.")
     return 1 if failures else 0
 
 

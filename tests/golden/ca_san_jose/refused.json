@@ -7,6 +7,7 @@
     "composed_at": "<TS>",
     "composer_version": "<COMPOSER_VERSION:shape-checked-only>",
     "delivered_at": null,
+    "election": "city",
     "geometry_tier_used": false,
     "id": "<UUID:1>",
     "jurisdiction_id": "ca_san_jose",
