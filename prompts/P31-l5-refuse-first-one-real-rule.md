@@ -143,3 +143,101 @@ does"). Reworded to describe the same reasoning without the literal tokens; re-r
 found.`
 
 ---
+
+### 3. One real rule, sourced from Bulletin #210
+
+**The ordinance text itself could not be read — real, repeated attempts, not a shortcut.**
+Before the founder supplied Bulletin #210 directly, six real URLs across four distinct
+sources were tried and failed: `records.sanjoseca.gov`'s direct ordinance PDF (302-redirects
+to a dead generic page), Municode's live viewer and an Internet Archive snapshot of the same
+page (both an unrendered Angular SPA shell, ~6-7KB, no ordinance text without client-side
+JS execution), `sanjoseca.gov`'s own ADU pages (403 to automated fetches), a third-party PDF
+mirror (also 403). Recorded as finding #34 (`prompts/README.md`), status **Open** — not a
+defect this package can close, a real external-access gap that stays open until the
+ordinance text itself becomes reachable.
+
+**Bulletin #210, read directly, page 3** (full content in
+`jurisdictions/ca_san_jose/evidence/bulletin-210-adu-universal-checklist-2026-03-05.pdf`,
+committed `6dca93c`): City of San José, Planning/Building/Code Enforcement, "ADU Universal
+Checklist," header `BULLETIN #210 UPDATED 03/05/2026 SUBJECT TO CHANGE`. Part 3's table,
+Single-Family Properties, City Development Standards, Detached ADU (New or Conversion),
+Maximum Height cell: `1st Story: 18 ft` / `2nd Story: 25 ft`, Maximum # Stories: `2`.
+
+**The one real rule seeded** (`db/seeds/day4_sources.sql`, `ON CONFLICT (id) DO NOTHING`,
+same idempotent shape every other row in that file already uses):
+
+| Column | Value |
+|---|---|
+| `id` | `ca_san_jose.adu_detached_max_height_city_standards.v1` |
+| `jurisdiction_id` | `ca_san_jose` |
+| `rule_key` | `adu.detached.max_height.city_standards` — names the **City** regime explicitly (finding #35), never the universal answer |
+| `version` | `1` |
+| `effective_from` | `2026-03-05` — the bulletin's own `UPDATED` date, i.e. the date the City *published* this standard, explicitly NOT a claim about the ordinance's own legal effective date (unknown) |
+| `effective_to` | `NULL` |
+| `citation` | `City of San José Bulletin #210, "ADU Universal Checklist," updated 03/05/2026, Part 3 (Single-Family Properties, City Development Standards, Detached ADU) -- summarizing San José Municipal Code Section 20.80.175, not its verbatim text.` |
+| `params` | `{"first_story_max_ft": 18, "second_story_max_ft": 25, "max_stories": 2}` |
+| `source_text_uri` | `https://github.com/devvtrivedi/ledgex-adu/blob/6dca93c.../jurisdictions/ca_san_jose/evidence/bulletin-210-....pdf` |
+| `review_mode` | `solo_founder_attestation` (`reviewed_by = authored_by`, both `devtrivedi06@gmail.com`) |
+| `attestation_uri` | `https://github.com/devvtrivedi/ledgex-adu/blob/6dca93c.../jurisdictions/ca_san_jose/evidence/attestation-....md` |
+
+**What `attestation_uri` resolves to, and what a reader in 2030 does with it**: the exact,
+byte-identical attestation file committed alongside the bulletin in `6dca93c` — a plain-text
+record of what was read (the bulletin's page 3 cell, named precisely), what is and is not
+claimed (the bulletin was read directly; §20.80.175 itself was not), and why the bulletin is
+admissible now. Resolving it requires nothing but this repository's own git history — no
+account, no external service, no retention policy to outlive; `git show
+6dca93c...:jurisdictions/ca_san_jose/evidence/attestation-....md` (or the GitHub blob URL
+stored in the column) returns the identical bytes forever, by construction.
+
+**Verified against a fresh scratch database, seed applied end to end**: `db/seeds/
+day4_sources.sql` run against a freshly-migrated database — the rule row inserted cleanly,
+`SELECT` confirms all values match the table above exactly.
+
+**0013's `rule_no_update`/`rule_no_delete` triggers, fired against a real row for the first
+time ever — proven directly, exact exception text shown, not summarized:**
+
+```
+UPDATE rule SET citation = 'tampered' WHERE id = 'ca_san_jose.adu_detached_max_height_city_standards.v1';
+ERROR:  I18 violated: rule ca_san_jose.adu_detached_max_height_city_standards.v1 is
+immutable. Only effective_to may be set (NULL -> a date, once). A correction is a new
+rule row at version + 1, never an UPDATE.
+
+DELETE FROM rule WHERE id = 'ca_san_jose.adu_detached_max_height_city_standards.v1';
+ERROR:  I18 violated: rule ca_san_jose.adu_detached_max_height_city_standards.v1 cannot
+be deleted. A correction is a new rule row at version + 1, never a DELETE.
+```
+
+The legitimate one-way transition also confirmed, on the same real row, both directions:
+`UPDATE ... SET effective_to = '2027-01-01'` succeeded once; a second attempt to change it
+again (`'2028-01-01'`) was rejected with the identical "already set" exception `db/tests/
+invariants.sql`'s own synthetic I18e test already asserts.
+
+**`db/tests/invariants.sql` checked, not assumed to be missing this coverage**: it already
+carries five real tests for exactly this trigger pair — I18a (UPDATE `reviewed_by`
+rejected), I18b (UPDATE `params` rejected — proves every column is locked, not just review
+evidence), I18c (DELETE rejected), I18d (the one legitimate `effective_to` transition
+succeeds), I18e (a second `effective_to` change is rejected) — against synthetic `test-i18*`
+fixture rows, the same convention every other test in that file uses (real production data
+is never a target for a destructive-attempt test in a suite that must also run, unmodified,
+against CI's own fresh migrations-only database, where this real rule row does not exist at
+all). **Not lacking, so no new invariants.sql test was added and the 108-test pass floor is
+unchanged** — what is genuinely new is not more test coverage of the mechanism, but the
+first real, non-synthetic row for that already-proven mechanism to protect, demonstrated
+directly above.
+
+**`RULE_UNAVAILABLE` proven for the right reason, both branches of the window, against the
+real row — not an empty table masquerading as one:**
+
+```
+select_effective_rule(cur, "ca_san_jose", "adu.detached.max_height.city_standards", 2026-01-01)
+  -> REFUSED: No rule effective for jurisdiction_id='ca_san_jose',
+     rule_key='adu.detached.max_height.city_standards' as of 2026-01-01.
+     (before effective_from 2026-03-05 -- the real row exists, the window excludes it)
+
+select_effective_rule(cur, "ca_san_jose", "adu.detached.max_height.city_standards", 2099-01-01)
+  -> OK: Rule(id='ca_san_jose.adu_detached_max_height_city_standards.v1', version=1,
+     citation='...', effective_from=2026-03-05, effective_to=None)
+     (GOLDEN_AS_OF -- see section 4)
+```
+
+---

@@ -314,6 +314,44 @@ INSERT INTO source_rank (jurisdiction_id, field_key, source_id, rank, rationale)
    'Building Permits source tracks all active permits by date')
 ON CONFLICT (jurisdiction_id, field_key, source_id) DO NOTHING;
 
+-- ============================================================================
+-- RULES (P31): one real rule, sourced from a City guidance bulletin, not
+-- the ordinance text itself -- see this row's own citation and finding #34
+-- (prompts/README.md) for why SJMC §20.80.175 could not be read directly
+-- from any environment reachable so far. effective_from is the date the
+-- City PUBLISHED this standard (the bulletin's own "UPDATED" date), not a
+-- claim about the ordinance's own legal effective date, which remains
+-- unknown -- when the ordinance text becomes readable, this version is
+-- retired (effective_to set, 0013's one-way supersession) and a new
+-- version, citing the Code directly, replaces it. source_text_uri and
+-- attestation_uri are both commit-pinned into this repository's own git
+-- history (jurisdictions/ca_san_jose/evidence/) -- I17's "read verbatim
+-- from the filesystem" made literally true, no external service required.
+-- rule_key names the CITY Development Standards regime explicitly
+-- (.city_standards) -- see finding #35: the City and State standards give
+-- materially different answers (25 ft vs 18 ft max height) for the same
+-- conclusion, and a property file has no input recording which an
+-- applicant elected. This rule is NOT the universal answer to "ADU max
+-- height" and must never be read as one.
+INSERT INTO rule (
+  id, jurisdiction_id, rule_key, version, effective_from, effective_to,
+  citation, source_text_uri, params, pack_version,
+  authored_by, reviewed_by, review_mode, reviewed_at, attestation_uri
+) VALUES (
+  'ca_san_jose.adu_detached_max_height_city_standards.v1', 'ca_san_jose',
+  'adu.detached.max_height.city_standards', 1, '2026-03-05'::date, NULL,
+  'City of San José Bulletin #210, "ADU Universal Checklist," updated 03/05/2026, '
+    || 'Part 3 (Single-Family Properties, City Development Standards, Detached ADU) -- '
+    || 'summarizing San José Municipal Code Section 20.80.175, not its verbatim text.',
+  'https://github.com/devvtrivedi/ledgex-adu/blob/6dca93c330e80cb91571bc24955e71eb6fb95954/jurisdictions/ca_san_jose/evidence/bulletin-210-adu-universal-checklist-2026-03-05.pdf',
+  '{"first_story_max_ft": 18, "second_story_max_ft": 25, "max_stories": 2}'::jsonb,
+  'ca_san_jose_rules@0.1.0',
+  'devtrivedi06@gmail.com', 'devtrivedi06@gmail.com', 'solo_founder_attestation',
+  '2026-08-18'::timestamptz,
+  'https://github.com/devvtrivedi/ledgex-adu/blob/6dca93c330e80cb91571bc24955e71eb6fb95954/jurisdictions/ca_san_jose/evidence/attestation-adu-detached-max-height-city-standards.md'
+)
+ON CONFLICT (id) DO NOTHING;
+
 COMMIT;
 
 -- ============================================================================
