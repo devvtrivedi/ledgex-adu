@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.43
+# LedgeX / ADU.X — Engineering Reference Spec v1.44
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.43 | Machine-executed build contract. |
+| 1 | This Spec v1.44 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -118,7 +118,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.43 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.44 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -751,6 +751,17 @@ An enum backing this via enum_range() was considered and rejected: enum_range() 
      NOT the full biconditional, which holds today only by the coincidence that "placement" is the sole,
      always-election-dependent conclusion this composer evaluates (the same coincidence-masks-it shape as the
      geometry_tier_used finding). See §12's 1.38 entry.
+
+     db/migrations/0055_parcel_refusal_codes.sql widens refusals_codes_valid()'s vocabulary by two more codes,
+     PARCEL_REFERENCE_UNKNOWN and PARCEL_NO_FACTS (§9), DROP+ADD on property_file_refusal_codes_known_parcel (same
+     re-validation reasoning 0048/0053 gave), and moves build/qa_check.py's own REFUSAL_CODE_MIGRATION pointer from
+     0053 to itself. README finding #40 (re-graded, P37): scripts/compose_property_file.py raised Python exceptions
+     for two genuine, deterministic runtime conditions -- a caller-supplied parcel_id that does not resolve, and a
+     resolved parcel with zero current facts -- both live today for any caller, not merely latent pending a future
+     api/. PARCEL_REFERENCE_UNKNOWN is returned as a typed Result directly, with NO property_file row written
+     (parcel_id is NOT NULL REFERENCES parcel(id), and there is no parcel to attach one to); PARCEL_NO_FACTS is
+     written to a normal refused row, accumulated with whatever else this composer's other stages also refuse, with
+     zero property_file_fact link rows. See §12's 1.39 entry.
 
      v1.6: Property File rows carry delivery outcome and cost telemetry only. Commercial access lives in commerce.access_entitlement and
      commerce.subscription; no accepted price or per-file settlement field exists.
@@ -1855,7 +1866,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.43
+Engineering Reference Spec v1.44
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1916,7 +1927,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.43
+Engineering Reference Spec v1.44
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1947,7 +1958,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.43
+Engineering Reference Spec v1.44
 
 ## 9. Refusal and error codes
 
@@ -1961,6 +1972,11 @@ JURISDICTION_UNSUPPORTED                               L0                       
 JURISDICTION_BOUNDARY_CONFLICT                         L0                                                    City and county layers disagree — never pick a
 winner
 PARCEL_NOT_FOUND                                       L0                                                    APN not present in any parcel layer
+PARCEL_REFERENCE_UNKNOWN                               L0                                                    v1.44 — a caller-supplied parcel_id (an
+internal identifier) does not resolve. Distinct
+from PARCEL_NOT_FOUND, which is an APN/address
+resolution failure — no property_file row is
+written; returned as a typed refusal directly
 SOURCE_UNVERIFIED                                      L1                                                    url_verified_at is null; source may not run in
 production
 SOURCE_UNAVAILABLE                                     L1                                                    Endpoint failed after retries
@@ -1981,6 +1997,12 @@ attempted
 PERMIT_SERIES_TOO_SHALLOW                              L6                                                    Structure predates the measured series start
 GEOMETRY_TIER_DISABLED                                 L7                                                    3DEP gate not cleared
 COVERAGE_GAP                                           L7/L8                                                 A required field could not be retrieved
+PARCEL_NO_FACTS                                        L8                                                    v1.44 — a resolved parcel has zero current
+facts as of the composition's as-of date.
+Distinct from COVERAGE_GAP/INSUFFICIENT_COVERAGE
+(both presuppose a required-fields mechanism
+this composer has not built) — a property_file
+row is written, with zero touched-fact links
 PERMIT_LAYER_UNAVAILABLE                               L1/L8                                                 No machine-readable permit source in this
 jurisdiction. Cascades: every permit-dependent
 conclusion is refused. Tier 3 default.
@@ -3037,6 +3059,34 @@ inside compose() itself for an unresolvable parcel_id or zero current          e
 facts; two more in its CLI-only apn-resolution helper) that would become       one, would be the exact anticipation
 customer request input the moment api/ exists -- an I8 violation at            CONVENTIONS warns against.
 exactly the boundary I8 governs, once that happens.
+Aug 2026             1.44                 P37: re-grade finding #40, close its live members.                              P36 graded all four of finding
+db/migrations/0055_parcel_refusal_codes.sql widens refusals_codes_valid()       #40's members "latent, pending
+by two more codes, PARCEL_REFERENCE_UNKNOWN (L0) and PARCEL_NO_FACTS (L8),      api/" as one class. Re-examined
+DROP+ADD on property_file_refusal_codes_known_parcel, moves build/              against I8's actual text -- a
+qa_check.py's own pointer 0053 -> 0055. Two of finding #40's four members       deterministic runtime condition a
+re-graded live today, not latent: a caller-supplied parcel_id that does         stage can refuse, not merely a
+not resolve (compose():261, pre-fix) and a resolved parcel with zero            future api/ concern -- two members
+current facts (compose():333, pre-fix) are both genuine runtime                 are live NOW, for any caller,
+conditions reachable by any caller today, confirmed by running the              independent of api/; two stay
+actual pre-P37 code against a real database and observing the SystemExit         correctly latent (the election-
+both times, not inferred. PARCEL_REFERENCE_UNKNOWN is NOT PARCEL_NOT_FOUND       vocabulary ValueError, argued as
+(§9's own text scopes that code to APN/address resolution, checked              a caller/programmer error compose()
+verbatim before reusing it, not assumed from the name) -- returned as a          itself still correctly rejects
+typed Result directly, no property_file row (parcel_id's own NOT NULL FK        before any DB write, and doubly
+makes a row structurally impossible without a real parcel). PARCEL_NO_FACTS      unreachable once api/'s own
+is NOT COVERAGE_GAP/INSUFFICIENT_COVERAGE (both presuppose a required-           Pydantic request models exist,
+fields mechanism this composer never built) -- written to a normal              since bad-enum rejection happens
+refused row, zero property_file_fact links, accumulated with whatever           at that boundary first;
+else this composer's other stages also refuse. compose()'s own return           resolve_parcel_id_by_apn's own
+type gains a third shape (Result, alongside the pre-existing str/None)          SystemExits, CLI-only, outside
+for the one case that cannot become a database row. No golden fixture           compose()'s own call graph
+for either: PARCEL_REFERENCE_UNKNOWN produces no row for golden's own           entirely, never reachable from a
+mechanism to compare; PARCEL_NO_FACTS would need new golden-script              future api/ handler either).
+infrastructure (a fact-less fixture parcel builder) that does not exist
+today -- proven instead at the script level
+(scripts/test_compose_parcel_refusals.py), same precedent
+ELECTION_NOT_SUPPORTED already set. New invariants T103-T105, floor
+119 -> 122.
 
 vocabulary.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
