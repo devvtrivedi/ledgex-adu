@@ -111,3 +111,112 @@ the current, real state (which databases already carry the row, and why the defa
 job, not picking between (a) and (b).
 
 ---
+
+### 3. REPORT ONLY — finding #35, the City/State election
+
+Bulletin #210 page 3, read directly: *"YOU HAVE A CHOICE: Design the ADU following either
+City Standards (Municipal Code 20.80.175) or State Standards (Municipal Code 20.80.176).
+The standards cannot be mixed."* Detached ADU max height: 25 ft (City, 1st/2nd story
+18/25) vs 18 ft (State, +2 ft for a pitched roof). Side/rear setback: 0 ft/4 ft by story
+(City) vs a flat 4 ft (State). Materially different, real, from the primary source — not a
+hypothetical. Nothing built here; every option below is scoped against this repo's own
+invariants and spec text, read directly, not from memory.
+
+#### Option A — two parallel conclusions, one per regime, both rendered
+
+**I9, checked directly**: *"A derived conclusion never renders in the visual or structural
+treatment reserved for a retrieved fact."* Two derived conclusions, both clearly marked as
+derived (their own confidence, citation, rule provenance), does not on its own violate I9 —
+I9 is about a derived value being dressed up as a retrieved fact, not about how many
+derived values may coexist. The real strain is elsewhere.
+
+**§5.1/§5.2, checked directly — does "composed" have a shape for this at all**: no. §5.1
+names exactly three outcomes (composed, partial, refused); §5.2 names exactly three actions
+a pipeline may take on an unretrievable field (omit, downgrade, refuse) — no fourth shape
+for "present two mutually exclusive computed answers, unresolved, and let the customer pick."
+§6.6's own fixture-normalisation table treats every field as a single value to compare, not
+a branch. Building this option means inventing a payload shape nothing in this spec
+anticipates, not filling in an existing one.
+
+**§5.1's own refusal criterion, checked directly**: *"refused... so little available that a
+file would mislead."* An unresolved, two-headed "answer" for the same conclusion — 25 ft
+here, 18 ft there, no indication which applies to this applicant's actual project — is close
+kin to exactly the misleading-file shape §5.1 already names as refusal territory, even
+though the cause here is unresolved ambiguity rather than missing data. Weakest of the
+three options: not outright forbidden, but it requires new spec-level design work (a branch-
+shaped outcome, a new fixture class) to build something that arguably reads as *more*
+misleading than a plain refusal, for a case the other two options already handle.
+
+#### Option B — a refusal by name until an election input exists
+
+Honest, and the cheapest to build: reuses `RULE_UNAVAILABLE` exactly as L5 already raises
+it (or a more specific code naming the missing election, if that precision is wanted later)
+— "no rule selected because no election was supplied" is structurally the same shape as
+"no rule effective at this as-of," which L5 already proves end to end (P31). Strains
+nothing — I9 is not implicated (nothing renders), I13/I14 are not implicated (nothing is
+asked of a person at all). The honest question the instruction raises: is this *too*
+conservative, refusing something the system genuinely could answer conditionally? On its
+own, yes, slightly — the system knows both numbers, it is only the customer's own choice
+that's missing, and permanently refusing rather than ever asking for that choice leaves
+real, known, computable value on the table forever. Not wrong to build first (it is the
+honest, always-safe fallback), but not sufficient as the only mechanism if the goal is ever
+to answer this conclusion for real.
+
+#### Option C — an election input on the request itself
+
+**The real question, exactly as posed**: is an applicant's election of City vs. State
+standards a human OBSERVATION (I13) or an input PARAMETER? Checked against real precedent
+in this repo's own field vocabulary, not decided in the abstract: §7's own vocabulary
+already names `assumption.monthly_rent`, `assumption.construction_cost_psf` and
+`condition.roof_hvac_foundation` as `claim: user_assumption` fields, each one stated
+explicitly as *"Request-scoped; never fact ledger"* / *"Separate non-fact input."* This is
+the identical shape an election needs: a customer-supplied parameter about *their own
+project*, never a claim about the external world requiring provenance, never persisted as
+a `Fact`. I13 forbids human observation from becoming a **fact** — a claim standing in for
+verified data about the world (a zoning designation, a parcel boundary). An applicant's own
+design choice is not a claim about the world at all; it is a request-scoped instruction,
+the same category `channel` (`paid_property_file` vs `free_snapshot`) already is today,
+uncontroversially. **I13 does not strain here**, checked against real precedent, not
+assumed.
+
+**I14, checked directly**: *"No stage may block on, queue for, assign to, route to or be
+supplemented by a person."* This is about the delivery **path** — a ticket, a queue, a wait
+for a human to act after the request has already started. An election supplied
+*synchronously*, as part of the original request (exactly like `channel` and `as_of`
+already are, per `compose_property_file.py`'s own `compose(conn, parcel_id, channel,
+as_of=None)` signature), introduces no wait and no second party — the compose loop still
+runs "on demand, end to end automated" (§5's own words) the instant the request arrives.
+**This is the distinction the instruction names as decisive, confirmed against I14's actual
+text**: the same feature built as a synchronous request field is I14-clean; built as "ask
+the applicant afterward and hold the file until they answer" would build exactly the queue
+I14 forbids. The option is sound only if it stays synchronous — this is a real design
+constraint on *how* to build it, not a reason to avoid it.
+
+**What it would take to build, concretely, so the recommendation is not abstract**: an
+`election` parameter threaded through `compose()`/`compose_property_file.py`'s CLI (and,
+eventually, the real API request schema) — no schema change, no migration.
+`CONCLUSION_RULE_KEYS`'s own shape generalizes from `{conclusion: rule_key}` to
+`{(conclusion, election): rule_key}` (still Shape 1 — hardcoded, one jurisdiction, now two
+entries instead of one, not a general mechanism). A **second real rule**, State standards,
+sourced the same way the first one was (Bulletin #210's own footer already names a second
+real, citable source for exactly this: *"To read about state laws on ADUs, see the HCD
+Accessory Dwelling Unit Handbook, January 2025"* — not fetched or read here, named only as
+evidence a real source exists to seed it from later). Election omitted on a request that
+needs it → Option B's own refusal, not a new failure mode — the two options compose rather
+than compete.
+
+#### Recommendation
+
+**Option C (synchronous, request-scoped election parameter) as the primary mechanism, with
+Option B (a named refusal, not a queue) as its own honest fallback when the parameter is
+omitted.** Together they need no new schema, no new outcome shape, and no invariant is
+strained when built correctly — I13 is clear against the `user_assumption` precedent
+already in this spec, I14 is clear as long as the parameter stays synchronous (the one real
+constraint worth stating loudly so a future build of this does not quietly grow a queue).
+Option A is not recommended: it is not forbidden outright, but it requires inventing a
+branch-shaped outcome nothing in §5.1/§5.2/§6.6 anticipates, to deliver something closer to
+§5.1's own definition of a misleading file than a resolved answer.
+
+**Not started here.** This is a §7.4 conclusion-model decision — it deserves its own
+report-before-writing package once the shape above (or a different one) is actually chosen,
+the same discipline this whole session has applied to every other design decision.
