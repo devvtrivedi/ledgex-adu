@@ -200,6 +200,24 @@ def seed_reference_rows(conn):
         # independently invented copy -- see that file and
         # prompts/P31-l5-refuse-first-one-real-rule.md section 3 for the
         # full citation/attestation argument.
+        #
+        # P32, finding #36: ON CONFLICT (id) DO UPDATE, not DO NOTHING --
+        # this is finding #32's exact shape (two independent seeders,
+        # same PK, DO NOTHING), reintroduced one package after #32 was
+        # fixed elsewhere. DO NOTHING would let this copy silently drift
+        # from day4_sources.sql's own row with nothing to catch it --
+        # ruleset_version is only rule_key@version, so a citation/
+        # pack_version edit to one seeder alone would pass make golden
+        # while the two rows quietly disagreed. DO UPDATE is verified
+        # safe against 0013's rule_no_destructive_update() before relying
+        # on it, not assumed: run directly against a real row, identical
+        # values succeed with no exception (both of the trigger's own
+        # guards short-circuit on IS NOT DISTINCT FROM); a deliberately
+        # drifted column raises the exact "I18 violated" text. This is
+        # strictly stronger than #32's own remedy could get for `source`
+        # (no immutability trigger exists there) -- here, silent drift
+        # becomes a loud, correctly-named exception naming exactly which
+        # row disagrees, not merely prevented.
         cur.execute(
             """
             INSERT INTO rule (
@@ -219,7 +237,21 @@ def seed_reference_rows(conn):
                 '2026-08-18'::timestamptz,
                 'https://github.com/devvtrivedi/ledgex-adu/blob/6dca93c330e80cb91571bc24955e71eb6fb95954/jurisdictions/ca_san_jose/evidence/attestation-adu-detached-max-height-city-standards.md'
             )
-            ON CONFLICT (id) DO NOTHING
+            ON CONFLICT (id) DO UPDATE SET
+                jurisdiction_id = EXCLUDED.jurisdiction_id,
+                rule_key = EXCLUDED.rule_key,
+                version = EXCLUDED.version,
+                effective_from = EXCLUDED.effective_from,
+                effective_to = EXCLUDED.effective_to,
+                citation = EXCLUDED.citation,
+                source_text_uri = EXCLUDED.source_text_uri,
+                params = EXCLUDED.params,
+                pack_version = EXCLUDED.pack_version,
+                authored_by = EXCLUDED.authored_by,
+                reviewed_by = EXCLUDED.reviewed_by,
+                review_mode = EXCLUDED.review_mode,
+                reviewed_at = EXCLUDED.reviewed_at,
+                attestation_uri = EXCLUDED.attestation_uri
             """,
             (ip.JURISDICTION_ID,),
         )
