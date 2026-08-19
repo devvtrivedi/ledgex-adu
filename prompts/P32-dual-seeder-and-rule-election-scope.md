@@ -52,6 +52,33 @@ UPDATE` path with identical values) → `PASSED`, no exception. Separately: `db/
 day4_sources.sql` applied first, then `check_golden.py`'s seed on top → `PASSED`, no
 exception, confirming the two seeders are now safely commutative in either order.
 
+**The drift proof redone against `check_golden.py`'s own real execution path, not just raw
+SQL** — `db/seeds/day4_sources.sql` applied first (the realistic scenario: a database that
+already carries the real row), then `check_golden.py`'s own `citation` literal drifted by
+one string, `make golden` run for real against it. Predicted and confirmed: the script
+crashes, not merely fails a fixture comparison —
+```
+psycopg2.errors.RaiseException: I18 violated: rule
+ca_san_jose.adu_detached_max_height_city_standards.v1 is immutable. Only effective_to may
+be set (NULL -> a date, once). A correction is a new rule row at version + 1, never an
+UPDATE.
+CONTEXT:  PL/pgSQL function rule_no_destructive_update() line 19 at RAISE
+```
+Reverted; re-run on the same database, clean (`GOLDEN SUMMARY: PASSED`).
+
+**Deliberately not pushed to CI, and why, stated plainly rather than silently skipped.**
+`db.yml`'s `schema` job never runs `db/seeds/` and nothing else in that job seeds a `rule`
+row before `make golden` does — the very first time `make golden` runs in any fresh CI
+database, `check_golden.py`'s own `INSERT` hits no conflict at all, so `ON CONFLICT`'s two
+branches are structurally unreachable in a single, fresh CI run. Pushing this exact break to
+CI would not reproduce the failure — it would insert the drifted citation cleanly as a fresh
+row and (since `ruleset_version` is only `rule_key@version`) the fixture comparison would
+still pass, silently, proving nothing and risking a false "looks fine" read. This class of
+proof genuinely requires a pre-seeded database, which is a local/authorial condition, not
+something this project's own CI structure can exercise without adding an artificial pre-seed
+step solely to manufacture a test scenario nothing else needs — not done, for the same
+"anticipated, not forced by need" reason this codebase avoids scope creep elsewhere.
+
 ---
 
 ### 2. Finding #37 — `make golden` performs an irreversible write
@@ -220,3 +247,23 @@ branch-shaped outcome nothing in §5.1/§5.2/§6.6 anticipates, to deliver somet
 **Not started here.** This is a §7.4 conclusion-model decision — it deserves its own
 report-before-writing package once the shape above (or a different one) is actually chosen,
 the same discipline this whole session has applied to every other design decision.
+
+---
+
+### 4. Close-out
+
+`make migrate-verify` against `ledgex_schema_check` before citing it — 51 migrations,
+`MATCH`. Clean `make schema-dump` — no diff (no schema change in this package). `make test`
+(168), `make golden` (2/4 classes, 0 failures), `make conformance` (0 failures, 3 named
+gaps), `make check-boundary` (import-linter 5/5 kept, jurisdiction-name grep clean, `make
+qa` clean) — all green, full local CI-order simulation, fresh scratch database. Both
+acceptance suites run twice each, each against its own fresh database:
+`run_p5_acceptance.sh` — `P5 ACCEPTANCE: ALL CHECKPOINTS PASSED`, twice; `run_phaseb_
+acceptance.sh` — `ALL ASSERTIONS PASSED`, twice.
+
+Deliberate-break commit discipline (CONVENTIONS' new rule, P31) applied to this package's
+own proof: the finding #36 drift proof was evaluated locally, not via a CI push (argued in
+section 1 — CI's own job structure cannot exercise the conflict path in a single fresh run),
+so no break-then-revert commit pair was pushed for it; the local break-then-revert was
+still done as a clean, isolated action (one file, one line, reverted immediately, never
+committed since it was never meant to land).
