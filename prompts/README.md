@@ -37,6 +37,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P30 | [Prove make conformance red on the real runner, then report (b)'s two open decisions](P30-conformance-red-and-fork-report.md) | done, pushed | `b5ea1a3`, `9a45566`, `6e8a5f9` (`9a45566` is NOT evidence-only despite containing the deliberate break — it also carries `prompts/P30-conformance-red-and-fork-report.md`, real work, a bundling mistake caught and hand-amended before push; `2936f25` reverts `9a45566`'s `sources.yaml` change only, cleanly, and is the genuine evidence-not-work commit — see CONVENTIONS.md's new rule, P31) |
 | P31 | [The prevention P30 skipped, then L5: refuse-first, one real rule](P31-l5-refuse-first-one-real-rule.md) | done, pushed | `f5e2cf1`, `5c020bb`, `6dca93c`, `e795bbe`, `cfb70e6`, `7bad3b1` |
 | P32 | [Close the dual-seeder before it drifts, then scope finding #35](P32-dual-seeder-and-rule-election-scope.md) | done, pushed | `1d94acd`, `b0f5e3b`, `53944ec` |
+| P33 | [Correct #36's false premise, close #37, then design #35 concretely](P33-correct-36-close-37-design-35.md) | done, pushed | `2f51a60`, `3a32654`, `30ad99d` |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
