@@ -50,9 +50,12 @@ is false for a refused file (I6: nothing renders). 'input' is what is
 actually true: every touched fact was read as an input to the (aborted)
 composition attempt.
 
-Refusal codes: RIGHTS_BLOCKED (L8) and GEOMETRY_TIER_DISABLED (L7, P25)
--- both already named in §9's refusal code table, neither invented for
-this script.
+Refusal codes this script can emit, all already named in §9's refusal
+code table, none invented for this script: RIGHTS_BLOCKED (L8),
+GEOMETRY_TIER_DISABLED (L7, P25), RULE_UNAVAILABLE (L5, P31),
+ELECTION_REQUIRED and ELECTION_NOT_SUPPORTED (both L5, P34, README
+finding #35 -- see 0053's own migration header for why these are two
+codes, not one, and not folded into RULE_UNAVAILABLE).
 """
 import argparse
 import hashlib
@@ -86,9 +89,34 @@ from core.rules import select_effective_rule  # noqa: E402
 # make check-boundary, not assumed. This is the same home
 # ingest_parcels.py/ingest_zoning_permits.py already use for their own
 # jurisdiction-scoped SOURCE_ID/JURISDICTION_ID constants.
+#
+# P34, README finding #35: generalized from {conclusion: rule_key} to
+# {(conclusion, election): rule_key} -- Bulletin #210 page 3's own words,
+# "the standards cannot be mixed," mean "placement" has no single
+# rule_key at all; it has one PER regime the applicant elects. Still
+# Shape 1 (hardcoded, one jurisdiction, now also one election-vocabulary
+# -- not a general mechanism): only the ("placement", "city") entry
+# exists. A caller supplying election="state" finds no entry, on
+# purpose -- this composer has not been taught a State-standards
+# rule_key yet (README finding #35's own bulletin footer names the real
+# next source, HCD's ADU Handbook, not fetched or read here; seeding it
+# is its own later package, same pacing P31 used for the first rule).
+# ("placement", "state") is deliberately absent, not stubbed to None or
+# any other placeholder -- .get()'s own None return on a missing key is
+# what ELECTION_NOT_SUPPORTED (0053, this package) refuses on.
 CONCLUSION_RULE_KEYS = {
-    "placement": "adu.detached.max_height.city_standards",
+    ("placement", "city"): "adu.detached.max_height.city_standards",
 }
+
+# The only two literal values Bulletin #210 names (§9.1's own "City
+# Standards" / "State Standards" vocabulary) -- validated at the Python
+# boundary, not left to fail against property_file_election_known's DB
+# CHECK (0052). compose() is called directly today (scripts/CLI,
+# scripts/check_golden.py), never from an untrusted HTTP body -- a value
+# outside this set is a caller/programmer error, not a customer input
+# this function must refuse gracefully, so it raises immediately rather
+# than manufacturing a third refusal code for "not even a real election."
+KNOWN_ELECTIONS = ("city", "state")
 
 
 def get_composer_version():
@@ -167,7 +195,7 @@ def resolve_parcel_id_by_apn(conn, apn):
     return rows[0][0]
 
 
-def compose(conn, parcel_id, channel, as_of=None):
+def compose(conn, parcel_id, channel, election=None, as_of=None):
     """as_of: normally None -- the real CLI path below always composes
     against the live clock (SELECT clock_timestamp()), unchanged. An
     explicit value is a testability seam for scripts/check_golden.py
@@ -177,7 +205,31 @@ def compose(conn, parcel_id, channel, as_of=None):
     the fact. Pinning it for real (passing a fixed value in) rather than
     normalising it away is the more faithful reading: it makes
     current_fact_at's point-in-time read itself deterministic, not just
-    the comparison after the read already happened."""
+    the comparison after the read already happened.
+
+    election (P34, README finding #35): which of Bulletin #210's two ADU
+    development-standards regimes ("city" or "state") this request
+    elects, when the conclusions this composer evaluates need one.
+    Request-scoped, exactly like as_of/channel -- read once, here, never
+    persisted to the fact ledger (I13: an applicant's own design choice
+    about their project, not a claim about the world; see
+    prompts/P33-correct-36-close-37-design-35.md section 3's verbatim §7
+    precedent argument). Defaults to None, and None is a real, named
+    case, not a silent resolution to "city" -- a conclusion that needs an
+    election with none supplied refuses ELECTION_REQUIRED (0053) rather
+    than guessing. Synchronous only (I14): this function never persists
+    a partial/pending request and waits for election to arrive later --
+    it is read from this exact call, once, or the composition refuses in
+    this same call and returns. A follow-up is always a brand-new
+    request, never a resumed one."""
+    if election is not None and election not in KNOWN_ELECTIONS:
+        raise ValueError(
+            f"election={election!r} is not one of {KNOWN_ELECTIONS!r} -- a caller/"
+            f"programmer error (compose() is called directly today, never from an "
+            f"untrusted request body), not a customer input this function refuses "
+            f"gracefully. Pass None, 'city' or 'state'."
+        )
+
     t0 = time.monotonic()
     composer_version = get_composer_version()
 
@@ -212,17 +264,62 @@ def compose(conn, parcel_id, channel, as_of=None):
         cur.execute("SELECT pack_version, geometry_tier_enabled FROM jurisdiction WHERE id = %s", (jurisdiction_id,))
         pack_version, geometry_tier_enabled = cur.fetchone()
 
-        # L5 (P31): rule selection, refuse-first (core/rules.py). Runs
-        # unconditionally, same shape as L7's geometry gate below --
-        # accumulated into the same refusals list, not a short-circuit.
-        # "placement" is the only conclusion this minimal composer knows
-        # about today (P25); CONCLUSION_RULE_KEYS names the one rule_key
-        # it depends on. selected_rule stays None when L5 refuses --
-        # ruleset_version below reflects whichever happened, honestly,
-        # never the old hardcoded placeholder either way.
+        # L5 (P34, generalizing P31): rule selection, refuse-first
+        # (core/rules.py). Runs unconditionally, same shape as L7's
+        # geometry gate below -- accumulated into the same refusals list,
+        # not a short-circuit. "placement" is the only conclusion this
+        # minimal composer knows about today (P25); CONCLUSION_RULE_KEYS
+        # is now keyed on (conclusion, election) (README finding #35), so
+        # resolving a rule_key needs an election first. Three distinct,
+        # honestly-separate outcomes here, not one code standing in for
+        # all three (0053's own header has the full argument):
+        #   election is None              -> ELECTION_REQUIRED. No DB
+        #                                     lookup attempted -- there is
+        #                                     nothing to look up yet.
+        #   election given, no dict entry -> ELECTION_NOT_SUPPORTED. No DB
+        #                                     lookup attempted -- this
+        #                                     composer has no rule_key for
+        #                                     this (conclusion, election)
+        #                                     pairing at all, independent
+        #                                     of any as-of date.
+        #   election given, entry found   -> select_effective_rule() runs
+        #                                     for real and may itself
+        #                                     refuse RULE_UNAVAILABLE -- a
+        #                                     different, temporal claim.
+        # selected_rule/rule_result stay None when this stage refuses
+        # before ever reaching a query -- ruleset_version below reflects
+        # exactly which of the three happened, honestly, never a
+        # hardcoded placeholder in any case.
         selected_rule = None
-        required_rule_key = CONCLUSION_RULE_KEYS.get("placement")
-        rule_result = select_effective_rule(cur, jurisdiction_id, required_rule_key, as_of)
+        required_rule_key = None
+        rule_result = None
+        election_refusal = None
+        if election is None:
+            election_refusal = {
+                "code": "ELECTION_REQUIRED",
+                "stage": "L5",
+                "message": (
+                    "placement depends on which ADU development-standards regime "
+                    "this request elects (Bulletin #210: City, Municipal Code "
+                    "20.80.175, or State, 20.80.176), and none was supplied."
+                ),
+                "detail": {"conclusion": "placement"},
+            }
+        else:
+            required_rule_key = CONCLUSION_RULE_KEYS.get(("placement", election))
+            if required_rule_key is None:
+                election_refusal = {
+                    "code": "ELECTION_NOT_SUPPORTED",
+                    "stage": "L5",
+                    "message": (
+                        f"placement has no known rule_key for election={election!r} in "
+                        f"this composer yet (README finding #35) -- distinct from no "
+                        f"rule currently being effective."
+                    ),
+                    "detail": {"conclusion": "placement", "election": election},
+                }
+            else:
+                rule_result = select_effective_rule(cur, jurisdiction_id, required_rule_key, as_of)
 
         # C5 (0036): the point-in-time read path, not the cached matview --
         # this is a live composition, not a report against a stale refresh.
@@ -269,22 +366,29 @@ def compose(conn, parcel_id, channel, as_of=None):
     if geometry_result.is_refused:
         refusals.append(geometry_result.refusal.model_dump())
 
-    # L5 (P31): fold rule_result's own refusal into the same accumulated
-    # list -- same reasoning as L7 above, a straight-line sequence, never
-    # a short-circuit. selected_rule stays None here when refused.
-    if rule_result.is_refused:
+    # L5 (P34, generalizing P31): fold this stage's own refusal into the
+    # same accumulated list -- same reasoning as L7 above, a straight-line
+    # sequence, never a short-circuit. election_refusal takes precedence
+    # (it means rule_result never ran); otherwise rule_result's own
+    # refusal, if any. selected_rule stays None whenever L5 refuses, by
+    # any of the three routes.
+    if election_refusal is not None:
+        refusals.append(election_refusal)
+    elif rule_result.is_refused:
         refusals.append(rule_result.refusal.model_dump())
     else:
         selected_rule = rule_result.value
 
     # ruleset_version (I11): the real selected rule's own identity when
-    # L5 found one, an honest negative fact when it didn't -- never the
-    # old hardcoded "unevaluated -- L5 Rules not yet built" lie either
-    # way. rule_key@version, not the row's own opaque id: directly
-    # traceable back to CONCLUSION_RULE_KEYS above without a second
-    # lookup.
+    # L5 found one, an honest negative fact for whichever of the three L5
+    # outcomes happened when it didn't -- never the old hardcoded
+    # "unevaluated -- L5 Rules not yet built" lie in any case. rule_key@
+    # version, not the row's own opaque id: directly traceable back to
+    # CONCLUSION_RULE_KEYS above without a second lookup.
     if selected_rule is not None:
         ruleset_version = f"{selected_rule.rule_key}@{selected_rule.version}"
+    elif election_refusal is not None:
+        ruleset_version = f"no rule selected: {election_refusal['code']}"
     else:
         ruleset_version = (
             f"no rule effective: jurisdiction={jurisdiction_id}, "
@@ -322,19 +426,19 @@ def compose(conn, parcel_id, channel, as_of=None):
             """
             INSERT INTO property_file (
                 id, parcel_id, jurisdiction_id, channel, status, as_of,
-                pack_version, ruleset_version, composer_version,
+                pack_version, ruleset_version, composer_version, election,
                 geometry_tier_used, refusals, omitted_for_rights, attribution,
                 payload, payload_hash, delivered_at, compose_ms
             ) VALUES (
                 %s, %s, %s, %s, 'refused', %s,
-                %s, %s, %s,
+                %s, %s, %s, %s,
                 %s, %s::jsonb, '[]'::jsonb, '{}',
                 %s::jsonb, %s, NULL, %s
             )
             """,
             (
                 property_file_id, parcel_id, jurisdiction_id, channel, as_of,
-                pack_version, ruleset_version, composer_version,
+                pack_version, ruleset_version, composer_version, election,
                 geometry_tier_enabled, json.dumps(refusals), payload_json, payload_hash, elapsed_ms,
             ),
         )
@@ -362,11 +466,15 @@ if __name__ == "__main__":
                                              "id if apn matches more than one parcel (0034 dropped APN "
                                              "uniqueness); never picks one")
     parser.add_argument("--channel", default="paid_property_file")
+    parser.add_argument("--election", choices=KNOWN_ELECTIONS, default=None,
+                         help="Which ADU development-standards regime this request elects "
+                              "(README finding #35) -- omit to see the real ELECTION_REQUIRED "
+                              "refusal path, same as every composition before this flag existed.")
     args = parser.parse_args()
 
     conn = get_db()
     try:
         parcel_id = args.parcel_id or resolve_parcel_id_by_apn(conn, args.parcel_apn)
-        compose(conn, parcel_id, args.channel)
+        compose(conn, parcel_id, args.channel, election=args.election)
     finally:
         conn.close()
