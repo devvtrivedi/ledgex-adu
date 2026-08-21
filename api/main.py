@@ -92,6 +92,20 @@ KNOWN_EXCEPTION_OUTCOMES = (
     "version_retired",
 )
 
+# P46 Fix 1: same pattern, same reason, one enum over -- read live from a real
+# database, not transcribed from any prompt: `SELECT enum_range(NULL::job_status)`
+# against ledgex_schema_check returned exactly these four, in this order.
+# get_job_runs' own `status` parameter used to be a bare `str | None`, reaching
+# `WHERE status = %s` against job_run.status (a real Postgres enum, job_status)
+# as an unvalidated bound parameter -- bound, so not injectable, but Postgres
+# still casts it, and a typo becomes psycopg2.errors.InvalidTextRepresentation,
+# unhandled, surfacing as an HTTP 500. A malformed query string is sec 9's
+# "invalid-request (400)", never a business refusal -- Literal[*KNOWN_JOB_STATUSES]
+# makes FastAPI itself reject a non-member with a 422 before this function body
+# ever runs, self-documented in /docs, with zero risk of this tuple disagreeing
+# with the Query description below (both come from the same object).
+KNOWN_JOB_STATUSES = ("running", "succeeded", "failed", "skipped_unchanged")
+
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
 app = FastAPI(
@@ -177,7 +191,9 @@ def get_sources(conn=Depends(_db)):
 
 @app.get("/v1/job-runs")
 def get_job_runs(
-    status: str | None = Query(None, description="filter: running|succeeded|failed|skipped_unchanged"),
+    status: Literal[*KNOWN_JOB_STATUSES] | None = Query(
+        None, description=f"filter: {'|'.join(KNOWN_JOB_STATUSES)}"
+    ),
     conn=Depends(_db),
 ):
     with conn.cursor() as cur:
