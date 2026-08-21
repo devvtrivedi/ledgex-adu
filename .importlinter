@@ -58,22 +58,46 @@ forbidden_modules =
     geo
     commerce
 
-; §2's rule is an allowlist ("commerce may import core.model and
-; core.compose ONLY"); "forbidden" is a blacklist, the only shape
-; import-linter offers for this. Forbidding core.store alone is a
-; faithful proxy for that allowlist ONLY because core/ has nothing else
-; under it yet (also empty). The day core/ grows a submodule besides
-; model/compose/store, this needs revisiting -- either list every new
-; submodule here too, or move to import-linter's "independence" contract
-; type for a real allowlist shape. Not done now: that submodule doesn't
-; exist to get wrong yet.
-[importlinter:contract:i15-commerce-no-core-store]
-name = I15: commerce may import core.model and core.compose only, never core.store
+; P47 (README finding #45, closed): this used to forbid core.store alone,
+; which was a faithful proxy for §2's real rule ("commerce may import
+; core.model and core.compose ONLY") only as long as core/ had nothing else
+; under it. It stopped being faithful three packages before anyone
+; revisited it (P21 core/exceptions.py, P25 core/calc.py, P31 core/rules.py)
+; -- proven live, not merely argued: with the OLD contract in place, a
+; planted `commerce -> core.exceptions` import stayed KEPT (this contract
+; alone caught nothing; only the separate layers contract below happened to
+; catch it, and only as an accidental side effect of forbidding commerce
+; from importing core.model too, which §2 explicitly permits -- see that
+; contract's own comment for the matching fix).
+;
+; Genuinely an allowlist now, not a blacklist naming every current core/
+; submodule (which breaks again, silently, the next time one is added --
+; the exact failure mode being fixed here, and a strong argument against
+; repeating its shape). `forbidden_modules = core.*` is import-linter's
+; wildcard for "every direct submodule of core," so this forbids the
+; WHOLE of core/ from commerce, then `ignore_imports` carves the two real
+; exceptions back out -- a genuine allowlist, expressed as "forbid
+; everything, then un-forbid exactly what §2 permits," which is the only
+; allowlist shape import-linter's "forbidden" contract type supports.
+; core.compose is listed even though it does not exist as a file yet
+; (§2's compose/ L8 layer is still unbuilt) -- confirmed this does not
+; error (unmatched_ignore_imports_alerting = none tolerates an
+; ignore_imports entry matching nothing in the graph, which is also why it
+; is needed at all today: commerce/ is still an empty scaffold, so
+; `commerce.** -> core.model` matches nothing in the graph EITHER, and
+; without this setting lint-imports refuses to run at all
+; ("No matches for ignored import"), not merely warns.
+[importlinter:contract:i15-commerce-core-allowlist]
+name = I15: commerce may import core.model and core.compose only
 type = forbidden
 source_modules =
     commerce
 forbidden_modules =
-    core.store
+    core.*
+ignore_imports =
+    commerce.** -> core.model
+    commerce.** -> core.compose
+unmatched_ignore_imports_alerting = none
 
 [importlinter:contract:i15-core-no-commerce]
 name = I15: core must never import commerce (reverse direction)
@@ -121,7 +145,23 @@ forbidden_modules =
 ; "api may import infra" without a second contract -- confirmed by running
 ; lint-imports with a real api -> infra.env import present (this package's
 ; own api/main.py) and it stays KEPT. Same-level siblings (core | commerce)
-; still may not import each other, unchanged from before this edit.
+; still may not import each other -- EXCEPT the two §2 explicitly permits,
+; carved out by ignore_imports below (P47, README finding #45, closed): a
+; "layers" contract with core and commerce declared as co-equal siblings
+; forbids ANY import between them, which is stricter than §2's real rule
+; and was itself part of the finding -- proven live, not merely argued:
+; before this fix, a planted `commerce -> core.model` import (spec-
+; PERMITTED) made this contract go BROKEN, naming that import as
+; disallowed and directly contradicting §2's own text. Fixed here rather
+; than by restructuring the layers contract: this contract's real job is
+; the infra-layering rule (api/core/commerce may import infra; infra may
+; import none of them), which core|commerce-as-siblings is a side effect
+; of, not the point -- the commerce/core relationship itself is now fully
+; and correctly governed by i15-commerce-core-allowlist and
+; i15-core-no-commerce above, so this contract only needs to stop
+; contradicting them, not take over their job. Same reasoning and same
+; unmatched_ignore_imports_alerting = none as that contract, for the same
+; reason: commerce/ has no real code yet.
 [importlinter:contract:core-commerce-layers-above-infra]
 name = api above core/commerce above infra (finding #29, extended P40 D4)
 type = layers
@@ -129,3 +169,7 @@ layers =
     api
     core | commerce
     infra
+ignore_imports =
+    commerce.** -> core.model
+    commerce.** -> core.compose
+unmatched_ignore_imports_alerting = none

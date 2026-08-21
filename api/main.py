@@ -31,11 +31,15 @@ decision to make deliberately, not this one's to back into.
 
 RIGHTS GATE. GET /v1/parcels/{parcel_id}/facts is the one route that puts
 fact VALUES on a screen, which makes it an output channel under I6 exactly
-like the composer (§1.1). It calls scripts.compose_property_file's own
-evaluate_rights_gate() -- the SAME function _compose() calls, imported, not
-reimplemented -- so this app cannot drift from the composer's own rights
-decisions. See that function's own docstring, and prompts/
-P40-internal-viewer.md §0 (D3), for why this is not yet core/rights.py.
+like the composer (§1.1). It calls core.rights.evaluate_rights_gate() -- the
+SAME function _compose() calls (scripts/compose_property_file.py), imported,
+not reimplemented -- so this app cannot drift from the composer's own rights
+decisions. See that function's own docstring for the full argument. P47
+(README finding #45, closed) moved the gate from scripts/ into core/rights.py
+(§2's own layer X slot) once .importlinter's commerce/core contract was
+repaired to actually gate a new core/ submodule correctly -- prompts/
+P40-internal-viewer.md §0 (D3) is the original deferral, kept for history.
+This module no longer imports anything from scripts/ at all.
 """
 import datetime
 import os
@@ -51,10 +55,9 @@ from pydantic import BaseModel
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
-sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 from infra.env import get_db  # noqa: E402
-import compose_property_file as cpf  # noqa: E402 -- module under reuse, not reimplemented
+from core.rights import KNOWN_CHANNELS, evaluate_rights_gate  # noqa: E402
 
 # D1 (prompts/P40-internal-viewer.md §0): this viewer reads on the existing
 # `api` output_channel enum member, not a new one. Every route below that
@@ -70,10 +73,16 @@ VIEWER_CHANNEL = "api"
 # does not exist. No live bug today (VIEWER_CHANNEL="api" already IS a real
 # member) -- this is a docstring-was-testimony-not-evidence repair, not a bug
 # fix, per CONVENTIONS' own line on the subject.
-if VIEWER_CHANNEL not in cpf.KNOWN_CHANNELS:
+#
+# P47 (README finding #45, closed): KNOWN_CHANNELS and evaluate_rights_gate
+# both now come from core/rights.py, not scripts/compose_property_file.py --
+# this module no longer imports anything from scripts/ at all. The
+# sys.path.insert for "scripts" is gone with it; nothing else in this file
+# ever needed it.
+if VIEWER_CHANNEL not in KNOWN_CHANNELS:
     raise SystemExit(
         f"api/main.py's VIEWER_CHANNEL={VIEWER_CHANNEL!r} is not one of "
-        f"compose_property_file.KNOWN_CHANNELS={cpf.KNOWN_CHANNELS!r} -- refusing to "
+        f"core.rights.KNOWN_CHANNELS={KNOWN_CHANNELS!r} -- refusing to "
         f"start. Every route that gates fact values must use a real output_channel "
         f"enum member (D1); serving requests against an invalid channel would make "
         f"every fact silently RIGHTS_BLOCKED for a reason that has nothing to do with "
@@ -91,6 +100,20 @@ KNOWN_EXCEPTION_OUTCOMES = (
     "open", "confirmed", "false_positive", "unresolved", "condition_cleared",
     "version_retired",
 )
+
+# P46 Fix 1: same pattern, same reason, one enum over -- read live from a real
+# database, not transcribed from any prompt: `SELECT enum_range(NULL::job_status)`
+# against ledgex_schema_check returned exactly these four, in this order.
+# get_job_runs' own `status` parameter used to be a bare `str | None`, reaching
+# `WHERE status = %s` against job_run.status (a real Postgres enum, job_status)
+# as an unvalidated bound parameter -- bound, so not injectable, but Postgres
+# still casts it, and a typo becomes psycopg2.errors.InvalidTextRepresentation,
+# unhandled, surfacing as an HTTP 500. A malformed query string is sec 9's
+# "invalid-request (400)", never a business refusal -- Literal[*KNOWN_JOB_STATUSES]
+# makes FastAPI itself reject a non-member with a 422 before this function body
+# ever runs, self-documented in /docs, with zero risk of this tuple disagreeing
+# with the Query description below (both come from the same object).
+KNOWN_JOB_STATUSES = ("running", "succeeded", "failed", "skipped_unchanged")
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
@@ -177,7 +200,9 @@ def get_sources(conn=Depends(_db)):
 
 @app.get("/v1/job-runs")
 def get_job_runs(
-    status: str | None = Query(None, description="filter: running|succeeded|failed|skipped_unchanged"),
+    status: Literal[*KNOWN_JOB_STATUSES] | None = Query(
+        None, description=f"filter: {'|'.join(KNOWN_JOB_STATUSES)}"
+    ),
     conn=Depends(_db),
 ):
     with conn.cursor() as cur:
@@ -363,7 +388,7 @@ def get_parcel_facts(
         # provenance display), so project down to exactly what the gate
         # expects rather than changing the gate's signature for this caller.
         touched_for_gate = [(r[0], r[1], r[2], r[3]) for r in touched_full]
-        allowed_by_licence, blocked_by_licence = cpf.evaluate_rights_gate(
+        allowed_by_licence, blocked_by_licence = evaluate_rights_gate(
             cur, touched_for_gate, VIEWER_CHANNEL
         )
 

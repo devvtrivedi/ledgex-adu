@@ -69,7 +69,7 @@ def env(name):
     return val
 
 
-def _resolved_host(database_url):
+def resolved_host(database_url):
     """The host libpq will actually connect to, or None if this URL cannot be
     parsed into one.
 
@@ -78,6 +78,13 @@ def _resolved_host(database_url):
     project's own local socket connections use
     (postgresql://postgres@/ledgex_test?host=/tmp). Getting that backwards would
     make the guard refuse the one shape it most needs to allow.
+
+    Public (no leading underscore) since P47 (README finding #44, closed):
+    scripts/migrate_baseline.py's admin_connect() and dump_schema() rebuilt a
+    connection from urlparse fields alone and silently dropped this exact
+    query parameter -- the identical mistake this function exists to prevent,
+    written a second time nearby because the first fix was never reused.
+    Both now call this function instead of re-deriving a host their own way.
     """
     try:
         parts = urlparse(database_url)
@@ -97,7 +104,7 @@ def _resolved_host(database_url):
 
 
 def _is_local(database_url):
-    host = _resolved_host(database_url)
+    host = resolved_host(database_url)
     if host is None:
         # Unparseable is NOT treated as local. A URL this function cannot read
         # is a URL it cannot vouch for, and the safe reading of "I do not know
@@ -111,7 +118,7 @@ def _is_local(database_url):
 def get_db():
     database_url = env("DATABASE_URL")
     if not _is_local(database_url) and os.environ.get(_ALLOW_REMOTE_VAR) != "1":
-        host = _resolved_host(database_url)
+        host = resolved_host(database_url)
         where = f"host {host!r}" if host else "a host this guard could not parse"
         raise SystemExit(
             f"refusing to connect: DATABASE_URL points at {where}, which is not "

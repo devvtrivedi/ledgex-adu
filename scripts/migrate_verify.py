@@ -34,7 +34,7 @@ import psycopg2
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-from infra.env import env  # noqa: E402
+from infra.env import env, resolved_host  # noqa: E402
 from migrate import LEDGER_MIGRATION_NAME, MIGRATIONS_DIR, apply_one, ledger_exists, version_of  # noqa: E402
 from migrate_baseline import admin_connect, dump_schema, parsed_url, target_dbname  # noqa: E402
 
@@ -74,9 +74,23 @@ def main():
     admin.close()
 
     try:
+        # P47 (README finding #44, closed): a FOURTH occurrence of the exact
+        # same host=u.hostname mistake -- NOT inherited via the imported
+        # admin_connect()/dump_schema() (finding #44's own text named only
+        # those two, believing this file's bug was entirely inherited
+        # through them), but this file's own independent copy of
+        # migrate_baseline.py's main() reference-database connection logic.
+        # Found while fixing the other three, confirming this file had no
+        # occurrence of its own left unfixed -- it did. Same fix, same reuse.
         u = parsed_url()
+        host = resolved_host(env("DATABASE_URL"))
+        if host is None:
+            raise SystemExit(
+                f"main: DATABASE_URL could not be parsed into a host -- "
+                f"refusing to guess. See infra.env.resolved_host's own docstring."
+            )
         ref_conn = psycopg2.connect(
-            host=u.hostname, port=u.port or 5432, user=u.username, password=u.password,
+            host=host, port=u.port or 5432, user=u.username, password=u.password,
             dbname=ref,
         )
         ref_conn.autocommit = False
