@@ -43,10 +43,11 @@ Finished packages move to `done/` and are not read again unless something contra
 | P36 | [Build #39's CHECK, decide #38, record the I8 boundary](P36-election-check-and-seed-drift.md) | done, pushed | `60e7e74`, `22397d1`, `d24dab1`, `20812f1` |
 | P37 | [Re-grade finding #40, then close its live member(s)](P37-parcel-refusal-codes.md) | done, pushed | `c1a6f96`, `8caae80`, `8f5a4e3`, `71ba514` |
 | P38 | [Fix compose()'s undefended return contract, then report the program state](P38-compose-result-contract-and-state.md) | done, pushed | `f199fb4`, `4a4209e` |
-| P39 | [compose()'s transaction discipline and infra/env's default database binding](P39-compose-transaction-and-db-binding.md) | built, **uncommitted** — working tree only, awaiting review | — |
-| P40 | [Internal viewer over the LedgeX database](P40-internal-viewer.md) | built, **uncommitted** — working tree only, awaiting review | — |
-| P41 | [P40 review fixes](P41-p40-review-fixes.md) | built, **uncommitted** — working tree only, awaiting review | — |
-| P42 | [Seed produces its own mixed-parcel proof](P42-seed-mixed-parcel-evidence.md) | built, **uncommitted** — working tree only, awaiting review | — |
+| P39 | [compose()'s transaction discipline and infra/env's default database binding](P39-compose-transaction-and-db-binding.md) | landed on `audit-fixes`, not yet merged to `main` | `7a99bd4` |
+| P40 | [Internal viewer over the LedgeX database](P40-internal-viewer.md) | landed on `audit-fixes`, not yet merged to `main` | `7a99bd4` |
+| P41 | [P40 review fixes](P41-p40-review-fixes.md) | landed on `audit-fixes`, not yet merged to `main` | `7a99bd4` |
+| P42 | [Seed produces its own mixed-parcel proof](P42-seed-mixed-parcel-evidence.md) | landed on `audit-fixes`, not yet merged to `main` | `7a99bd4` |
+| P43 | [Land the viewer tree, then gate it](P43-land-and-gate-the-viewer.md) | landed on `audit-fixes`, not yet merged to `main` | `1ed40da`, `b8183ce` (deliberate break), `8d8e4b5` (revert) |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
