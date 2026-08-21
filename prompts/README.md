@@ -48,7 +48,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P41 | [P40 review fixes](P41-p40-review-fixes.md) | done, pushed | `7a99bd4` |
 | P42 | [Seed produces its own mixed-parcel proof](P42-seed-mixed-parcel-evidence.md) | done, pushed | `7a99bd4` |
 | P43 | [Land the viewer tree, then gate it](P43-land-and-gate-the-viewer.md) | done, pushed | `1ed40da`, `b8183ce` (deliberate break), `8d8e4b5` (revert), `e10220a` (close-out report), `2674615` (self-referential CI-confirmation addendum), `a00811a` (close-out correction: two stale findings-table cells), `eda2908` (recorded a00811a's own hash; also the commit `main` was fast-forwarded to) |
-| P45 | [Ingest provenance](P45-ingest-provenance.md) | done, on branch `p45-ingest-provenance`, not merged | `c6a782d` (fix 1-3), `ae66c38` (acceptance-runner caller updates), `f1e675b` (audit script), close-out report commit TBD |
+| P45 | [Ingest provenance](P45-ingest-provenance.md) | done, on branch `p45-ingest-provenance`, not merged | `c6a782d` (fix 1-3), `ae66c38` (acceptance-runner caller updates), `f1e675b` (audit script), `9ebf434` (close-out report), `TBD` (recorded 9ebf434's own hash) |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
