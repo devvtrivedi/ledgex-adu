@@ -47,7 +47,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P40 | [Internal viewer over the LedgeX database](P40-internal-viewer.md) | landed on `audit-fixes`, not yet merged to `main` | `7a99bd4` |
 | P41 | [P40 review fixes](P41-p40-review-fixes.md) | landed on `audit-fixes`, not yet merged to `main` | `7a99bd4` |
 | P42 | [Seed produces its own mixed-parcel proof](P42-seed-mixed-parcel-evidence.md) | landed on `audit-fixes`, not yet merged to `main` | `7a99bd4` |
-| P43 | [Land the viewer tree, then gate it](P43-land-and-gate-the-viewer.md) | landed on `audit-fixes`, not yet merged to `main` | `1ed40da`, `b8183ce` (deliberate break), `8d8e4b5` (revert), `e10220a` (close-out report), `2674615` (self-referential CI-confirmation addendum) |
+| P43 | [Land the viewer tree, then gate it](P43-land-and-gate-the-viewer.md) | landed on `audit-fixes`, not yet merged to `main` | `1ed40da`, `b8183ce` (deliberate break), `8d8e4b5` (revert), `e10220a` (close-out report), `2674615` (self-referential CI-confirmation addendum), `a00811a` (close-out correction: two stale findings-table cells) |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
