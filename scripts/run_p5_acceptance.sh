@@ -87,15 +87,15 @@ echo ""
 echo "############################ ZONING A / PERMITS A (baseline) ############################"
 cp "$FIXTURES/p5_zoning_A.geojson" "$SCRATCHPAD_REAL/zoning_districts_fetch_1.geojson"
 cp "$FIXTURES/p5_permits_A.csv" "$SCRATCHPAD_REAL/permits_fetch_1.csv"
-$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load
-$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load --snapshot-id "$ZONING_A_SID"
+$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load --snapshot-id "$PERMITS_A_SID"
 
 echo ""
 echo "############################ ZONING B / PERMITS B (reconcile) ############################"
 cp "$FIXTURES/p5_zoning_B.geojson" "$SCRATCHPAD_REAL/zoning_districts_fetch_1.geojson"
 cp "$FIXTURES/p5_permits_B.csv" "$SCRATCHPAD_REAL/permits_fetch_1.csv"
-$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load
-$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load --snapshot-id "$ZONING_B_SID"
+$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load --snapshot-id "$PERMITS_B_SID"
 
 echo ""
 echo "############################ ASSERTIONS -- after B ############################"
@@ -105,8 +105,8 @@ echo ""
 echo "############################ ZONING A2 / PERMITS A2 (reconcile back) ############################"
 cp "$FIXTURES/p5_zoning_A.geojson" "$SCRATCHPAD_REAL/zoning_districts_fetch_1.geojson"
 cp "$FIXTURES/p5_permits_A.csv" "$SCRATCHPAD_REAL/permits_fetch_1.csv"
-$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load
-$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load --snapshot-id "$ZONING_A_SID"
+$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load --snapshot-id "$PERMITS_A_SID"
 
 echo ""
 echo "############################ ASSERTIONS -- after second A ############################"
@@ -114,8 +114,8 @@ $PYTHON scripts/check_p5_acceptance.py after-a2
 
 echo ""
 echo "############################ SAME-SNAPSHOT RE-RUN (core safety property) ############################"
-$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load
-$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load --snapshot-id "$ZONING_A_SID"
+$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load --snapshot-id "$PERMITS_A_SID"
 $PYTHON scripts/check_p5_acceptance.py after-a2
 
 echo ""
@@ -155,7 +155,7 @@ conn.commit()
 conn.close()
 PYEOF
 cp "$FIXTURES/p5_zoning_B.geojson" "$SCRATCHPAD_REAL/zoning_districts_fetch_1.geojson"
-$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load --snapshot-id "$ZONING_B_SID"
 $PYTHON scripts/check_p5_acceptance.py after-source-scope
 
 echo ""

@@ -5,8 +5,9 @@ the minimal reference rows phase_e/load_zoning/load_permits need (licence,
 jurisdiction, source, field_definition -- ON CONFLICT DO NOTHING, so this
 is safe against a database that already carries db/seeds/day4_sources.sql,
 and sufficient against one that doesn't), and inserts the four snapshot
-rows. Prints "<A snapshot id> <B snapshot id>" on stdout for the calling
-shell script to capture -- nothing else goes to stdout.
+rows. Prints "<A snapshot id> <B snapshot id> <zoning snapshot id>
+<permits snapshot id>" on stdout for the calling shell script to capture --
+nothing else goes to stdout.
 
 Not meant to be run standalone for its output; import-style reuse isn't
 the point here either -- this is runner-glue for one script, kept out of
@@ -105,14 +106,17 @@ def main():
                                      "ca_san_jose.parcels", "cc_by_4_0", "application/geo+json")
         b_sid = upload_and_snapshot(cur, s3, bucket, f"{fixtures_dir}/phaseb_B.geojson",
                                      "ca_san_jose.parcels", "cc_by_4_0", "application/geo+json")
-        upload_and_snapshot(cur, s3, bucket, f"{fixtures_dir}/phaseb_zoning.geojson",
-                             "ca_san_jose.zoning_districts", "cc_by_4_0", "application/geo+json")
-        upload_and_snapshot(cur, s3, bucket, f"{fixtures_dir}/phaseb_permits.csv",
-                             "ca_san_jose.building_permits_active", "cc0", "text/csv")
+        zoning_sid = upload_and_snapshot(cur, s3, bucket, f"{fixtures_dir}/phaseb_zoning.geojson",
+                                          "ca_san_jose.zoning_districts", "cc_by_4_0", "application/geo+json")
+        permits_sid = upload_and_snapshot(cur, s3, bucket, f"{fixtures_dir}/phaseb_permits.csv",
+                                           "ca_san_jose.building_permits_active", "cc0", "text/csv")
 
     conn.commit()
     conn.close()
-    print(f"{a_sid} {b_sid}")
+    # P45 Fix 3: phase_zoning_load/phase_permits_load now require an
+    # explicit --snapshot-id (no more guess-the-newest) -- the calling
+    # shell script needs these two ids too, not just parcels' a_sid/b_sid.
+    print(f"{a_sid} {b_sid} {zoning_sid} {permits_sid}")
 
 
 if __name__ == "__main__":

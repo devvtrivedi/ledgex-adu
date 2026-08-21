@@ -68,7 +68,7 @@ PYEOF
 FIXTURES="db/fixtures/phaseb"
 
 echo "############################ SETUP (self-contained) ############################"
-read -r A_SID B_SID <<< "$($PYTHON scripts/_phaseb_setup.py "$FIXTURES")"
+read -r A_SID B_SID ZONING_SID PERMITS_SID <<< "$($PYTHON scripts/_phaseb_setup.py "$FIXTURES")"
 
 # ingest_zoning_permits.py's phase_zoning_load/phase_permits_load read from
 # its own hardcoded SCRATCHPAD constant (a pre-existing limitation of that
@@ -81,6 +81,8 @@ cp "$FIXTURES/phaseb_permits.csv" "$SCRATCHPAD_REAL/permits_fetch_1.csv"
 
 echo "A snapshot: $A_SID"
 echo "B snapshot: $B_SID"
+echo "zoning snapshot: $ZONING_SID"
+echo "permits snapshot: $PERMITS_SID"
 
 echo ""
 echo "############################ LOAD A (first time) ############################"
@@ -88,11 +90,11 @@ $PYTHON scripts/ingest_parcels.py --phase e --snapshot-id "$A_SID"
 
 echo ""
 echo "############################ SEED ZONING (once) ############################"
-$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source zoning --phase load --snapshot-id "$ZONING_SID"
 
 echo ""
 echo "############################ SEED PERMITS (once) ############################"
-$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load
+$PYTHON scripts/ingest_zoning_permits.py --source permits --phase load --snapshot-id "$PERMITS_SID"
 
 echo ""
 echo "############################ LOAD B (reconcile) ############################"
