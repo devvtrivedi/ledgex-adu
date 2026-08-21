@@ -37,7 +37,7 @@ import psycopg2
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-from infra.env import env  # noqa: E402
+from infra.env import env, resolved_host  # noqa: E402
 from migrate import (  # noqa: E402
     LEDGER_MIGRATION_NAME, MIGRATIONS_DIR, all_migrations, apply_one,
     file_sha256, ledger_exists, other_tables_exist, version_of,
@@ -51,9 +51,24 @@ def parsed_url():
 
 
 def admin_connect(dbname):
+    """P47 (README finding #44, closed): used to build host= from
+    urlparse(...).hostname alone, silently dropping libpq's own `host=`
+    QUERY parameter -- a DSN of the `...?host=/tmp` form (this project's own
+    local unix-socket shape) connected somewhere other than where it said,
+    or crashed downstream when hostname was None. Reuses
+    infra.env.resolved_host, the same function get_db()'s own remote-DB
+    guard already relies on to read this correctly -- not a second,
+    independent implementation of "what host does this DSN actually name."
+    """
     u = parsed_url()
+    host = resolved_host(env("DATABASE_URL"))
+    if host is None:
+        raise SystemExit(
+            f"admin_connect: DATABASE_URL could not be parsed into a host -- "
+            f"refusing to guess. See infra.env.resolved_host's own docstring."
+        )
     conn = psycopg2.connect(
-        host=u.hostname, port=u.port or 5432, user=u.username, password=u.password,
+        host=host, port=u.port or 5432, user=u.username, password=u.password,
         dbname=dbname,
     )
     conn.autocommit = True
@@ -76,14 +91,26 @@ def strip_dump_noise(text):
 
 
 def dump_schema(dbname, exclude_table=None):
+    """P47 (README finding #44, closed): `-h` used to be built from
+    urlparse(...).hostname alone -- for a `...?host=/tmp` DSN, that is
+    `None`, and passing it straight into subprocess's own args list died
+    with `TypeError: expected str, bytes or os.PathLike object, not
+    NoneType` before pg_dump ever ran. Same infra.env.resolved_host reuse
+    as admin_connect() above."""
     u = parsed_url()
+    host = resolved_host(env("DATABASE_URL"))
+    if host is None:
+        raise SystemExit(
+            f"dump_schema: DATABASE_URL could not be parsed into a host -- "
+            f"refusing to guess. See infra.env.resolved_host's own docstring."
+        )
     # Matches the Makefile's own PG_DUMP ?= pg_dump: CI pins this to a
     # specific version (/usr/lib/postgresql/16/bin/pg_dump) to avoid the
     # false-diff trap a mismatched client version produces (see db.yml's own
     # comment) -- an unqualified "pg_dump" here would silently use whatever
     # happens to be first on PATH instead.
     pg_dump = os.environ.get("PG_DUMP", "pg_dump")
-    args = [pg_dump, "-h", u.hostname, "-p", str(u.port or 5432), "-U", u.username,
+    args = [pg_dump, "-h", host, "-p", str(u.port or 5432), "-U", u.username,
             "-d", dbname, "--schema-only", "--no-owner", "--no-privileges"]
     if exclude_table:
         args += ["--exclude-table", exclude_table]
@@ -124,9 +151,20 @@ def main():
                 return
         target_conn.close()
 
+        # P47 (README finding #44, closed): a THIRD occurrence of the exact
+        # same host=u.hostname mistake admin_connect()/dump_schema() had --
+        # not named in the original finding, found while fixing the other
+        # two and confirming main()'s own connections were consistent with
+        # them. Same fix, same reuse.
         u = parsed_url()
+        host = resolved_host(env("DATABASE_URL"))
+        if host is None:
+            raise SystemExit(
+                f"main: DATABASE_URL could not be parsed into a host -- "
+                f"refusing to guess. See infra.env.resolved_host's own docstring."
+            )
         ref_conn = psycopg2.connect(
-            host=u.hostname, port=u.port or 5432, user=u.username, password=u.password,
+            host=host, port=u.port or 5432, user=u.username, password=u.password,
             dbname=ref,
         )
         ref_conn.autocommit = False
