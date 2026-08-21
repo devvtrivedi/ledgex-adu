@@ -10,9 +10,10 @@ allowed=false (0030, pending clearance), so a viewer built only against real
 data would show nothing but RIGHTS_BLOCKED, on every screen, forever, until
 LD-1 clears -- not enough to prove the I6 gate itself is wired correctly.
 This script seeds a second, clearly-fake rights position (D2 namespace,
-below) that the SAME gate (scripts/compose_property_file.evaluate_rights_gate)
-permits, so the viewer can be exercised end to end without touching, or
-pretending to touch, the real licences' position.
+below) that the SAME gate (core.rights.evaluate_rights_gate, moved there
+from scripts/compose_property_file.py by P47) permits, so the viewer can be
+exercised end to end without touching, or pretending to touch, the real
+licences' position.
 
 P42 (README/P40 review): the demo parcel this script creates also carries ONE
 fact citing the REAL cc_by_4_0 licence, unchanged and still allowed=false on
