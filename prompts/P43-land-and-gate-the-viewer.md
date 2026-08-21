@@ -319,14 +319,19 @@ docs.yml run 32432575602  conclusion: success
 
 ### 5. Final state
 
-Four commits on `audit-fixes`, on top of `c52a266`, none on `main`:
+Five commits on `audit-fixes`, on top of `c52a266`, none on `main`:
 
 ```
 7a99bd4  Land P39-P42: compose() transaction fix, infra.env remote-DB guard, internal viewer, seed script, review fixes
 1ed40da  db.yml: wire scripts/seed_internal_test_licences.py + make viewer-test into the schema job (P43)
 b8183ce  DELIBERATE BREAK (P43 CI-gate proof) -- invert the rights-gate split in api/main.py's get_parcel_facts
 8d8e4b5  Revert "DELIBERATE BREAK (P43 CI-gate proof) -- invert the rights-gate split in api/main.py's get_parcel_facts"
+e10220a  P43 close-out: land-the-viewer report, real commit hashes in prompts/README.md
 ```
+
+`e10220a` (this report plus the `prompts/README.md` hash update) confirmed green on its own
+CI run too, job level: `db.yml` run `32432801805` (`schema`/`p5-acceptance`/`phaseb-acceptance`
+all `success`), `docs.yml` run `32432801798` (`make qa`/`make check-boundary` both `success`).
 
 `main` is untouched: still exactly `c52a266`, confirmed by never running any command in this
 package that could move it (no checkout of `main`, no commit while `main` was checked out —
