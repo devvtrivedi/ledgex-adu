@@ -386,7 +386,7 @@ def get_parcel_facts(
             # field_definition.claim would give, already on this row.
             "is_derived": method == "derived",
         }
-        if allowed_by_licence.get(licence_id, False):
+        if not allowed_by_licence.get(licence_id, False):
             permitted.append(row)
         else:
             omitted_for_rights.append({
