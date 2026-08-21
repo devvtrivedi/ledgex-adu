@@ -240,6 +240,44 @@ jobs:
       - name: scripts/test_compose_parcel_refusals.py
         run: python3 scripts/test_compose_parcel_refusals.py
 
+      # P43: seeds scripts/seed_internal_test_licences.py's own fixture, then
+      # runs `make viewer-test` (P42) -- same reasoning as day4_sources.sql
+      # above, no new job: this job already has a live, disposable ledgex_ci,
+      # and this seed only adds rows (jurisdiction/licence/licence_channel/
+      # source/snapshot/field_definition/parcel/fact under the internal_test.
+      # namespace, plus one fact citing the REAL, unchanged cc_by_4_0
+      # licence), invisible to schema-dump's schema-only diff either way.
+      # Positioned after the three script-level compose suites above (all
+      # already seed-dependent, same reasoning) and before make test below.
+      #
+      # PERMANENT WRITES, HARMLESS HERE, NOT ANYWHERE ELSE. licence and
+      # licence_channel rows are immutable (0027, 0033) and (licence_id,
+      # channel) is licence_channel's own primary key, so there is no
+      # corrected-second-row escape if a rationale or a row is ever wrong --
+      # a mistake here is permanent, not merely inconvenient to fix. That is
+      # harmless in THIS job specifically because ledgex_ci is built from
+      # empty at the top of this exact job and is torn down with the runner
+      # when it ends -- every run gets a brand-new database, so a permanent
+      # row in it is only ever permanent for the length of one job. It would
+      # NOT be harmless run this way against ledgex_schema_check, or any
+      # database anyone keeps between runs -- see scripts/seed_internal_test_
+      # licences.py's own opt-in gate (SEED_INTERNAL_TEST_LICENCES) and
+      # docstring for why that script refuses by default everywhere else.
+      # Same shape GOLDEN_ALLOW_RULE_SEED=1 already uses for make golden
+      # above, for the identical reason.
+      - name: scripts/seed_internal_test_licences.py
+        run: SEED_INTERNAL_TEST_LICENCES=1 python3 scripts/seed_internal_test_licences.py
+
+      # P43: proves the I6 rights gate holds on api/'s one fact-rendering
+      # route (GET /v1/parcels/{id}/facts), on the fixture the step above
+      # just seeded -- see the Makefile's own viewer-test: target comment for
+      # exactly what this does and does not cover. Requires requirements.txt
+      # (fastapi, pydantic), not only scripts/requirements.txt -- already
+      # installed by this job's own "Install Python dependencies" step above
+      # (requirements-test.txt itself pulls in requirements.txt).
+      - name: make viewer-test
+        run: make viewer-test DATABASE_URL="$DATABASE_URL" PYTHON=python3
+
       # P21: core/model's real pytest suite (tests/core/) -- same reasoning
       # as golden and the snapshot-race test above, no new job. TEST_DATABASE_URL,
       # not DATABASE_URL (own Makefile variable, same reason db-test reads
