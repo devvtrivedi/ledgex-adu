@@ -353,6 +353,15 @@ P40 through P42, and still debt rather than risk for exactly as long as
 `evaluate_rights_gate` stays the one function both `compose()` and `api/` call — confirmed
 true today, unchanged by this package.
 
+**Post-merge note (decision D5, made by the merge package):** `b8183ce` (the deliberate
+break that inverts the rights-gate split) and `8d8e4b5` (its pure-inverse revert) both now
+sit in `main`'s history unchanged — not squashed, not dropped, not rewritten into one commit.
+This is `main` genuinely having been red once, on purpose, as the evidence this package's own
+§4 documents; the same P30 `9a45566` precedent this repo already treats as settled (evidence
+commits are labelled in `prompts/README.md`, not scrubbed from history). Someone bisecting
+`main` and landing on `b8183ce` will find a real, red `make viewer-test` failure — this
+paragraph, and finding #42/#43's own package-table row, are what tell them why.
+
 ---
 
 ### Review findings
