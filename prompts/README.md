@@ -51,7 +51,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P45 | [Ingest provenance](P45-ingest-provenance.md) | done, pushed | `c6a782d` (fix 1-3), `ae66c38` (acceptance-runner caller updates), `f1e675b` (audit script), `9ebf434` (close-out report), `04fdbdd` (this row's own hash correction; also the commit `main` was fast-forwarded to, P48 STEP 2) |
 | P46 | [Boundary validation](P46-boundary-validation.md) | done, pushed | `d41407c` (fix 1), `2f04a29` (fix 3), `129b598` (close-out report), `87d1c9b` (this row's own hash correction — landed via P47's own merge commit, P48 STEP 4) |
 | P47 | [Tooling and sockets](P47-tooling-and-sockets.md) | done, pushed | `6a8c839` (part A1), `16b1cde` (part A2), `faa7d15` (part B), `3d2adea` (close-out report), `bfb1fb9` (this row's own hash correction — branch tip), `67a9d78` (merge commit landing this branch, and `p46-boundary-validation` inside it, onto `main` — `--no-ff`, deliberately, since `main` had already moved past a strict ancestor relationship by the time this merge ran; P48 D8) |
-| P48 | [Merge P45, P46 and P47 into main](P48-merge-three-branches.md) | done, pushed | `67a9d78` (merge one — p47, carrying p46, `--no-ff`), `e8ebe04` (STEP 5 — status-truth correction), `TBD` (close-out report + this row) |
+| P48 | [Merge P45, P46 and P47 into main](P48-merge-three-branches.md) | done, pushed | `67a9d78` (merge one — p47, carrying p46, `--no-ff`), `e8ebe04` (STEP 5 — status-truth correction), `8ecd023` (close-out report + this row) |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
