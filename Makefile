@@ -13,7 +13,7 @@
 # diff against the committed file — match PG_DUMP/DATABASE_URL to 16 before
 # regenerating it.
 
-.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state
+.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state smoke-real
 
 # `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
 # not guaranteed under `make -j`: parallel make can start pdf's docs
@@ -399,6 +399,45 @@ viewer-test:
 	@echo "VIEWER-TEST: proves the I6 rights gate on api/'s ONE fact-rendering route (GET /v1/parcels/{id}/facts) -- one parcel, one channel ('api'), the internal_test.* licence pair plus one real cc_by_4_0 fixture fact (scripts/seed_internal_test_licences.py, P42). Asserts the blocked fact's value is absent from the real serialized response body, not eyeballed."
 	@echo "VIEWER-TEST: NOT covered -- the other six api/ routes (rights, sources, job-runs, exceptions, property-files, schema), any channel but 'api', any parcel but the one the seed script creates, and whether the HTML viewer itself renders correctly. This proves the gate does not leak on the seeded fixture; it does not prove the viewer is correct."
 	$(PYTHON) scripts/test_viewer_rights_gate.py
+
+# P50. The one command that answers "is this machine wired up right now, and
+# does a real byte from a real San Jose endpoint still reach a rights-gated
+# answer?" -- Docker, Postgres, the object store, the viewer and outbound
+# internet checked first, then fetch -> sha-256 -> snapshot -> 20-parcel
+# ingest -> read one back in SQL and over HTTP -> I6 gate, PASS or FAIL.
+#
+# SMOKE_DATABASE_URL, not DATABASE_URL, and no fallback to it -- the same
+# resolution DB_TEST_DATABASE_URL (P18, finding #25) and TEST_DATABASE_URL
+# (P21) already reached, for a stronger version of the same reason: this
+# target makes PERMANENT writes. fact_no_delete/fact_no_update (0017,
+# 0007/0040) and snapshot immutability (0021) mean a row written into the
+# wrong database cannot be taken back by anything, migration included. On a
+# fresh clone postgresql://localhost/ledgex_smoke does not exist and step 4
+# fails LOUD with the createdb/make schema/seed commands -- rather than
+# succeeding quietly against ledgex_schema_check, which is how that database
+# was contaminated twice (CLAUDE.md; findings #9, #24).
+#
+# scripts/smoke_real.py refuses a non-local SMOKE_DATABASE_URL outright and
+# gives itself no override flag. infra.env.get_db()'s LEDGEX_ALLOW_REMOTE_DB
+# escape hatch exists for a deliberate operator; a smoke test is never that.
+#
+# SMOKE_PYTHON exists because this script needs scripts/requirements.txt
+# (psycopg2, requests, boto3), not just core/'s. Step 1 names the exact fix
+# if the interpreter it is given cannot import them:
+#     make smoke-real SMOKE_PYTHON=.venv-ingest/bin/python3
+#
+# WHAT IT DOES NOT PROVE is printed on every single run, pass or fail --
+# same coverage-honesty discipline as `make test`, `make golden` and
+# `make viewer-test`. It runs none of those and does not stand in for them,
+# it never runs --phase e, and it never triggers
+# scripts/seed_internal_test_licences.py (a permanent licence write, gated
+# by SEED_INTERNAL_TEST_LICENCES=1 for exactly that reason) -- so the gate
+# check at step 15 proves refusal on real cc_by_4_0 data, never permission.
+# `make viewer-test` remains the both-outcomes proof.
+SMOKE_DATABASE_URL ?= postgresql://localhost/ledgex_smoke
+SMOKE_PYTHON       ?= $(PYTHON)
+smoke-real:
+	SMOKE_DATABASE_URL="$(SMOKE_DATABASE_URL)" $(SMOKE_PYTHON) scripts/smoke_real.py
 
 clean:
 	rm -rf dist build/__pycache__ $(SCHEMA_DUMP).tmp

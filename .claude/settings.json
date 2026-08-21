@@ -1,0 +1,80 @@
+{
+  "$comment": "P50 project settings. JSON takes no comments -- docs/LOCAL_SMOKE.md section 'Guardrails' explains every rule here and why the PreToolUse hook exists alongside the deny list. deny beats ask beats allow, and deny here beats any allow in the gitignored settings.local.json.",
+  "permissions": {
+    "deny": [
+      "Bash(sudo:*)",
+      "Bash(doas:*)",
+      "Bash(docker volume rm:*)",
+      "Bash(docker volume prune:*)",
+      "Bash(docker system prune:*)",
+      "Bash(dropdb:*)",
+      "Bash(pg_ctl:*)",
+      "Edit(./.env)",
+      "Write(./.env)"
+    ],
+    "ask": [
+      "Bash(docker compose down:*)",
+      "Bash(docker stop:*)",
+      "Bash(docker rm:*)",
+      "Bash(createdb:*)",
+      "Bash(make schema:*)",
+      "Bash(make migrate:*)",
+      "Bash(make migrate-baseline:*)",
+      "Bash(SEED_INTERNAL_TEST_LICENCES=1:*)",
+      "Bash(GOLDEN_ALLOW_RULE_SEED=1:*)",
+      "Bash(git push:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean:*)",
+      "Bash(brew install:*)",
+      "Bash(pip install:*)",
+      "Bash(pip3 install:*)",
+      "Read(./.env)"
+    ],
+    "allow": [
+      "Bash(docker ps:*)",
+      "Bash(docker info:*)",
+      "Bash(docker logs:*)",
+      "Bash(docker compose ps:*)",
+      "Bash(docker compose up:*)",
+      "Bash(docker compose logs:*)",
+      "Bash(make smoke-real:*)",
+      "Bash(make db-test:*)",
+      "Bash(make test:*)",
+      "Bash(make golden:*)",
+      "Bash(make conformance:*)",
+      "Bash(make liveness:*)",
+      "Bash(make viewer-test:*)",
+      "Bash(make check-boundary:*)",
+      "Bash(make qa:*)",
+      "Bash(make state:*)",
+      "Bash(make migrate-verify:*)",
+      "Bash(make schema-dump:*)",
+      "Bash(pytest:*)",
+      "Bash(python3 -m pytest:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git branch:*)",
+      "Bash(git checkout:*)",
+      "WebFetch(domain:gisdata-csj.opendata.arcgis.com)",
+      "WebFetch(domain:data.sanjoseca.gov)",
+      "WebFetch(domain:www.sanjoseca.gov)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_destructive.py\""
+          }
+        ]
+      }
+    ]
+  }
+}
