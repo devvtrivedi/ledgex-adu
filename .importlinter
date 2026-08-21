@@ -17,15 +17,33 @@
 ; grant/schema-separation fact (I15's other half -- the "catalogue query"
 ; named in the invariant table, not yet built).
 ;
-; jurisdictions/, api/, pipelines/, geo/ don't exist either -- referenced
-; below only as forbidden_modules (external), never as a source, so they
-; need no scaffold of their own.
+; jurisdictions/, pipelines/, geo/ don't exist either -- referenced below
+; only as forbidden_modules (external), never as a source, so they need no
+; scaffold of their own.
+;
+; api/ P40: now real (api/__init__.py, api/main.py -- the P40 internal
+; viewer, NOT §4's customer-facing api/, but a real importable package
+; either way). Added to root_packages and to the layers contract below --
+; before this, api/'s own imports were completely invisible to
+; import-linter (a source_modules gap, not just a documentation one:
+; `lint-imports` analyzed the identical file/dependency count with api/
+; present as without it, confirmed directly while making this change, not
+; assumed). Deliberately NOT given an I15-style "commerce may import
+; core.model/core.compose only" allowlist of its own: that shape is
+; exactly finding #45's stale-blacklist problem (prompts/
+; P40-internal-viewer.md §0) -- a per-submodule forbidden list that already
+; silently stopped covering commerce's real constraint three core/
+; submodules ago. Adding a second instance of the same broken shape for
+; api/ compounds the finding this package found rather than avoiding it;
+; the layers contract below still correctly governs api/'s relationship to
+; infra/, which is the one directional rule that contract has ever stated.
 
 [importlinter]
 root_packages =
     core
     commerce
     infra
+    api
 include_external_packages = True
 
 [importlinter:contract:i1-core-no-jurisdiction-imports]
@@ -91,12 +109,23 @@ forbidden_modules =
 ; other, "|") sit above infra/, meaning they MAY import it; infra/ sits
 ; below and may never import either, which the forbidden contract above
 ; already enforced but this restates as part of the same, explicit,
-; two-sided rule. jurisdictions/pipelines/api aren't real packages yet
-; (see this file's own header) so aren't listed as layers -- only
+; two-sided rule. jurisdictions/pipelines aren't real packages yet (see
+; this file's own header) so aren't listed as layers -- only
 ; forbidden_modules targets can name a not-yet-existing package.
+;
+; api/ ADDED P40 (D4): a third, topmost layer, above core|commerce -- §2:
+; "api/ FastAPI over core.compose and commerce", and the import-rules bullet
+; list already named api/ among the packages allowed to import infra/.
+; import-linter's "layers" contract allows a higher layer to import ANY
+; lower layer, not only the adjacent one, so this one addition also states
+; "api may import infra" without a second contract -- confirmed by running
+; lint-imports with a real api -> infra.env import present (this package's
+; own api/main.py) and it stays KEPT. Same-level siblings (core | commerce)
+; still may not import each other, unchanged from before this edit.
 [importlinter:contract:core-commerce-layers-above-infra]
-name = core/commerce may import infra/; infra/ may never import upward (finding #29)
+name = api above core/commerce above infra (finding #29, extended P40 D4)
 type = layers
 layers =
+    api
     core | commerce
     infra

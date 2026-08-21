@@ -73,6 +73,7 @@ import time
 import uuid
 
 import psycopg2
+import psycopg2.extensions
 import psycopg2.extras
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -124,6 +125,52 @@ CONCLUSION_RULE_KEYS = {
 # this function must refuse gracefully, so it raises immediately rather
 # than manufacturing a third refusal code for "not even a real election."
 KNOWN_ELECTIONS = ("city", "state")
+
+# P39. The `output_channel` enum's six members, read from db/schema.sql's own
+# CREATE TYPE public.output_channel (0001, widened by 0031 with analytics and
+# model_training) and re-confirmed against a live database's pg_enum before
+# being written here -- not transcribed from §4 or §7.3 prose, neither of which
+# enumerates all six in one place.
+#
+# WHY THIS EXISTS. `election` has been validated at this boundary since P34 and
+# `parcel_id` became a typed refusal in P37. `channel` was the one remaining
+# caller-supplied value with no boundary check at all -- it reached the
+# licence_channel query below as a bare literal and failed there as
+# psycopg2.errors.InvalidTextRepresentation, naming the enum but not the
+# parameter, AFTER the composition had already opened a transaction and read the
+# parcel. Confirmed directly against a real database, not inferred (P39's own
+# RED transcript).
+#
+# NOT A REFUSAL CODE. §9's refusal table has no member for "the channel you
+# named does not exist," and §9's own closing line puts this class in the ERROR
+# taxonomy, verbatim: "Errors (application/problem+json): schema-drift (502),
+# source-timeout (504), invalid-request (400), not-found (404), conflict (409),
+# internal (500)." A refusal is a valid business answer about a real channel
+# (RIGHTS_BLOCKED is one); an unknown channel is a malformed request, which is a
+# 400, not a 200 with status:"refused". Inventing a refusal code for it would
+# need a spec bump and a §12 row (I17), which CONVENTIONS says to stop and
+# report rather than absorb -- so ValueError here, matching `election` exactly,
+# and api/ maps it to invalid-request (400) once api/ exists.
+#
+# FOURTH COPY OF A DATABASE VOCABULARY, DELIBERATELY LEFT UNDIFFED. Refusal
+# codes have three copies and build/qa_check.py's check_refusal_codes_match_spec()
+# diffs them, because all three are hand-maintained prose/Python lists that can
+# silently disagree with each other. This is not that shape: output_channel is a
+# Postgres ENUM, so the database rejects an unknown value on contact -- the
+# failure a diff would prevent (a stale Python list quietly admitting a value
+# the database does not have) is impossible here, and the opposite drift (the
+# enum gains a member this tuple lacks) surfaces as a loud ValueError naming the
+# channel, never as silent wrong behavior. Recorded as a decision, not an
+# omission: if a future channel is added and this tuple is forgotten, the symptom
+# is a refused call with an accurate message, not a wrong answer.
+KNOWN_CHANNELS = (
+    "free_snapshot",
+    "paid_property_file",
+    "api",
+    "bulk_export",
+    "analytics",
+    "model_training",
+)
 
 
 class _NothingComposed:
@@ -223,7 +270,132 @@ def resolve_parcel_id_by_apn(conn, apn):
     return rows[0][0]
 
 
+def evaluate_rights_gate(cur, touched, channel):
+    """I6 (§1.1, §7.3): every touched fact must have an explicit
+    allowed=true licence_channel row for this channel. Absence is
+    default-deny, the same as an explicit false -- both block. Gates every
+    TOUCHED fact, not only every rendered one (§1.1: "a fact used to
+    resolve jurisdiction participates in composition even if it is not
+    rendered").
+
+    P40 (README finding #45's own D3 fallout): extracted out of _compose()
+    unchanged -- same query, same two-pass shape -- so a second reader
+    (api/'s viewer, which also puts fact values on a screen and is
+    therefore also an output channel under I6) calls this ONE
+    implementation instead of growing a silently-divergent copy. NOT moved
+    to core/rights.py (§2's own layer X slot for exactly this): finding
+    #45 (prompts/P40-internal-viewer.md §0) found .importlinter's I15
+    contract cannot currently gate a new core/ submodule correctly --
+    extracting into core/ now would add a fourth thing the stale blacklist
+    doesn't cover, compounding the problem this package found rather than
+    fixing it. Staying in scripts/ (which no import-linter contract
+    governs) is the smaller, honest move until that's repaired as its own
+    package.
+
+    touched: iterable of (fact_id, field_key, licence_id, value) rows,
+    exactly current_fact_at's own shape (and _compose's own `touched`
+    local). channel: an output_channel enum member -- caller's
+    responsibility to validate (compose() does this via KNOWN_CHANNELS
+    before touching a query; api/ validates the same way against the same
+    constant).
+
+    Returns (allowed_by_licence, blocked_by_licence):
+      allowed_by_licence  -- {licence_id: bool}, exactly the licence_channel
+                              rows found for this channel among the touched
+                              facts' licence ids. A licence_id with no row
+                              here is default-deny, not KeyError -- callers
+                              read it with .get(licence_id, False), never []
+                              or direct indexing.
+      blocked_by_licence  -- {licence_id: [field_key, ...]}, every touched
+                              field whose licence does NOT carry an
+                              allowed=true row for this channel.
+    """
+    licence_ids = sorted({row[2] for row in touched})
+    cur.execute(
+        "SELECT licence_id, allowed FROM licence_channel WHERE licence_id = ANY(%s) AND channel = %s",
+        (licence_ids, channel),
+    )
+    allowed_by_licence = {lic: allowed for lic, allowed in cur.fetchall()}
+
+    blocked_by_licence = {}
+    for fact_id, field_key, licence_id, value in touched:
+        if not allowed_by_licence.get(licence_id, False):
+            blocked_by_licence.setdefault(licence_id, []).append(field_key)
+
+    return allowed_by_licence, blocked_by_licence
+
+
 def compose(conn, parcel_id, channel, election=None, as_of=None):
+    """P39. compose() OWNS THE TRANSACTION BOUNDARY; _compose() below does the
+    work. Every argument for the return contract, the three states and the
+    refusal accumulation lives on _compose's own docstring -- this wrapper adds
+    exactly one guarantee and nothing else: this function never returns, and
+    never raises, leaving a transaction open on `conn`.
+
+    THE GAP THIS CLOSES (README finding #42). _compose() opens a cursor and
+    issues SELECTs immediately, which starts a transaction (infra.env.get_db
+    sets autocommit = False). Only ONE of its three exits ended that
+    transaction -- the written-row path, via its own conn.commit(). Measured
+    directly against a real database, not inferred:
+
+        PARCEL_REFERENCE_UNKNOWN return -> get_transaction_status() == 2 INTRANS
+        NOTHING_COMPOSED return        -> get_transaction_status() == 2 INTRANS
+        unknown-channel raise          -> get_transaction_status() == 3 INERROR
+
+    and, because nothing rolled back that INERROR, the very next compose() call
+    on the same connection died with `InFailedSqlTransaction: current
+    transaction is aborted` -- a valid request failing for a reason that names
+    nothing about the bad request that actually caused it. Invisible under the
+    CLI (one process, one composition, conn.close() in a finally) and invisible
+    under every current test suite (each builds its own connection). Live the
+    moment api/ reuses a connection across requests, which is the whole reason
+    this fix lands before api/ rather than with it.
+
+    WHY try/finally, NOT `with conn:`. psycopg2's connection context manager is
+    a TRANSACTION manager: it COMMITS on clean exit. That is wrong on both
+    non-writing paths -- neither wrote anything, and committing a read-only
+    transaction to end it would also silently commit whatever a future edit
+    added before those returns. It would also sit awkwardly around _compose's
+    own explicit conn.commit(), leaving two things that both believe they own
+    the commit. try/finally keeps the existing commit exactly where it is and
+    adds only the missing half.
+
+    WHY THE STATUS CHECK rather than an unconditional rollback: after a
+    successful commit the connection is already IDLE, and issuing ROLLBACK
+    there makes Postgres emit `WARNING: there is no transaction in progress` on
+    every single successful composition. Checking first keeps a clean run
+    silent.
+
+    PRECONDITION ON THE CALLER, stated because this wrapper cannot enforce it:
+    a caller must COMMIT its own fixture/setup writes BEFORE calling compose(),
+    because the rollback here ends whatever transaction is open on `conn`,
+    including work the caller started. Verified true of all five real call
+    sites at the time of writing, by reading each one rather than assuming:
+    check_golden.run_composition (seed_reference_rows and
+    make_fixture_parcel_and_fact both commit), test_compose_election._seed,
+    test_compose_parcel_refusals (both call sites), and
+    test_compose_geometry_tier_used._seed.
+    """
+    if channel not in KNOWN_CHANNELS:
+        raise ValueError(
+            f"channel={channel!r} is not one of {KNOWN_CHANNELS!r} -- an "
+            f"invalid-request (400) in §9's own error taxonomy, not a refusal: "
+            f"§9's refusal table has no code for a channel that does not exist, "
+            f"and inventing one would need a spec bump and a §12 row (I17). "
+            f"Raised HERE, at the boundary, so it never reaches the "
+            f"licence_channel query as a bare enum literal -- which is where it "
+            f"used to fail, as psycopg2 InvalidTextRepresentation naming the "
+            f"enum but not this parameter, after a transaction was already open."
+        )
+
+    try:
+        return _compose(conn, parcel_id, channel, election=election, as_of=as_of)
+    finally:
+        if conn.get_transaction_status() != psycopg2.extensions.TRANSACTION_STATUS_IDLE:
+            conn.rollback()
+
+
+def _compose(conn, parcel_id, channel, election=None, as_of=None):
     """as_of: normally None -- the real CLI path below always composes
     against the live clock (SELECT clock_timestamp()), unchanged. An
     explicit value is a testability seam for scripts/check_golden.py
@@ -449,20 +621,12 @@ def compose(conn, parcel_id, channel, election=None, as_of=None):
         for fact_id, field_key, licence_id, value in touched:
             print(f"  {field_key:28s} licence={licence_id:12s} value={json.dumps(value)}")
 
-        # I6 rights gate: every touched fact must have an explicit
-        # allowed=true licence_channel row for this channel. Absence is
-        # default-deny (§7.3), the same as an explicit false -- both block.
-        licence_ids = sorted({row[2] for row in touched})
-        cur.execute(
-            "SELECT licence_id, allowed FROM licence_channel WHERE licence_id = ANY(%s) AND channel = %s",
-            (licence_ids, channel),
-        )
-        allowed_by_licence = {lic: allowed for lic, allowed in cur.fetchall()}
-
-        blocked_by_licence = {}
-        for fact_id, field_key, licence_id, value in touched:
-            if not allowed_by_licence.get(licence_id, False):
-                blocked_by_licence.setdefault(licence_id, []).append(field_key)
+        # I6 rights gate. P40: extracted to evaluate_rights_gate() below --
+        # same query, same logic, byte-identical -- so api/'s viewer can call
+        # the ONE gate implementation instead of growing a second copy that
+        # could silently disagree with this one. See that function's own
+        # docstring for why it is not yet in core/rights.py (finding #45).
+        allowed_by_licence, blocked_by_licence = evaluate_rights_gate(cur, touched, channel)
 
     elapsed_ms = int((time.monotonic() - t0) * 1000)
 

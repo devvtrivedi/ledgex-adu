@@ -6,8 +6,14 @@
 # that job specifically).
 #
 # pydantic already allowed by SPEC.md §11 ("API FastAPI + Pydantic v2 +
-# uvicorn") -- first real consumer is core/model.py (P21). fastapi/uvicorn
-# not added yet: nothing imports them, and adding a dependency before
-# anything needs it is exactly the "anticipated, not forced by need" scope
-# core/store.py's own docstring already argues against.
+# uvicorn") -- first real consumer is core/model.py (P21).
 pydantic>=2,<3
+
+# fastapi/uvicorn, also §11-allowed, added here P40: api/ (the P40 internal
+# viewer, NOT §4's customer-facing api/) is the first real consumer -- until
+# now nothing imported them, and adding a dependency before anything needs
+# it is exactly the "anticipated, not forced by need" scope core/store.py's
+# own docstring already argues against. That reasoning held through P21-P39;
+# P40 is the package that actually needs a serving layer.
+fastapi>=0.110,<1
+uvicorn>=0.27,<1

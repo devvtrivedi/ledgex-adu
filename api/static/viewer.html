@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LedgeX internal viewer (P40)</title>
+<style>
+  :root {
+    --bg: #0f1216; --panel: #161b22; --border: #2a313c; --text: #d7dde5; --muted: #8b96a5;
+    --accent: #4f8ff7; --ok: #3fb950; --blocked: #e5534b; --absent: #6e7681; --warn: #d29922;
+  }
+  * { box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 -apple-system, "Segoe UI", sans-serif; margin: 0; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 16px; }
+  header h1 { font-size: 16px; margin: 0; }
+  header .banner { background: var(--warn); color: #1a1a1a; padding: 3px 10px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+  nav { display: flex; gap: 4px; padding: 10px 20px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+  nav button { background: none; border: 1px solid var(--border); color: var(--text); padding: 6px 12px; border-radius: 6px; cursor: pointer; font-size: 13px; }
+  nav button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+  main { padding: 20px; max-width: 1200px; margin: 0 auto; }
+  section { display: none; }
+  section.active { display: block; }
+  h2 { font-size: 15px; margin: 0 0 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 24px; font-size: 13px; }
+  th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--muted); font-weight: 600; }
+  tr:hover td { background: #1c222b; }
+  .pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+  .pill-allowed { background: rgba(63,185,80,.15); color: var(--ok); }
+  .pill-blocked { background: rgba(229,83,75,.15); color: var(--blocked); }
+  .pill-absent { background: rgba(110,118,129,.15); color: var(--absent); }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
+  .muted { color: var(--muted); }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 16px; }
+  .rationale { font-style: italic; color: var(--muted); }
+  .refusal { background: rgba(229,83,75,.08); border-left: 3px solid var(--blocked); padding: 6px 10px; margin: 4px 0; border-radius: 3px; }
+  input[type=text] { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: 5px; width: 320px; }
+  .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
+  .fact-row.blocked td { opacity: 0.85; }
+  .fact-row.blocked .value { color: var(--blocked); font-style: italic; }
+  .empty { color: var(--muted); font-style: italic; padding: 10px 0; }
+  .pill-derived { background: rgba(210,153,34,.15); color: var(--warn); }
+  .fact-row.derived td { border-left: 3px solid var(--warn); }
+  .fact-row.derived .field { font-style: italic; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LedgeX internal viewer</h1>
+  <span class="banner">INTERNAL TESTING ONLY -- localhost, no auth, not for customer use</span>
+</header>
+<nav id="nav"></nav>
+<main>
+  <section id="sec-rights" class="active">
+    <h2>Rights position (licence &times; channel)</h2>
+    <p class="muted">Every channel blocked, for every licence, with the rationale VERBATIM (§7.3: licences.yaml is the sole source of truth). LD-1 is why <code>cc0</code>/<code>cc_by_4_0</code> read <code>allowed=false</code> everywhere below.</p>
+    <table id="tbl-rights"><thead><tr>
+      <th>Licence</th><th>Cleared by</th><th>Channel</th><th>Allowed</th><th>Rationale</th>
+    </tr></thead><tbody></tbody></table>
+  </section>
+
+  <section id="sec-sources">
+    <h2>Sources</h2>
+    <table id="tbl-sources"><thead><tr>
+      <th>ID</th><th>Jurisdiction</th><th>Steward</th><th>Method</th><th>Phase status</th>
+      <th>Licence</th><th>Active</th><th>URL verified</th>
+    </tr></thead><tbody></tbody></table>
+  </section>
+
+  <section id="sec-jobs">
+    <h2>Ingest history</h2>
+    <table id="tbl-jobs"><thead><tr>
+      <th>Job key</th><th>Jurisdiction</th><th>Source</th><th>Status</th><th>Started</th>
+      <th>Finished</th><th>Rows in/out</th><th>Drift</th><th>Error</th>
+    </tr></thead><tbody></tbody></table>
+  </section>
+
+  <section id="sec-exceptions">
+    <h2>Open exceptions (Track A)</h2>
+    <table id="tbl-exceptions"><thead><tr>
+      <th>Type</th><th>Severity</th><th>Detector</th><th>Detail</th><th>Detected</th><th>Outcome</th>
+    </tr></thead><tbody></tbody></table>
+  </section>
+
+  <section id="sec-files">
+    <h2>Composition attempts</h2>
+    <p class="muted">There is no composed or partial path in this codebase today -- every row below is <code>status=&quot;refused&quot;</code>. That is a correct result, not a bug (prompts/P40-internal-viewer.md boundary 4).</p>
+    <div id="files-list"></div>
+  </section>
+
+  <section id="sec-facts">
+    <h2>Parcel facts, through the rights gate</h2>
+    <div class="toolbar">
+      <input type="text" id="parcel-id-input" placeholder="parcel id (uuid)">
+      <button onclick="loadFacts()">Load</button>
+      <span class="muted">Channel: <code id="facts-channel">api</code> (D1 -- fixed, not selectable)</span>
+    </div>
+    <table id="tbl-facts"><thead><tr>
+      <th>Field</th><th>Value</th><th>Licence</th><th>Source</th><th>Retrieved</th><th>Status</th>
+    </tr></thead><tbody></tbody></table>
+  </section>
+
+  <section id="sec-schema">
+    <h2>Schema state</h2>
+    <div class="card" id="schema-card"></div>
+  </section>
+</main>
+
+<script>
+const TABS = [
+  ["sec-rights", "Rights position"],
+  ["sec-sources", "Sources"],
+  ["sec-jobs", "Ingest health"],
+  ["sec-exceptions", "Exceptions"],
+  ["sec-files", "Compositions"],
+  ["sec-facts", "Parcel facts"],
+  ["sec-schema", "Schema state"],
+];
+
+function esc(s) {
+  if (s === null || s === undefined) return "";
+  return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+}
+
+function buildNav() {
+  const nav = document.getElementById("nav");
+  TABS.forEach(([id, label], i) => {
+    const btn = document.createElement("button");
+    btn.textContent = label;
+    if (i === 0) btn.className = "active";
+    btn.onclick = () => showTab(id, btn);
+    nav.appendChild(btn);
+  });
+}
+
+function showTab(id, btn) {
+  document.querySelectorAll("section").forEach(s => s.classList.remove("active"));
+  document.getElementById(id).classList.add("active");
+  document.querySelectorAll("nav button").forEach(b => b.classList.remove("active"));
+  btn.classList.add("active");
+}
+
+async function j(url) {
+  const r = await fetch(url);
+  return r.json();
+}
+
+async function loadRights() {
+  const { data } = await j("/v1/rights");
+  const tb = document.querySelector("#tbl-rights tbody");
+  tb.innerHTML = data.map(r => `
+    <tr>
+      <td class="mono">${esc(r.licence_id)}<br><span class="muted">${esc(r.display_name)}</span></td>
+      <td>${esc(r.cleared_by) || '<span class="muted">NULL (unconfirmed)</span>'}</td>
+      <td class="mono">${esc(r.channel)}</td>
+      <td><span class="pill ${r.allowed ? 'pill-allowed' : 'pill-blocked'}">${r.allowed ? 'ALLOWED' : 'BLOCKED'}</span></td>
+      <td class="rationale">${esc(r.rationale)}</td>
+    </tr>`).join("");
+}
+
+async function loadSources() {
+  const { data } = await j("/v1/sources");
+  const tb = document.querySelector("#tbl-sources tbody");
+  tb.innerHTML = data.map(s => `
+    <tr>
+      <td class="mono">${esc(s.id)}</td>
+      <td>${esc(s.jurisdiction_id)}</td>
+      <td>${esc(s.steward)}</td>
+      <td>${esc(s.method)}</td>
+      <td>${esc(s.phase_status)}<br><span class="muted">${esc(s.phase_status_reason)}</span></td>
+      <td class="mono">${esc(s.licence_id)}</td>
+      <td>${s.active ? 'yes' : 'no'}</td>
+      <td>${esc(s.url_verified_at) || '<span class="muted">never</span>'}</td>
+    </tr>`).join("");
+}
+
+async function loadJobs() {
+  const { data } = await j("/v1/job-runs");
+  const tb = document.querySelector("#tbl-jobs tbody");
+  tb.innerHTML = data.length ? data.map(r => `
+    <tr>
+      <td class="mono">${esc(r.job_key)}</td>
+      <td>${esc(r.jurisdiction_id)}</td>
+      <td class="mono">${esc(r.source_id)}</td>
+      <td>${esc(r.status)}</td>
+      <td>${esc(r.started_at)}</td>
+      <td>${esc(r.finished_at)}</td>
+      <td>${esc(r.rows_in)} / ${esc(r.rows_out)}</td>
+      <td>${r.schema_drift ? '<span class="pill pill-blocked">DRIFT</span>' : ''}</td>
+      <td class="muted">${esc(r.error)}</td>
+    </tr>`).join("") : '<tr><td colspan="9" class="empty">No job_run rows yet.</td></tr>';
+}
+
+async function loadExceptions() {
+  const { data } = await j("/v1/exceptions?outcome=open");
+  const tb = document.querySelector("#tbl-exceptions tbody");
+  tb.innerHTML = data.length ? data.map(e => `
+    <tr>
+      <td>${esc(e.type)}</td>
+      <td>${esc(e.severity)}</td>
+      <td class="mono">${esc(e.detector_key)}@${esc(e.detector_version)}</td>
+      <td class="mono">${esc(JSON.stringify(e.detail))}</td>
+      <td>${esc(e.detected_at)}</td>
+      <td>${esc(e.outcome)}</td>
+    </tr>`).join("") : '<tr><td colspan="6" class="empty">No open parcel_exception rows.</td></tr>';
+}
+
+async function loadFiles() {
+  const { data } = await j("/v1/property-files");
+  const el = document.getElementById("files-list");
+  if (!data.length) { el.innerHTML = '<p class="empty">No property_file rows yet.</p>'; return; }
+  el.innerHTML = data.map(f => `
+    <div class="card">
+      <div><span class="mono">${esc(f.id)}</span> &mdash; parcel <span class="mono">${esc(f.parcel_id)}</span>
+        &mdash; channel <span class="mono">${esc(f.channel)}</span>
+        &mdash; status <b>${esc(f.status)}</b>
+        &mdash; election ${esc(f.election) || '<span class="muted">none</span>'}</div>
+      <div class="muted">composed_at ${esc(f.composed_at)} &middot; as_of ${esc(f.as_of)} &middot; compose_ms ${esc(f.compose_ms)}</div>
+      ${f.refusals.map(r => `<div class="refusal"><b>${esc(r.code)}</b> (${esc(r.stage)}): ${esc(r.message)}</div>`).join("")}
+      <div class="muted">${f.facts.length} touched fact link(s): ${f.facts.map(x => `${esc(x.fact_id)} (${esc(x.use)})`).join(", ") || "none"}</div>
+    </div>`).join("");
+}
+
+async function loadFacts() {
+  const pid = document.getElementById("parcel-id-input").value.trim();
+  if (!pid) return;
+  const { facts, omitted_for_rights, channel } = await j(`/v1/parcels/${encodeURIComponent(pid)}/facts`);
+  document.getElementById("facts-channel").textContent = channel;
+  const tb = document.querySelector("#tbl-facts tbody");
+  const rows = [];
+  // I9: a derived conclusion never renders in the visual/structural
+  // treatment reserved for a retrieved fact -- distinct border, italic
+  // field name, and its own DERIVED badge, layered on top of (not instead
+  // of) the rights-visibility pill. Untested against real data (no derived
+  // fact exists in this database yet) but built in now, while it costs
+  // nothing.
+  facts.forEach(f => rows.push(`
+    <tr class="fact-row allowed${f.is_derived ? ' derived' : ''}">
+      <td class="mono field">${esc(f.field_key)}</td>
+      <td class="value">${esc(JSON.stringify(f.value))}</td>
+      <td class="mono">${esc(f.licence_id)}</td>
+      <td class="mono">${esc(f.source_id)}</td>
+      <td>${esc(f.retrieved_at)}</td>
+      <td><span class="pill pill-allowed">VISIBLE</span>${f.is_derived ? ' <span class="pill pill-derived">DERIVED</span>' : ''}</td>
+    </tr>`));
+  omitted_for_rights.forEach(o => rows.push(`
+    <tr class="fact-row blocked">
+      <td class="mono">${esc(o.field_key)}</td>
+      <td class="value">&mdash;</td>
+      <td class="mono">${esc(o.licence_id)}</td>
+      <td class="muted">&mdash;</td>
+      <td class="muted">&mdash;</td>
+      <td><span class="pill pill-blocked" title="${esc(o.reason)}">RIGHTS-BLOCKED</span></td>
+    </tr>`));
+  tb.innerHTML = rows.length ? rows.join("") : '<tr><td colspan="6" class="empty">No current facts for this parcel (or parcel does not exist).</td></tr>';
+}
+
+async function loadSchema() {
+  const s = await j("/v1/schema");
+  const el = document.getElementById("schema-card");
+  const drift = s.missing.length || s.unexpected.length;
+  el.innerHTML = `
+    <div>Ledger present: <b>${s.has_ledger}</b></div>
+    <div>On disk: <b>${s.on_disk_count}</b> &middot; Recorded: <b>${s.recorded_count}</b></div>
+    <div>Missing from ledger: ${s.missing.length ? esc(s.missing.join(", ")) : '<span class="pill pill-allowed">none</span>'}</div>
+    <div>Recorded but not on disk: ${s.unexpected.length ? esc(s.unexpected.join(", ")) : '<span class="pill pill-allowed">none</span>'}</div>
+    <div>Unrecognized filenames (not NNNN_snake_case.sql): ${s.unrecognized_files && s.unrecognized_files.length ? esc(s.unrecognized_files.join(", ")) : '<span class="pill pill-allowed">none</span>'}</div>
+    ${drift ? '<p style="color:var(--blocked)">DRIFT DETECTED -- run make migrate-verify for the authoritative check.</p>' : ''}
+  `;
+}
+
+buildNav();
+loadRights();
+loadSources();
+loadJobs();
+loadExceptions();
+loadFiles();
+loadSchema();
+</script>
+</body>
+</html>

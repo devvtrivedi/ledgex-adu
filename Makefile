@@ -13,7 +13,7 @@
 # diff against the committed file — match PG_DUMP/DATABASE_URL to 16 before
 # regenerating it.
 
-.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden liveness state
+.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state
 
 # `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
 # not guaranteed under `make -j`: parallel make can start pdf's docs
@@ -379,6 +379,26 @@ test:
 # an uninformative permanent exit 1.
 golden:
 	$(PYTHON) scripts/check_golden.py
+
+# P43. scripts/test_viewer_rights_gate.py (P42) proves the I6 rights gate
+# holds on api/'s one fact-rendering route (GET /v1/parcels/{id}/facts) --
+# calls the route directly, serializes the result through the SAME
+# Pydantic response_model FastAPI itself uses to build the real wire
+# response, then asserts a rights-blocked fact's value is absent from
+# those exact bytes, not merely absent from a Python dict. This target
+# does NOT seed its own fixture: scripts/seed_internal_test_licences.py's
+# own opt-in gate (SEED_INTERNAL_TEST_LICENCES=1) exists precisely so
+# nothing -- including a test target -- triggers that permanent write
+# (licence/licence_channel rows, immutable, 0027/0033) as a side effect.
+# The script itself refuses loudly, naming the exact seed command, if its
+# expected parcel is not there. Run the seed first, as its own separate,
+# explicit step -- db.yml does this the same way it already does for
+# db/seeds/day4_sources.sql, a different seed-dependent step with the
+# identical shape.
+viewer-test:
+	@echo "VIEWER-TEST: proves the I6 rights gate on api/'s ONE fact-rendering route (GET /v1/parcels/{id}/facts) -- one parcel, one channel ('api'), the internal_test.* licence pair plus one real cc_by_4_0 fixture fact (scripts/seed_internal_test_licences.py, P42). Asserts the blocked fact's value is absent from the real serialized response body, not eyeballed."
+	@echo "VIEWER-TEST: NOT covered -- the other six api/ routes (rights, sources, job-runs, exceptions, property-files, schema), any channel but 'api', any parcel but the one the seed script creates, and whether the HTML viewer itself renders correctly. This proves the gate does not leak on the seeded fixture; it does not prove the viewer is correct."
+	$(PYTHON) scripts/test_viewer_rights_gate.py
 
 clean:
 	rm -rf dist build/__pycache__ $(SCHEMA_DUMP).tmp
