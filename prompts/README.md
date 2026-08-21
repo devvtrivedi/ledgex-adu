@@ -52,7 +52,7 @@ Finished packages move to `done/` and are not read again unless something contra
 | P46 | [Boundary validation](P46-boundary-validation.md) | done, pushed | `d41407c` (fix 1), `2f04a29` (fix 3), `129b598` (close-out report), `87d1c9b` (this row's own hash correction — landed via P47's own merge commit, P48 STEP 4) |
 | P47 | [Tooling and sockets](P47-tooling-and-sockets.md) | done, pushed | `6a8c839` (part A1), `16b1cde` (part A2), `faa7d15` (part B), `3d2adea` (close-out report), `bfb1fb9` (this row's own hash correction — branch tip), `67a9d78` (merge commit landing this branch, and `p46-boundary-validation` inside it, onto `main` — `--no-ff`, deliberately, since `main` had already moved past a strict ancestor relationship by the time this merge ran; P48 D8) |
 | P48 | [Merge P45, P46 and P47 into main](P48-merge-three-branches.md) | done, pushed | `67a9d78` (merge two — p47, carrying p46, `--no-ff`; merge one was p45's fast-forward, e6cdf64..3344194, which produced no merge commit of its own), `e8ebe04` (STEP 5 — status-truth correction), `8ecd023` (close-out report + this row) |
-| P49 | [Real-database provenance audit](P49-real-database-audit.md) | done, pushed, on branch `p49-real-database-audit` | TBD |
+| P49 | [Real-database provenance audit](P49-real-database-audit.md) | done, pushed, on branch `p49-real-database-audit` | `1c454d1` (report + README close-out) |
 
 **P6 — built.** `db/migrations/0046` adds `schema_migrations` (explicit `CONSTRAINT` names,
 a `baselined` column). `scripts/migrate.py` applies only unrecorded migrations, each atomic
