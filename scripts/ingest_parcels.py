@@ -426,7 +426,15 @@ def run_one_fetch(conn, s3, bucket, dest_path, label, url=None):
             status = "skipped_unchanged"
         finish_job_run(conn, job_run_id, status, sid)
         print(f"  job_run {job_run_id} -> {status}")
-        return digest, sid
+        # P45 Fix 2 (README finding, see prompts/P45-ingest-provenance.md):
+        # `ok` used to decide job_run.status above and then be discarded --
+        # the function returned normally either way, so phase_b (the only
+        # caller) never learned what this call already knew. Now returned
+        # to the caller so a failed fetch can fail the PHASE, not just the
+        # one job_run row. C7 is unaffected: the snapshot above is already
+        # recorded, unconditionally, regardless of what happens with this
+        # return value from here on.
+        return digest, sid, http_status, ok
     except Exception as e:
         fail_job_run(conn, job_run_id, e)
         print(f"  job_run {job_run_id} -> failed: {e}")
@@ -434,22 +442,57 @@ def run_one_fetch(conn, s3, bucket, dest_path, label, url=None):
 
 
 def phase_b():
+    """P45 Fix 2: both fetches ALWAYS complete and get snapshotted (C7 --
+    unchanged, see run_one_fetch's own docstring); phase_b now fails LOUDLY
+    if either one was a non-2xx response, AFTER both snapshot rows are
+    already durably recorded -- recording first, failing second, is the
+    order that keeps C7 intact. One failed fetch out of two fails the
+    phase: a phase that half-worked is not a phase that worked, and a
+    silent exit 0 with a `failed` job_run already in the database (the
+    pre-fix behavior) is exactly the shape that let a failure go unnoticed.
+    SystemExit, not a bare non-zero sys.exit() or an uncaught exception --
+    matches phase_d/phase_e's own existing convention for a fatal,
+    caller-facing condition in this file."""
     conn = get_db()
     s3 = get_s3()
     bucket = env("OBJECT_STORE_BUCKET")
     path1 = os.path.join(SCRATCHPAD, "parcels_fetch_1.geojson")
     path2 = os.path.join(SCRATCHPAD, "parcels_fetch_2.geojson")
 
-    digest1, sid1 = run_one_fetch(conn, s3, bucket, path1, "FETCH 1 (first ingest)")
-    digest2, sid2 = run_one_fetch(conn, s3, bucket, path2, "FETCH 2 (dedupe proof)")
+    digest1, sid1, status1, ok1 = run_one_fetch(conn, s3, bucket, path1, "FETCH 1 (first ingest)")
+    digest2, sid2, status2, ok2 = run_one_fetch(conn, s3, bucket, path2, "FETCH 2 (dedupe proof)")
 
     print("\n=== PHASE B SUMMARY ===")
-    print(f"fetch 1 digest: {digest1}")
-    print(f"fetch 2 digest: {digest2}")
-    print(f"digests match:  {digest1 == digest2}")
+    print(f"fetch 1 digest: {digest1}  (http_status={status1}, ok={ok1})")
+    print(f"fetch 2 digest: {digest2}  (http_status={status2}, ok={ok2})")
+    digests_match = digest1 == digest2
+    print(f"digests match:  {digests_match}")
     print(f"snapshot row (fetch 1): {sid1}")
     print(f"snapshot row (fetch 2): {sid2} (same id -- no second row was inserted)")
+    # P45 STEP 0(d): a mismatch is no longer a silent provenance risk after
+    # Fix 1 -- any later load binds to one explicit, verified snapshot id,
+    # never a guess -- but it is still a real fact about the source (it
+    # changed between two fetches seconds apart) worth a human noticing,
+    # not just a line in a scrolling log. Loud, not fatal: this does NOT
+    # raise or change phase_b's exit code by itself.
+    if not digests_match:
+        print(f"\n{'!' * 78}\n"
+              f"! SOURCE CHANGED BETWEEN FETCHES -- digests do not match.\n"
+              f"!   fetch 1: {sid1}\n"
+              f"!   fetch 2: {sid2}\n"
+              f"! Both are recorded, independently, under their own true hashes (C7).\n"
+              f"! A later --phase d/e load must name exactly ONE of these two ids --\n"
+              f"! it will never be guessed.\n"
+              f"{'!' * 78}")
     conn.close()
+
+    if not (ok1 and ok2):
+        raise SystemExit(
+            f"phase b: at least one fetch was non-2xx (fetch 1 http_status={status1}, "
+            f"fetch 2 http_status={status2}) -- both snapshots are recorded (C7), but a "
+            f"phase that half-worked is not a phase that worked. See the job_run rows "
+            f"above for detail."
+        )
     return path1, digest1
 
 
@@ -787,22 +830,30 @@ def query_one_parcel(conn, apn):
     return rows
 
 
-def phase_d():
-    conn = get_db()
-    path = os.path.join(SCRATCHPAD, "parcels_fetch_1.geojson")
+def phase_d(snapshot_id):
+    """P45 Fix 1 (README finding, see prompts/P45-ingest-provenance.md).
 
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, content_hash FROM snapshot WHERE source_id = %s ORDER BY fetched_at DESC LIMIT 1",
-            (SOURCE_ID,),
-        )
-        row = cur.fetchone()
-        if row is None:
-            raise SystemExit("no snapshot found for ca_san_jose.parcels -- run --phase b first")
-        snapshot_id, digest = row
-        cur.execute("SELECT fetched_at FROM snapshot WHERE id = %s", (snapshot_id,))
-        retrieved_at = cur.fetchone()[0]
-    print(f"using snapshot: {snapshot_id}")
+    Before this fix: the bytes came from a FIXED path naming fetch 1
+    (parcels_fetch_1.geojson) while the snapshot was WHICHEVER row was
+    newest (`ORDER BY fetched_at DESC LIMIT 1`) -- two independent choices
+    that silently diverge exactly when phase_b's two fetches disagree (a
+    source that changed mid-run, a truncated response, an error body).
+    `content_hash` was read into `digest` and never used to check anything.
+
+    After: matches phase_e's own precedent exactly (that function's own
+    docstring: "the loader is bound to the supplied snapshot_id... and
+    refuses if those bytes do not match content_hash"). `--snapshot-id` is
+    now REQUIRED (see this file's own __main__ block) -- no default
+    "newest" guess, the same discipline phase_e already enforces. The path
+    is no longer a fixed guess either: `verified_snapshot_file` reads the
+    bytes FROM `snapshot.object_uri`, hashes them, and raises on a
+    content_hash OR byte_size mismatch before this function ever touches
+    them -- "run phase d with no arguments" is no longer a thing that
+    works, the same cost `--phase e` already pays."""
+    conn = get_db()
+    path, snapshot = verified_snapshot_file(conn, snapshot_id)
+    retrieved_at = snapshot["fetched_at"]
+    print(f"using verified snapshot: {snapshot_id}")
 
     # 21 candidates: 20 for the real load, 1 held out for the D.1 probe so
     # that an unexpected probe success can't collide (parcel_jurisdiction_id_apn_key)
@@ -1675,8 +1726,8 @@ def phase_e(snapshot_id):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--phase", choices=["b", "c", "d", "e"])
-    parser.add_argument("--input-file", help="path to a previously-fetched GeoJSON file, for --phase c/d")
-    parser.add_argument("--snapshot-id", help="snapshot id to load for --phase e")
+    parser.add_argument("--input-file", help="path to a previously-fetched GeoJSON file, for --phase c")
+    parser.add_argument("--snapshot-id", help="snapshot id to load for --phase d/e")
     args = parser.parse_args()
 
     if args.phase == "b":
@@ -1685,7 +1736,11 @@ if __name__ == "__main__":
         path = args.input_file or os.path.join(SCRATCHPAD, "parcels_fetch_1.geojson")
         phase_c(path)
     elif args.phase == "d":
-        phase_d()
+        # P45 Fix 1: no default "newest" guess -- matches --phase e's own
+        # existing precondition exactly. See phase_d()'s own docstring.
+        if not args.snapshot_id:
+            raise SystemExit("--phase d requires --snapshot-id; loads must bind to an immutable snapshot row")
+        phase_d(args.snapshot_id)
     elif args.phase == "e":
         if not args.snapshot_id:
             raise SystemExit("--phase e requires --snapshot-id; loads must bind to an immutable snapshot row")

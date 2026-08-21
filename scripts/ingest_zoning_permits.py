@@ -110,6 +110,7 @@ import json
 import os
 import resource
 import sys
+import tempfile
 import time
 import uuid
 
@@ -447,7 +448,13 @@ def run_one_fetch(conn, s3, bucket, dest_path, label, source_id, url, licence_id
         status = "failed" if not ok else ("skipped_unchanged" if not inserted else "succeeded")
         finish_job_run(conn, job_run_id, status, sid)
         print(f"  job_run {job_run_id} -> {status}")
-        return digest, sid
+        # P45 Fix 2 (same fix as ingest_parcels.py's own run_one_fetch --
+        # see prompts/P45-ingest-provenance.md): `ok` used to be discarded
+        # after deciding job_run.status; now returned so phase_b can fail
+        # the whole phase on a failed fetch, not just leave a `failed`
+        # job_run row nobody read. C7 unaffected -- the snapshot above is
+        # already recorded, unconditionally, regardless of this return.
+        return digest, sid, http_status, ok
     except Exception as e:
         fail_job_run(conn, job_run_id, e)
         print(f"  job_run {job_run_id} -> failed: {e}")
@@ -455,26 +462,122 @@ def run_one_fetch(conn, s3, bucket, dest_path, label, source_id, url, licence_id
 
 
 def phase_b(source_id, url, path1, path2, label_prefix, licence_id, job_key):
+    """P45 Fix 2: same fix as ingest_parcels.py's own phase_b -- both
+    fetches always complete and get snapshotted (C7 unaffected); this now
+    fails LOUDLY, via SystemExit, if either fetch was non-2xx, AFTER both
+    snapshots are already durably recorded."""
     conn = get_db()
     s3 = get_s3()
     bucket = env("OBJECT_STORE_BUCKET")
-    digest1, sid1 = run_one_fetch(conn, s3, bucket, path1, f"{label_prefix} FETCH 1 (first ingest)", source_id, url, licence_id, job_key)
-    digest2, sid2 = run_one_fetch(conn, s3, bucket, path2, f"{label_prefix} FETCH 2 (dedupe proof)", source_id, url, licence_id, job_key)
+    digest1, sid1, status1, ok1 = run_one_fetch(conn, s3, bucket, path1, f"{label_prefix} FETCH 1 (first ingest)", source_id, url, licence_id, job_key)
+    digest2, sid2, status2, ok2 = run_one_fetch(conn, s3, bucket, path2, f"{label_prefix} FETCH 2 (dedupe proof)", source_id, url, licence_id, job_key)
     print(f"\n=== {label_prefix} PHASE B SUMMARY ===")
-    print(f"digests match: {digest1 == digest2}")
+    digests_match = digest1 == digest2
+    print(f"digests match: {digests_match}  (fetch 1: http_status={status1}, ok={ok1}; "
+          f"fetch 2: http_status={status2}, ok={ok2})")
+    # P45 STEP 0(d): same policy as ingest_parcels.py's own phase_b --
+    # loud, not fatal. See that function's own comment for the full
+    # argument.
+    if not digests_match:
+        print(f"\n{'!' * 78}\n"
+              f"! SOURCE CHANGED BETWEEN FETCHES -- digests do not match.\n"
+              f"!   fetch 1: {sid1}\n"
+              f"!   fetch 2: {sid2}\n"
+              f"! Both are recorded, independently, under their own true hashes (C7).\n"
+              f"! A later --phase load must name exactly ONE of these two ids --\n"
+              f"! it will never be guessed.\n"
+              f"{'!' * 78}")
     conn.close()
 
-
-def latest_snapshot(conn, source_id):
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, fetched_at FROM snapshot WHERE source_id = %s ORDER BY fetched_at DESC LIMIT 1",
-            (source_id,),
+    if not (ok1 and ok2):
+        raise SystemExit(
+            f"{label_prefix} phase b: at least one fetch was non-2xx (fetch 1 "
+            f"http_status={status1}, fetch 2 http_status={status2}) -- both snapshots "
+            f"are recorded (C7), but a phase that half-worked is not a phase that "
+            f"worked. See the job_run rows above for detail."
         )
-        row = cur.fetchone()
-        if row is None:
-            raise SystemExit(f"no snapshot found for {source_id} -- run --phase b first")
-        return row[0], row[1]
+
+
+def parse_s3_uri(uri):
+    """P45 Fix 3: copied from ingest_parcels.py's own parse_s3_uri, not
+    imported -- see this file's own module docstring for why every piece
+    of shared plumbing here is a deliberate copy, not a shared import,
+    until core/connectors exists to factor it out for real."""
+    from urllib.parse import urlparse
+    parsed = urlparse(uri)
+    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path:
+        raise RuntimeError(f"snapshot.object_uri is not an s3:// URI: {uri}")
+    return parsed.netloc, parsed.path.lstrip("/")
+
+
+def verified_snapshot_file(conn, snapshot_id, source_id):
+    """P45 Fix 3: copied from ingest_parcels.py's own verified_snapshot_file,
+    not imported -- same reasoning as parse_s3_uri above. Parameterized by
+    source_id (unlike the parcels original, which closes over a single
+    module-level SOURCE_ID): this file serves two sources -- zoning and
+    permits -- with different media types (geo+json vs. CSV), which the
+    parcels version never had to handle.
+
+    Returns (path, snapshot row dict) for bytes read from
+    snapshot.object_uri. The hash is computed over exactly the bytes the
+    loader will parse -- raises on a content_hash OR byte_size mismatch,
+    before the caller ever touches the bytes."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT id, source_id, object_uri, content_hash, media_type,
+                   byte_size, fetched_at
+            FROM snapshot
+            WHERE id = %s AND source_id = %s
+            """,
+            (snapshot_id, source_id),
+        )
+        snapshot = cur.fetchone()
+    if snapshot is None:
+        raise SystemExit(f"no snapshot {snapshot_id} found for {source_id}")
+
+    bucket, key = parse_s3_uri(snapshot["object_uri"])
+    s3 = get_s3()
+    hasher = hashlib.sha256()
+    byte_size = 0
+    if snapshot["media_type"] == "application/geo+json":
+        suffix = ".geojson"
+    elif snapshot["media_type"] in ("text/csv", "application/csv"):
+        suffix = ".csv"
+    else:
+        suffix = ".snapshot"
+    tmp = tempfile.NamedTemporaryFile(prefix="ledgex-zoning-permits-", suffix=suffix, delete=False)
+    tmp_path = tmp.name
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        with tmp:
+            for chunk in obj["Body"].iter_chunks(chunk_size=CHUNK_SIZE):
+                if not chunk:
+                    continue
+                tmp.write(chunk)
+                hasher.update(chunk)
+                byte_size += len(chunk)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    digest = hasher.hexdigest()
+    if digest != snapshot["content_hash"]:
+        os.unlink(tmp_path)
+        raise RuntimeError(
+            f"snapshot byte hash mismatch for {snapshot_id}: "
+            f"object_uri bytes sha256={digest}, snapshot.content_hash={snapshot['content_hash']}"
+        )
+    if byte_size != snapshot["byte_size"]:
+        os.unlink(tmp_path)
+        raise RuntimeError(
+            f"snapshot byte_size mismatch for {snapshot_id}: "
+            f"object_uri bytes={byte_size}, snapshot.byte_size={snapshot['byte_size']}"
+        )
+    return tmp_path, snapshot
 
 
 # ---------------------------------------------------------------------------
@@ -801,11 +904,15 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
     conn.close()
 
 
-def phase_zoning_load():
+def phase_zoning_load(snapshot_id):
+    """P45 Fix 3 (see prompts/P45-ingest-provenance.md): no default "newest"
+    guess and no fixed local path -- exactly ingest_parcels.py's phase_d,
+    same fix, same reasoning. `verified_snapshot_file` proves the bytes
+    are this snapshot's before `load_zoning` ever sees them."""
     conn = get_db()
-    snapshot_id, retrieved_at = latest_snapshot(conn, SOURCE_ID_ZONING)
-    print(f"using snapshot: {snapshot_id}")
-    path = os.path.join(SCRATCHPAD, "zoning_districts_fetch_1.geojson")
+    path, snapshot = verified_snapshot_file(conn, snapshot_id, SOURCE_ID_ZONING)
+    retrieved_at = snapshot["fetched_at"]
+    print(f"using verified snapshot: {snapshot_id}")
     load_zoning(conn, path, snapshot_id, retrieved_at)
 
 
@@ -1053,11 +1160,12 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
     conn.close()
 
 
-def phase_permits_load():
+def phase_permits_load(snapshot_id):
+    """P45 Fix 3: same fix as phase_zoning_load above."""
     conn = get_db()
-    snapshot_id, retrieved_at = latest_snapshot(conn, SOURCE_ID_PERMITS)
-    print(f"using snapshot: {snapshot_id}")
-    path = os.path.join(SCRATCHPAD, "permits_fetch_1.csv")
+    path, snapshot = verified_snapshot_file(conn, snapshot_id, SOURCE_ID_PERMITS)
+    retrieved_at = snapshot["fetched_at"]
+    print(f"using verified snapshot: {snapshot_id}")
     load_permits(conn, path, snapshot_id, retrieved_at)
 
 
@@ -1065,6 +1173,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", choices=["zoning", "permits"], required=True)
     parser.add_argument("--phase", choices=["b", "load"], required=True)
+    parser.add_argument("--snapshot-id", help="snapshot id to load for --phase load")
     args = parser.parse_args()
 
     if args.source == "zoning":
@@ -1073,11 +1182,17 @@ if __name__ == "__main__":
             path2 = os.path.join(SCRATCHPAD, "zoning_districts_fetch_2.geojson")
             phase_b(SOURCE_ID_ZONING, ENDPOINT_URL_ZONING, path1, path2, "ZONING", LICENCE_ID_ZONING, "ingest_zoning")
         else:
-            phase_zoning_load()
+            # P45 Fix 3: no default "newest" guess -- matches
+            # ingest_parcels.py's --phase d precondition exactly.
+            if not args.snapshot_id:
+                raise SystemExit("--phase load requires --snapshot-id; loads must bind to an immutable snapshot row")
+            phase_zoning_load(args.snapshot_id)
     else:
         if args.phase == "b":
             path1 = os.path.join(SCRATCHPAD, "permits_fetch_1.csv")
             path2 = os.path.join(SCRATCHPAD, "permits_fetch_2.csv")
             phase_b(SOURCE_ID_PERMITS, ENDPOINT_URL_PERMITS, path1, path2, "PERMITS", LICENCE_ID_PERMITS, "ingest_permits")
         else:
-            phase_permits_load()
+            if not args.snapshot_id:
+                raise SystemExit("--phase load requires --snapshot-id; loads must bind to an immutable snapshot row")
+            phase_permits_load(args.snapshot_id)
