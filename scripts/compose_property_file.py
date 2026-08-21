@@ -326,11 +326,44 @@ def evaluate_rights_gate(cur, touched, channel):
 
 
 def compose(conn, parcel_id, channel, election=None, as_of=None):
-    """P39. compose() OWNS THE TRANSACTION BOUNDARY; _compose() below does the
-    work. Every argument for the return contract, the three states and the
-    refusal accumulation lives on _compose's own docstring -- this wrapper adds
-    exactly one guarantee and nothing else: this function never returns, and
-    never raises, leaving a transaction open on `conn`.
+    """P39, corrected by P46 (README finding #48 -- the original review graded
+    this a Medium defect; re-reading it against the real two exit paths below
+    found the claim narrower than reported, not wrong in the same way). compose()
+    OWNS THE TRANSACTION BOUNDARY; _compose() below does the work. Every argument
+    for the return contract, the three states and the refusal accumulation lives
+    on _compose's own docstring.
+
+    THIS WRAPPER HAS TWO EXITS WITH DIFFERENT TRANSACTION GUARANTEES, not one
+    uniform guarantee -- read both before assuming either applies to the other:
+
+      - VALID channel (in KNOWN_CHANNELS): control reaches the try/finally below.
+        _compose() runs -- and whether it returns the written-row state (already
+        conn.commit()'d, by _compose itself), one of the two non-writing states,
+        or raises, this wrapper's own `finally` ends whatever transaction is left
+        open on `conn` before compose() returns to its caller. The connection is
+        always IDLE by the time this exit is observed.
+      - INVALID channel (not in KNOWN_CHANNELS): raises ValueError BEFORE the
+        try/finally begins -- before this function has issued one statement on
+        `conn`. compose() does not open, commit or roll back anything on this
+        path: whatever transaction `conn` was already in (open or idle) when
+        compose() was called is exactly what the caller has when the ValueError
+        propagates. This is NOT the first exit's guarantee restated -- compose()
+        never touches a transaction here, it does not "leave one open" in the
+        sense of having opened one and failed to close it. A caller with its own
+        uncommitted work in progress before calling compose() with a bad channel
+        keeps that work exactly as open as it left it.
+
+    WHY THE SECOND EXIT WAS LEFT AS-IS RATHER THAN MADE TO MATCH THE FIRST
+    (considered, not silently decided): making the invalid-channel path also
+    roll back `conn` would mean compose() reaching into and discarding a
+    caller's own pre-existing, uncommitted transaction as a side effect of an
+    input-validation error detected before compose() has done any work at all
+    -- a STRONGER, more surprising claim on the caller's connection than the
+    current code makes, not a weaker one. None of the five real call sites
+    listed below need it: an invalid channel reaching compose() is a
+    programming error on the caller's side (a hardcoded literal, not
+    user input at this layer), caught in development, not a runtime condition
+    a caller's transaction discipline should have to defend against.
 
     THE GAP THIS CLOSES (README finding #42). _compose() opens a cursor and
     issues SELECTs immediately, which starts a transaction (infra.env.get_db
@@ -366,9 +399,12 @@ def compose(conn, parcel_id, channel, election=None, as_of=None):
     every single successful composition. Checking first keeps a clean run
     silent.
 
-    PRECONDITION ON THE CALLER, stated because this wrapper cannot enforce it:
-    a caller must COMMIT its own fixture/setup writes BEFORE calling compose(),
-    because the rollback here ends whatever transaction is open on `conn`,
+    PRECONDITION ON THE CALLER, stated because this wrapper cannot enforce it,
+    and scoped to the VALID-channel exit above -- the invalid-channel exit
+    touches no transaction at all, so it carries no such precondition:
+    a caller must COMMIT its own fixture/setup writes BEFORE calling compose()
+    with a channel that will pass the KNOWN_CHANNELS check, because the
+    rollback in `finally` ends whatever transaction is open on `conn`,
     including work the caller started. Verified true of all five real call
     sites at the time of writing, by reading each one rather than assuming:
     check_golden.run_composition (seed_reference_rows and
