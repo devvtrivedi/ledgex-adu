@@ -460,8 +460,17 @@ def _compose(conn, parcel_id, channel, election=None, as_of=None):
             ))
         parcel_id, jurisdiction_id, apn = row
 
-        cur.execute("SELECT pack_version, geometry_tier_enabled FROM jurisdiction WHERE id = %s", (jurisdiction_id,))
-        pack_version, geometry_tier_enabled = cur.fetchone()
+        # P53: also select boundary_source_id -- the L0/LD-1 gate's own
+        # activation switch (prompts/P53-l0-gate.md, design D-C). NULL for
+        # every jurisdiction except ca_san_jose (0056 sets it there only) --
+        # every test.*/internal_test.* fixture jurisdiction elsewhere in this
+        # database is unaffected by the check built from it, below.
+        cur.execute(
+            "SELECT pack_version, geometry_tier_enabled, boundary_source_id "
+            "FROM jurisdiction WHERE id = %s",
+            (jurisdiction_id,),
+        )
+        pack_version, geometry_tier_enabled, boundary_source_id = cur.fetchone()
 
         # L5 (P34, generalizing P31): rule selection, refuse-first
         # (core/rules.py). Runs unconditionally, same shape as L7's
@@ -574,6 +583,50 @@ def _compose(conn, parcel_id, channel, election=None, as_of=None):
     # the exception. Refuse-only: core/calc never computes or persists a
     # derived fact here (see its own module docstring for why).
     refusals = []
+
+    # L0 (P53, prompts/P53-l0-gate.md, design D-C): the L0/LD-1 jurisdiction
+    # gate, given a real runtime representation for the first time. Refuses
+    # LICENCE_UNKNOWN -- an existing, correct sec 9 code ("Default deny.
+    # Applies at L0 when a gate source is unconfirmed", sec 1.1) that no
+    # code path has ever emitted before this -- when a jurisdiction has
+    # DECLARED which source resolves its boundary (boundary_source_id IS NOT
+    # NULL) but no current jurisdiction.incorporated fact exists for this
+    # parcel to satisfy it. Only ca_san_jose declares one today (0056);
+    # every other jurisdiction's boundary_source_id stays NULL, so this
+    # check never fires for them -- D-C's own scoping argument, enforced
+    # here rather than merely stated. No new query: `touched` is exactly the
+    # same current_fact_at() result the I6 gate above already consumed.
+    # This never calls evaluate_rights_gate and never reads licence_channel
+    # -- it is a presence/absence check, wholly independent of any licence's
+    # own clearance state, which is the entire point (the gate must hold
+    # even if cc0/cc_by_4_0 were fully cleared).
+    if boundary_source_id is not None and not any(
+        field_key == "jurisdiction.incorporated" for _, field_key, _, _ in touched
+    ):
+        refusals.append({
+            "code": "LICENCE_UNKNOWN",
+            "stage": "L0",
+            "message": (
+                f"Jurisdiction {jurisdiction_id!r} declares boundary_source_id="
+                f"{boundary_source_id!r} as the source that resolves its boundary, but "
+                f"no current jurisdiction.incorporated fact exists for this parcel -- "
+                f"default deny (§1.1, §9)."
+            ),
+            "detail": {
+                "jurisdiction_id": jurisdiction_id,
+                "boundary_source_id": boundary_source_id,
+                "field_key": "jurisdiction.incorporated",
+            },
+        })
+
+    # L7 (P25): geometry-dependent conclusion gate, runs regardless of L8's
+    # own outcome below -- see this package's own report for the full
+    # argument, in short: §5's compose loop is an unconditional
+    # straight-line sequence (L0 -> ... -> L7 -> L6 -> L8 -> decide), and
+    # §6.6 ("a golden file that lost a refusal is a regression")
+    # presupposes multiple co-occurring refusals are the normal shape, not
+    # the exception. Refuse-only: core/calc never computes or persists a
+    # derived fact here (see its own module docstring for why).
     geometry_result = evaluate_geometry_dependent_conclusion("placement", geometry_tier_enabled)
     if geometry_result.is_refused:
         refusals.append(geometry_result.refusal.model_dump())

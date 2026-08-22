@@ -40,6 +40,15 @@ real state, but the moment rights ever clear, "refused" and
 with a per-conclusion refusal is not a refused file) -- separating them
 now avoids a bigger fixture-file split later.
 
+P53: all three real fixtures now carry THREE refusals, not two --
+LICENCE_UNKNOWN (the L0/LD-1 jurisdiction gate, prompts/P53-l0-gate.md,
+design D-C) joins RIGHTS_BLOCKED and GEOMETRY_TIER_DISABLED on every single
+composition today, for the identical reason those two already do: no
+jurisdiction.incorporated fact is ever seeded for these fixtures' parcels,
+and ca_san_jose now declares jurisdiction.boundary_source_id (0056). This
+pass clears nothing -- the fixtures were always morally entitled to this
+refusal; it simply had no runtime representation to trigger it before now.
+
 THE COVERAGE TRAP, decided, not defaulted (P20; still true at 2/4, P25).
 Exiting 0 unconditionally once ANY fixture class passes would be
 indistinguishable from a target that checked all four -- the exact
@@ -207,6 +216,98 @@ def seed_reference_rows(conn):
             """,
             (ip.JURISDICTION_ID,),
         )
+
+        # P53 (prompts/P53-l0-gate.md): the L0/LD-1 gate's own reference
+        # data, seeded here TOO, independently of db/seeds/day4_sources.sql
+        # -- this is finding #32/#36's exact shape (two independent
+        # seeders, same rows) if only one of them sets it. make golden must
+        # exercise the real gate whether or not day4_sources.sql happened
+        # to run first (it does, in CI, since P36 -- but a bare local
+        # `make golden` against a fresh, schema-only database must not
+        # silently skip the gate just because this function's own seed ran
+        # alone). Byte-identical values to day4_sources.sql's own 'unknown'
+        # licence row and this migration's own (0056) -- licence is
+        # immutable (0027) with no IS-NOT-DISTINCT-FROM carve-out, so this
+        # can never be DO UPDATE; every seeder of it must agree exactly,
+        # the same discipline this function already follows for cc_by_4_0
+        # just above.
+        cur.execute(
+            """
+            INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution,
+                                  attribution_text, terms_url, evidence_uri, observed_at,
+                                  cleared_by, cleared_at, notes)
+            VALUES ('unknown', 'Licence not yet observed', 'unknown', 'unknown', 'unknown',
+                    NULL, NULL, NULL, '2026-08-22'::timestamptz, NULL, NULL,
+                    'LD-1 gate source (jurisdictions/ca_san_jose/sources.yaml: '
+                    'ca_san_jose.city_limits). Licence text never observed -- id, '
+                    'display_name and every restriction/commercial_use/redistribution '
+                    'value match jurisdictions/ca_san_jose/licences.yaml (docs/'
+                    'LEDGEX_SPEC.md sec 7.2, id=unknown) verbatim, not independently '
+                    'invented. observed_at records the date this row was created (the '
+                    'date its UNKNOWN-NESS was recorded), never a date on which the '
+                    'licence''s actual terms were read -- no such reading has ever '
+                    'happened. See prompts/P53-l0-gate.md.')
+            ON CONFLICT (id) DO NOTHING
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO licence_channel (licence_id, channel, allowed, rationale)
+            SELECT 'unknown', c, false,
+                   'LD-1: gate source unconfirmed, licence text never observed (sec 1.1). '
+                   'No channel is ever cleared for an unidentified licence -- identifying '
+                   'it requires a new licence row (0027), never an UPDATE to this one.'
+              FROM unnest(enum_range(NULL::output_channel)) AS c
+            ON CONFLICT (licence_id, channel) DO NOTHING
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO field_definition (field_key, display_name, claim, value_type, category, description)
+            VALUES ('jurisdiction.incorporated', 'Jurisdiction incorporated', 'public_record',
+                    'boolean', 'jurisdiction',
+                    'Whether this parcel resolves within the jurisdiction''s incorporated '
+                    'boundary, per jurisdictions/ca_san_jose/sources.yaml''s own '
+                    'ca_san_jose.city_limits declaration (the L0 gate, sec 1.1). No source '
+                    'currently supplies this field as a fact -- see prompts/P53-l0-gate.md; '
+                    'the field is declared so the composer''s absence-check has a real '
+                    'field_key to require, not so a value exists yet.')
+            ON CONFLICT (field_key) DO NOTHING
+            """
+        )
+        cur.execute(
+            """
+            INSERT INTO source (id, jurisdiction_id, display_name, steward, method, phase_status,
+                                 phase_status_reason, endpoint_url, licence_id, active)
+            VALUES ('ca_san_jose.city_limits', %s, 'City limits / jurisdiction boundary',
+                    'City of San Jose', 'manual', 'blocked_rights',
+                    'Licence not observed. Supplies the L0 gate, so under I6 this blocks ALL '
+                    'channels including free_snapshot. Launch dependency LD-1. method=''manual'' '
+                    'here, not sources.yaml''s own declared method: direct -- no real, verified '
+                    'endpoint exists yet (P53-l0-gate.md Obstacle 2); this row exists as '
+                    'jurisdiction.boundary_source_id''s FK target, never as an ingest path.',
+                    NULL, 'unknown', false)
+            ON CONFLICT (id) DO UPDATE SET
+                jurisdiction_id = EXCLUDED.jurisdiction_id,
+                display_name = EXCLUDED.display_name,
+                steward = EXCLUDED.steward,
+                method = EXCLUDED.method,
+                phase_status = EXCLUDED.phase_status,
+                phase_status_reason = EXCLUDED.phase_status_reason,
+                endpoint_url = EXCLUDED.endpoint_url,
+                licence_id = EXCLUDED.licence_id,
+                active = EXCLUDED.active
+            """,
+            (ip.JURISDICTION_ID,),
+        )
+        cur.execute(
+            """
+            UPDATE jurisdiction SET boundary_source_id = 'ca_san_jose.city_limits'
+             WHERE id = %s AND boundary_source_id IS NULL
+            """,
+            (ip.JURISDICTION_ID,),
+        )
+
         cur.execute(
             """
             INSERT INTO source (id, jurisdiction_id, display_name, steward, method, phase_status,
@@ -520,6 +621,10 @@ def _election_required_refusal(refusals):
     return next((r for r in refusals if r.get("code") == "ELECTION_REQUIRED"), None)
 
 
+def _licence_unknown_refusal(refusals):
+    return next((r for r in refusals if r.get("code") == "LICENCE_UNKNOWN"), None)
+
+
 def check_fixture(name, fixture_path, apn, digest, election, expect_election_required, bless, failures):
     """One fixture class's full check: run the real composition, assert
     every expected refusal POSITIVELY (sec 6.6: "a golden file that lost a
@@ -531,13 +636,13 @@ def check_fixture(name, fixture_path, apn, digest, election, expect_election_req
     before P25 widened this from one fixture to two and P34 widened it
     again to three.
 
-    expect_election_required (P34): RIGHTS_BLOCKED and GEOMETRY_TIER_DISABLED
-    are asserted unconditionally, every fixture, every run -- unchanged
-    since P25 (every real composition today hits both). ELECTION_REQUIRED
-    is asserted only for the one fixture that supplies election=None; the
-    other two now pass election="city" explicitly and must NOT carry it,
-    so the expected total refusal count differs (3 vs 2) rather than being
-    hardcoded to one number for every class."""
+    expect_election_required (P34): RIGHTS_BLOCKED, GEOMETRY_TIER_DISABLED
+    and LICENCE_UNKNOWN (P53: the L0/LD-1 gate) are asserted unconditionally,
+    every fixture, every run -- every real composition today hits all three.
+    ELECTION_REQUIRED is asserted only for the one fixture that supplies
+    election=None; the other two now pass election="city" explicitly and
+    must NOT carry it, so the expected total refusal count differs (4 vs 3)
+    rather than being hardcoded to one number for every class."""
     print(f"\n--- {name} ---")
     normalized, facts_normalized, composer_version_shape_ok = run_composition(apn, digest, election)
     output = {"property_file": normalized, "property_file_fact": facts_normalized}
@@ -567,9 +672,28 @@ def check_fixture(name, fixture_path, apn, digest, election, expect_election_req
         expected = json.load(f)
 
     actual_refusals = normalized.get("refusals") or []
-    expected_count = 3 if expect_election_required else 2
+    # P53: +1 across every fixture -- ca_san_jose now declares
+    # boundary_source_id (0056 / db/seeds/day4_sources.sql), and no
+    # jurisdiction.incorporated fact is ever seeded for this fixture's
+    # parcel, so the L0 gate refuses LICENCE_UNKNOWN on every composition,
+    # same as the other two/three refusals every real composition has
+    # always carried. See prompts/P53-l0-gate.md sec 6 for the before/after.
+    expected_count = 4 if expect_election_required else 3
     check(f"exactly {expected_count} refusal(s) present", len(actual_refusals) == expected_count,
           f"got {len(actual_refusals)}")
+
+    licence_unknown = _licence_unknown_refusal(actual_refusals)
+    check("LICENCE_UNKNOWN refusal present (P53: the L0/LD-1 gate)", licence_unknown is not None,
+          f"codes present: {[r.get('code') for r in actual_refusals]}")
+    if licence_unknown:
+        check("LICENCE_UNKNOWN stage is L0", licence_unknown.get("stage") == "L0",
+              f"got {licence_unknown.get('stage')!r}")
+        check("LICENCE_UNKNOWN cites ca_san_jose's own boundary_source_id",
+              licence_unknown.get("detail", {}).get("boundary_source_id") == "ca_san_jose.city_limits",
+              f"got {licence_unknown.get('detail', {})}")
+        check("LICENCE_UNKNOWN cites jurisdiction.incorporated as the missing field",
+              licence_unknown.get("detail", {}).get("field_key") == "jurisdiction.incorporated",
+              f"got {licence_unknown.get('detail', {})}")
 
     rights = _rights_blocked_refusal(actual_refusals)
     check("RIGHTS_BLOCKED refusal present", rights is not None, f"codes present: {[r.get('code') for r in actual_refusals]}")

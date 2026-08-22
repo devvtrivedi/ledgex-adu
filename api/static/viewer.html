@@ -28,6 +28,20 @@
   .pill-allowed { background: rgba(63,185,80,.15); color: var(--ok); }
   .pill-blocked { background: rgba(229,83,75,.15); color: var(--blocked); }
   .pill-absent { background: rgba(110,118,129,.15); color: var(--absent); }
+  /* P52: rights_position/diligence are LICENCE-level CONTEXT, never the
+     channel decision -- deliberately never pill-allowed (green) or
+     pill-blocked (red) alone, so they cannot be misread as "flowing" or
+     as the actual per-channel block. pill-context (blue) is the neutral
+     "here is what the licence says" tone; pill-cleared (green) is its
+     own class, not a reuse of pill-allowed, so "diligence: cleared" can
+     never be confused with "channel: allowed" even by color; pill-warn
+     is the cleared_unevidenced/pending-clearance WARNING tone -- amber,
+     not red (nothing is actively forbidden) and not green (nothing is
+     actually done). */
+  .pill-context { background: rgba(79,143,247,.15); color: var(--accent); }
+  .pill-cleared { background: rgba(63,185,80,.15); color: var(--ok); }
+  .pill-warn { background: rgba(210,153,34,.15); color: var(--warn); }
+  .rights-detail { font-size: 12px; color: var(--muted); margin-top: 3px; max-width: 340px; }
   .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 12px; }
   .muted { color: var(--muted); }
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 16px; }
@@ -52,9 +66,9 @@
 <main>
   <section id="sec-rights" class="active">
     <h2>Rights position (licence &times; channel)</h2>
-    <p class="muted">Every channel blocked, for every licence, with the rationale VERBATIM (§7.3: licences.yaml is the sole source of truth). LD-1 is why <code>cc0</code>/<code>cc_by_4_0</code> read <code>allowed=false</code> everywhere below.</p>
+    <p class="muted">Every channel blocked, for every licence, with the per-channel rationale VERBATIM (§7.3: licences.yaml is the sole source of truth for that decision -- never paraphrased). The reason is <code>cc0</code>/<code>cc_by_4_0</code>'s own <code>licence_channel.allowed=false</code> rows (0030: counsel/owner sign-off Pending) -- <b>not</b> the L0 <code>city_limits</code>/LD-1 gate, which currently has no runtime representation at all (Phase 1 audit, <code>prompts/P52-rights-vs-diligence.md</code> §5). "Rights position" and "Diligence" below are P52 REPORTING context, computed live from <code>licence</code> columns the gate itself never reads -- they never affect the Allowed column, which is the only column an actual decision comes from.</p>
     <table id="tbl-rights"><thead><tr>
-      <th>Licence</th><th>Cleared by</th><th>Channel</th><th>Allowed</th><th>Rationale</th>
+      <th>Licence</th><th>Rights position</th><th>Diligence</th><th>Channel</th><th>Allowed</th><th>Rationale (channel-level, authoritative)</th>
     </tr></thead><tbody></tbody></table>
   </section>
 
@@ -97,6 +111,7 @@
     <table id="tbl-facts"><thead><tr>
       <th>Field</th><th>Value</th><th>Licence</th><th>Source</th><th>Retrieved</th><th>Status</th>
     </tr></thead><tbody></tbody></table>
+    <p class="muted">A blocked field's Status cell always shows two lines: what the licence itself permits (PERMITTED BY LICENCE, plus its diligence state) or that the licence is unknown/prohibits the use (RIGHTS-BLOCKED). Either way the field's value is still absent -- see §6/step 15's own byte-level proof that this is true of the wire response, not just this table.</p>
   </section>
 
   <section id="sec-schema">
@@ -144,13 +159,58 @@ async function j(url) {
   return r.json();
 }
 
+// P52. rights_position/diligence are licence-level REPORTING labels
+// (api/main.py's derive_rights_position/derive_diligence) -- humanized
+// here for display only, never re-derived client-side (the server is the
+// one and only place these are computed, per that module's own comment).
+// Amendment 1: rights_position is ALWAYS rendered in pill-context (blue)
+// or, for prohibits_use, pill-blocked -- but labelled distinctly enough
+// ("Prohibits use") that it cannot be mistaken for the Allowed column's
+// own BLOCKED pill, which is a different column entirely. Never
+// pill-allowed/the word "allowed" for any rights_position value.
+const RIGHTS_POSITION_LABEL = {
+  permits_use: { text: "Permits use", cls: "pill-context" },
+  permits_with_conditions: { text: "Permits with conditions", cls: "pill-context" },
+  prohibits_use: { text: "Prohibits use", cls: "pill-blocked" },
+  unknown: { text: "Unknown", cls: "pill-absent" },
+};
+
+// Amendment 2: three states, not two. cleared_unevidenced is deliberately
+// pill-warn (amber), not pill-cleared (green) -- it is the exact shape of
+// the closed CLAUDE.md contamination incident (a clearance actor recorded
+// with nothing retained to back it), and must never read as a success
+// state.
+const DILIGENCE_LABEL = {
+  cleared: { text: "Cleared", cls: "pill-cleared" },
+  cleared_unevidenced: { text: "Cleared — no retained evidence", cls: "pill-warn" },
+  written_confirmation_pending: { text: "Written confirmation pending", cls: "pill-absent" },
+};
+
+function rightsPositionPill(rp) {
+  const label = RIGHTS_POSITION_LABEL[rp] || { text: rp || "?", cls: "pill-absent" };
+  return `<span class="pill ${label.cls}">${esc(label.text)}</span>`;
+}
+
+function diligencePill(d) {
+  const label = DILIGENCE_LABEL[d] || { text: d || "?", cls: "pill-absent" };
+  return `<span class="pill ${label.cls}">${esc(label.text)}</span>`;
+}
+
 async function loadRights() {
   const { data } = await j("/v1/rights");
   const tb = document.querySelector("#tbl-rights tbody");
   tb.innerHTML = data.map(r => `
     <tr>
-      <td class="mono">${esc(r.licence_id)}<br><span class="muted">${esc(r.display_name)}</span></td>
-      <td>${esc(r.cleared_by) || '<span class="muted">NULL (unconfirmed)</span>'}</td>
+      <td class="mono">${esc(r.licence_id)}<br><span class="muted">${esc(r.display_name)}</span>
+        ${r.restriction === 'attribution' ? `<div class="rights-detail"><b>Attribution required:</b> ${esc(r.attribution_text) || '<span class="muted">(text not yet recorded)</span>'}</div>` : ''}
+      </td>
+      <td>${rightsPositionPill(r.rights_position)}</td>
+      <td>${diligencePill(r.diligence)}
+        <div class="rights-detail">
+          Cleared by: ${esc(r.cleared_by) || '<span class="muted">NULL (unconfirmed)</span>'}<br>
+          Evidence: ${esc(r.evidence_uri) || '<span class="muted">NULL (no retained artifact)</span>'}
+        </div>
+      </td>
       <td class="mono">${esc(r.channel)}</td>
       <td><span class="pill ${r.allowed ? 'pill-allowed' : 'pill-blocked'}">${r.allowed ? 'ALLOWED' : 'BLOCKED'}</span></td>
       <td class="rationale">${esc(r.rationale)}</td>
@@ -242,15 +302,30 @@ async function loadFacts() {
       <td>${esc(f.retrieved_at)}</td>
       <td><span class="pill pill-allowed">VISIBLE</span>${f.is_derived ? ' <span class="pill pill-derived">DERIVED</span>' : ''}</td>
     </tr>`));
-  omitted_for_rights.forEach(o => rows.push(`
+  // P52 section 5 item 4: never a bare colour or a bare word. The channel
+  // decision (blocked -- the field's value is absent either way) stays
+  // the primary, unmissable state via the coloured pill; the licence
+  // posture is secondary context spelled out underneath it, in text a
+  // reader does not have to hover to see.
+  omitted_for_rights.forEach(o => {
+    const permitsUse = o.rights_position === "permits_use" || o.rights_position === "permits_with_conditions";
+    const statusPill = permitsUse
+      ? `<span class="pill pill-warn" title="${esc(o.reason)}">PENDING CLEARANCE</span>`
+      : `<span class="pill pill-blocked" title="${esc(o.reason)}">RIGHTS-BLOCKED</span>`;
+    const detail = permitsUse
+      ? `<div class="rights-detail">PERMITTED BY LICENCE (${esc((RIGHTS_POSITION_LABEL[o.rights_position] || {}).text || o.rights_position)}) &mdash; `
+        + `${esc((DILIGENCE_LABEL[o.diligence] || {}).text || o.diligence)} &mdash; not cleared for output</div>`
+      : `<div class="rights-detail">Licence unknown or prohibited for this channel (§7.3, I6)</div>`;
+    rows.push(`
     <tr class="fact-row blocked">
       <td class="mono">${esc(o.field_key)}</td>
       <td class="value">&mdash;</td>
       <td class="mono">${esc(o.licence_id)}</td>
       <td class="muted">&mdash;</td>
       <td class="muted">&mdash;</td>
-      <td><span class="pill pill-blocked" title="${esc(o.reason)}">RIGHTS-BLOCKED</span></td>
-    </tr>`));
+      <td>${statusPill}${detail}</td>
+    </tr>`);
+  });
   tb.innerHTML = rows.length ? rows.join("") : '<tr><td colspan="6" class="empty">No current facts for this parcel (or parcel does not exist).</td></tr>';
 }
 

@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.44
+# LedgeX / ADU.X — Engineering Reference Spec v1.45
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.44 | Machine-executed build contract. |
+| 1 | This Spec v1.45 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -118,7 +118,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.44 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.45 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -345,6 +345,26 @@ not fixed: licence.commercial_use/redistribution are 'allowed' against cleared_b
      reported rather than fixed: NOT NULL stops the NULL bypass specifically, not an explicit
      created_at = '-infinity' on a new row asserting the same false history a different way -- flagged as an open
      question, the same shape of gap 0027 leaves open for source_rank.
+
+     db/migrations/0056_l0_gate_boundary_source.sql gives the L0/LD-1 jurisdiction gate a real runtime representation
+     for the first time (prompts/P53-l0-gate.md, design D-C) -- previously, jurisdictions/ca_san_jose/sources.yaml
+     declared city_limits' licence unknown and annotated it 'LD-1 -- BLOCKS EVERYTHING', but zero city_limits source
+     rows, zero jurisdiction.incorporated facts or field_definition rows, and zero licence rows with id='unknown' ever
+     existed -- composition was blocked only incidentally, by cc0/cc_by_4_0's own licence_channel.allowed=false
+     posture (0030), which a future clearance pass would remove without ever having built the intended gate. Adds the
+     permanent 'unknown' licence (six licence_channel rows, all allowed=false, following 0030's own reasoning
+     verbatim), the jurisdiction.incorporated field_definition row, the ca_san_jose.city_limits source row
+     (method='manual', not sources.yaml's own declared method: direct -- no verified endpoint exists, and I13 makes a
+     manual source permanently unable to produce a fact by design, never a limitation for this gate), and backfills
+     jurisdiction.boundary_source_id -- the FK to source jurisdiction added at genesis in 0002 and never wired to
+     anything until now -- for ca_san_jose only. scripts/compose_property_file.py's composer then refuses the existing
+     sec 9 code LICENCE_UNKNOWN at stage L0 whenever a jurisdiction declares boundary_source_id but no current
+     jurisdiction.incorporated fact exists for the parcel -- independent of any licence's own clearance state, proven
+     by a negative control against a fully-cleared test licence. Guarded throughout (existence-guarded INSERT for the
+     FK-ordering problem a fresh, unseeded database poses, matching 0032's own pattern; guarded UPDATE matching the
+     old NULL value, matching 0023/0026/0030's own pattern) -- safe on both a fresh migrations-only database and one
+     already seeded before this pass. db/seeds/day4_sources.sql carries the same rows, byte-identical, for every
+     install after this point. See sec 12's 1.45 entry.
 ```
 
 ### 3.3 Canonical field vocabulary
@@ -1866,7 +1886,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.44
+Engineering Reference Spec v1.45
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1927,7 +1947,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.44
+Engineering Reference Spec v1.45
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1958,7 +1978,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.44
+Engineering Reference Spec v1.45
 
 ## 9. Refusal and error codes
 
@@ -3089,6 +3109,17 @@ ELECTION_NOT_SUPPORTED already set. New invariants T103-T105, floor
 119 -> 122.
 
 vocabulary.
+Aug 2026             1.45                 db/migrations/0056_l0_gate_boundary_source.sql (section 3.2) gives the L0/LD-1  LD-1 was declared in jurisdictions/ca_san_jose/sources.yaml and in
+jurisdiction gate runtime representation: an 'unknown' licence row, a           prompts/STANDING-BLOCKER.md as blocking all channels, but had no runtime
+ca_san_jose.city_limits source row (method='manual'), a                         representation of any kind: no city_limits source row, no
+jurisdiction.incorporated field_definition, and jurisdiction.boundary_source_id jurisdiction.incorporated field or fact, and no code path in
+set for ca_san_jose only, which activates a refuse-on-absence check in the      scripts/compose_property_file.py -- whose own header already said "nothing
+composer emitting the existing sec 9 code LICENCE_UNKNOWN at stage L0. No new   ingested so far plays that role." Composition was therefore blocked only
+refusal code. No licence_channel row changed for cc0 or cc_by_4_0.              incidentally, by cc0/cc_by_4_0's own licence_channel.allowed=false posture
+(0030), which a future clearance pass would remove -- taking the only real
+barrier with it while the intended one stayed absent. The gate now blocks
+deliberately, for a reason independent of licence clearance, and a negative
+control proves the refusal survives a fully-cleared licence.
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
 Review” → “Composition &                review stage.
 Delivery”; core/review/ →
@@ -3745,4 +3776,4 @@ These checks are required and not asserted complete by this PDF. Record CI outpu
 
 ---
 
-*Generated 2026-08-19 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*
+*Generated 2026-08-21 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*
