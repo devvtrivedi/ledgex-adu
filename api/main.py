@@ -164,22 +164,113 @@ def index():
 # RIGHTS AND SOURCES
 # ---------------------------------------------------------------------------
 
+# P52. Two REPORTING-ONLY labels, computed here and nowhere else, called by
+# both routes below that put a licence's rights position in front of a human
+# (get_rights, get_parcel_facts). §7.3: "Channel eligibility for any fact is
+# determined solely by licences.yaml ... Nothing else grants a channel."
+# These functions are read-only derivations over columns core.rights.
+# evaluate_rights_gate never looks at (commercial_use, redistribution,
+# restriction, cleared_by, evidence_uri -- the gate itself reads only
+# licence_channel.allowed) and their output is never written back into any
+# table, never passed to evaluate_rights_gate, never consulted by the
+# composer. A stored version of either label would be exactly the "second
+# thing that could silently disagree" §7.3 forbids; keeping them
+# request-scoped and derived is what keeps that true. ONE implementation
+# each, not one per caller -- core/rights.py's own docstring makes this
+# argument for the gate itself ("a single shared implementation cannot drift
+# between the two places that put fact values on a screen"); the same
+# argument applies to a duplicated LABEL, not just a duplicated decision.
+
+# P52 Amendment 1. "allowed" is deliberately never a rights_position value:
+# licence_channel's own column is named `allowed`, and a reader who sees
+# rights_position="allowed" next to a fact that is still blocked would read
+# it as "flowing" -- the exact conflation this whole pass exists to remove,
+# reintroduced in the label. "restricted" is also deliberately not a value:
+# it would conflate PROHIBITED (the licence forbids the use outright) with
+# CONDITIONAL (the licence permits the use subject to a term, e.g.
+# attribution) -- CC BY 4.0 does not restrict commercial use, it conditions
+# it on attribution, and collapsing those two into one word erases exactly
+# the distinction the owner asked to preserve.
+#
+# Precedence, in order (every one of use_restriction's five real members --
+# 'open','attribution','noncommercial','no_resale','unknown', read live from
+# db/migrations/0001_extensions_and_enums.sql, not assumed -- is covered by
+# one of these four branches):
+#   1. ANY of the three columns is 'unknown'          -> "unknown"
+#      (I6 gates on unknown rights the same way; a reporting label that let
+#      an unknown restriction hide behind an 'allowed' commercial_use/
+#      redistribution pair would misreport exactly what I6 refuses to do.)
+#   2. commercial_use or redistribution is 'prohibited' -> "prohibits_use"
+#   3. both 'allowed' and restriction == 'open'          -> "permits_use"
+#   4. both 'allowed' and restriction is a real condition
+#      ('attribution' / 'noncommercial' / 'no_resale')   -> "permits_with_conditions"
+def derive_rights_position(commercial_use, redistribution, restriction):
+    if "unknown" in (commercial_use, redistribution, restriction):
+        return "unknown"
+    if "prohibited" in (commercial_use, redistribution):
+        return "prohibits_use"
+    if restriction == "open":
+        return "permits_use"
+    return "permits_with_conditions"
+
+
+# P52 Amendment 2. Three states, not two -- cleared_by alone collapses two
+# genuinely different things this pass exists to keep apart: concept (2),
+# whether a retained EVIDENCE artifact backs the licence identification
+# (licence.evidence_uri), and concept (3), whether an internal actor
+# actually SIGNED OFF (licence.cleared_by/cleared_at). A licence with a
+# clearance actor recorded and no retained artifact would read flatly
+# "cleared" under a two-state derivation -- asserting completed diligence
+# with nothing behind it. This repo has already been bitten by exactly this
+# shape once: CLAUDE.md records that ledgex_schema_check briefly carried
+# cc0/cc_by_4_0 rows with a FABRICATED cleared_by='test' and a fabricated
+# observed_at, from an old, unnamespaced version of db/tests/invariants.sql.
+# That instance is closed (every reachable database re-queried clean,
+# cleared_by/cleared_at NULL everywhere -- prompts/README.md), but a
+# two-state derivation would have rendered that exact contamination as
+# "cleared", which is the false claim this whole pass exists to prevent.
+# cleared_unevidenced exists for the CLASS of defect, not the closed
+# instance -- do not simplify this back to two states.
+def derive_diligence(cleared_by, evidence_uri):
+    if cleared_by is None:
+        return "written_confirmation_pending"
+    if evidence_uri is None:
+        return "cleared_unevidenced"
+    return "cleared"
+
+
 @app.get("/v1/rights")
 def get_rights(conn=Depends(_db)):
-    """licence x licence_channel, joined. The rationale is already written
-    for humans (§7.3: licences.yaml is the single source of truth for
-    channel eligibility) -- surfaced verbatim, never paraphrased, per this
-    package's own instruction."""
+    """licence x licence_channel, joined. licence_channel.rationale is
+    already written for humans (§7.3: licences.yaml is the single source of
+    truth for channel eligibility) -- surfaced verbatim, never paraphrased,
+    per this package's own instruction, and per-CHANNEL: cc_by_4_0's
+    model_training row carries a materially different rationale than its
+    other five channels (0032 -- model_training is denied for its own,
+    independent reason, never inferred from ordinary commercial-output
+    clearance), and this route must never flatten that back into one
+    licence-level string. rights_position and diligence (P52) are added
+    per row as EXTRA, licence-level CONTEXT alongside the untouched
+    channel-level allowed/rationale pair -- see derive_rights_position/
+    derive_diligence above for why they are computed here, not stored."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT l.id AS licence_id, l.display_name, l.restriction, "
-            "l.commercial_use, l.redistribution, l.cleared_by, l.cleared_at, "
+            "l.commercial_use, l.redistribution, l.attribution_text, "
+            "l.terms_url, l.evidence_uri, l.observed_at, l.notes, "
+            "l.cleared_by, l.cleared_at, "
             "lc.channel, lc.allowed, lc.rationale "
             "FROM licence l "
             "JOIN licence_channel lc ON lc.licence_id = l.id "
             "ORDER BY l.id, lc.channel"
         )
-        return {"data": _rows_as_dicts(cur)}
+        rows = _rows_as_dicts(cur)
+    for row in rows:
+        row["rights_position"] = derive_rights_position(
+            row["commercial_use"], row["redistribution"], row["restriction"]
+        )
+        row["diligence"] = derive_diligence(row["cleared_by"], row["evidence_uri"])
+    return {"data": rows}
 
 
 @app.get("/v1/sources")
@@ -313,6 +404,17 @@ class OmittedForRights(BaseModel):
     field_key: str
     licence_id: str
     reason: str
+    # P52: OPTIONAL, additive, reporting-only -- see derive_rights_position/
+    # derive_diligence above. The facts/omitted_for_rights PARTITION itself
+    # (which fact ends up in which list) is untouched: these two fields
+    # describe WHY a fact already in omitted_for_rights is there in more
+    # detail than the old one-size-fits-all reason string could, they never
+    # move a fact between the two lists. response_model=ParcelFactsResponse
+    # (below) means an undeclared field here would be silently dropped from
+    # every real response (P41 Fix 3(ii)'s own docstring) -- declared here
+    # for exactly that reason, not because every caller needs them.
+    rights_position: str | None = None
+    diligence: str | None = None
 
 
 class ParcelFactsResponse(BaseModel):
@@ -392,6 +494,35 @@ def get_parcel_facts(
             cur, touched_for_gate, VIEWER_CHANNEL
         )
 
+        # P52: rights_position/diligence context for whichever facts end up
+        # in omitted_for_rights below -- a SEPARATE query from the gate
+        # above, deliberately. evaluate_rights_gate's own two-tuple return
+        # (allowed_by_licence, blocked_by_licence) is untouched by this
+        # route (§7.3: the gate reads only licence_channel); this reads
+        # licence directly, for the licence_ids already touched, to label
+        # WHY a blocked fact is blocked without changing THAT it is
+        # blocked. Every touched fact.licence_id is a real licence row by
+        # construction (I3: fact.licence_id NOT NULL + FK) -- no .get()
+        # fallback needed, a missing key here would mean that guarantee
+        # broke, which is exactly a case to fail loud on, not paper over.
+        licence_ids = sorted({r[2] for r in touched_full})
+        cur.execute(
+            "SELECT id, commercial_use, redistribution, restriction, "
+            "cleared_by, evidence_uri FROM licence WHERE id = ANY(%s)",
+            (licence_ids,),
+        )
+        licence_by_id = {
+            lic_id: {
+                "commercial_use": commercial_use,
+                "redistribution": redistribution,
+                "restriction": restriction,
+                "cleared_by": cleared_by,
+                "evidence_uri": evidence_uri,
+            }
+            for lic_id, commercial_use, redistribution, restriction, cleared_by, evidence_uri
+            in cur.fetchall()
+        }
+
     permitted = []
     omitted_for_rights = []
     for fact_id, field_key, licence_id, value, source_id, snapshot_id, method, retrieved_at in touched_full:
@@ -414,12 +545,39 @@ def get_parcel_facts(
         if allowed_by_licence.get(licence_id, False):
             permitted.append(row)
         else:
+            lic = licence_by_id[licence_id]
+            rights_position = derive_rights_position(
+                lic["commercial_use"], lic["redistribution"], lic["restriction"]
+            )
+            diligence = derive_diligence(lic["cleared_by"], lic["evidence_uri"])
+            # P52 section 3: this is licence-level context ONLY. The
+            # actual reason THIS channel is blocked is licence_channel.
+            # rationale (channel-level, already the authoritative text
+            # get_rights surfaces verbatim) -- not reproduced here, since
+            # this route doesn't currently select it per-fact and adding
+            # a second verbatim copy of it here risks the two silently
+            # drifting. Two branches, not one flat sentence: a licence
+            # that itself permits the use reads differently from one
+            # that is unknown or prohibited, which is the whole point of
+            # this pass.
+            if rights_position in ("permits_use", "permits_with_conditions"):
+                reason = (
+                    f"Licence {licence_id!r} permits this use ({rights_position}); "
+                    f"channel {VIEWER_CHANNEL!r} is not yet cleared for output "
+                    f"(diligence: {diligence}). See GET /v1/rights for the "
+                    f"channel's own authoritative rationale."
+                )
+            else:
+                reason = (
+                    f"Licence {licence_id!r} is unknown or prohibits this use "
+                    f"({rights_position}) -- default-deny applies for channel "
+                    f"{VIEWER_CHANNEL!r} (§7.3, I6)."
+                )
             omitted_for_rights.append({
                 "field_key": field_key, "licence_id": licence_id,
-                "reason": f"Licence {licence_id!r} forbids channel {VIEWER_CHANNEL!r} "
-                          f"(§7.3, I6) -- default-deny applies whether the licence "
-                          f"explicitly denies this channel or simply has no allowed=true "
-                          f"row for it.",
+                "reason": reason,
+                "rights_position": rights_position,
+                "diligence": diligence,
             })
 
     return {

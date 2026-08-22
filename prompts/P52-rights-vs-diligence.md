@@ -346,3 +346,98 @@ an open question below rather than decided unilaterally here.
 5. Should the Supabase-hosted database (finding #23) finally be audited, now that U1's
    mechanics (§6) are worked out for the local databases and could plausibly extend to it —
    explicitly not decided or attempted here, per the prompt's own constraint.
+
+---
+
+## 10. Phase 2 amendment 4 — attribution_text factual assessment (not legal)
+
+Not a blocker for Phase 2, done now because of a sequencing constraint: `licence` is
+immutable (0027), so `attribution_text` can never be corrected in place — only a new
+licence row or a full rebuild (§6's U1) can change it. PASS 3's rebuild is the only cheap
+moment to fix it; reviewing it after PASS 3 means paying for a second rebuild. Recorded
+here, not fixed: neither this audit nor the owner is a lawyer, and no legal conclusion is
+embedded below or anywhere in code/comments from this pass.
+
+**Current value, read live from `ledgex_schema_check` (not transcribed from the spec, which
+carries a slightly different string — see the gap this itself represents, below):**
+
+```
+licence_id:        cc_by_4_0
+attribution_text:  'Data © City of San José'
+terms_url:         'https://creativecommons.org/licenses/by/4.0/'
+```
+
+CC BY 4.0 attribution conventionally wants five elements. Assessed against the current
+value:
+
+| Element | Present? | Detail |
+|---|---|---|
+| Title (of the specific work) | **No** | `attribution_text` names no dataset ("Parcels", "Zoning Districts") — a consumer citing this string alone cannot say which of the city's datasets it attributes. |
+| Creator / rightsholder | Partial | "City of San José" is named via the © mark. No named individual or department, which is likely fine for a municipal open-data publisher but is an assumption, not a confirmed convention for this specific steward. |
+| Source (link to the original) | **No** | Neither `attribution_text` nor `terms_url` links to the dataset's own source page (the GIS Open Data portal or data.sanjoseca.gov listing) — `terms_url` links to the CC BY 4.0 legal deed, a different thing. |
+| Licence name + link | Partial | `terms_url` is a correct, live link to the CC BY 4.0 deed, but it is a SEPARATE column from `attribution_text` — nothing in the current schema or seed composes them into one attribution string a consumer would actually display together. Whether a real rendering joins them is a Phase 3+/customer-delivery question, not decided here. |
+| Indication of changes made | **No, and arguably doesn't belong here** | Whether a given output modifies the source data is a property of THAT COMPOSITION/DELIVERY, not of the licence identification itself — the same touched fact could be delivered verbatim in one channel and transformed (e.g. reprojected, joined, summarized) in another. Recording it on `licence` would conflate a per-licence fact with a per-use one, the same shape of error this whole pass exists to fix one level up. This audit's opinion: this belongs at compose/delivery time (perhaps `property_file.attribution`, already a real jsonb column — P52 does not design that mechanism), not on `licence`. Not decided or implemented here.
+
+**What this finding does NOT do:** it does not conclude the current `attribution_text` is
+legally insufficient, and it does not propose replacement text — inventing either would be
+exactly the kind of legal conclusion embedded in a migration comment section 12 of the P52
+prompt explicitly warned against. It records a factual gap against a named external
+convention so the owner can decide whether counsel review happens before PASS 3, as
+`prompts/P52-rights-vs-diligence.md`'s own §8 already flagged as an open question. See §9
+question 4, unchanged by this section — recorded, not answered.
+
+## 11. Phase 2 close-out
+
+Implemented exactly what §4 designed, no more:
+
+- `api/main.py`: `derive_rights_position()`/`derive_diligence()`, one implementation each,
+  called by both `GET /v1/rights` (widened `SELECT`, two new computed fields per row) and
+  `GET /v1/parcels/{id}/facts` (`OmittedForRights` gained optional `rights_position`/
+  `diligence` fields; two-branch `reason` wording). Amendment 1's vocabulary
+  (`permits_use`/`permits_with_conditions`/`prohibits_use`/`unknown`, never `"allowed"` or
+  `"restricted"`) and Amendment 2's three-state diligence (`cleared`/`cleared_unevidenced`/
+  `written_confirmation_pending`) shipped exactly as specified.
+- `api/static/viewer.html`: Rights tab gained Rights position/Diligence columns (plus an
+  inline attribution note when `restriction='attribution'`) alongside the untouched,
+  still-verbatim per-channel Allowed/Rationale columns. Facts tab's blocked rows now show a
+  two-line detail (`PENDING CLEARANCE` + licence posture, vs. `RIGHTS-BLOCKED` + default-deny
+  note) instead of a single uniform pill — visible text, not tooltip-only.
+- `scripts/test_rights_reporting.py`: new, all passing — the full 45-row
+  `derive_rights_position` truth table, the 4-row `derive_diligence` table, a fake-cursor
+  proof that `core.rights.evaluate_rights_gate`'s default-deny behavior is unchanged, and two
+  database-backed tests against real seeded data (model_training's rationale stays distinct
+  from the other five channels; neither response ever reports `diligence='cleared'` while
+  `evidence_uri IS NULL`).
+- `prompts/STANDING-BLOCKER.md`: corrected per Amendment 3 — the LD-1/`city_limits` sentence
+  now carries a dated correction citing this document's own §5 finding, rather than standing
+  as an uncorrected claim that gate is live. Confirmed `build/qa_check.py` validates only
+  `docs/*.md`, never `prompts/*.md` (`make state` reads `prompts/README.md`'s package table
+  only, for a status line, never as a pass/fail gate) — this edit has no build-gate
+  consequence, checked directly rather than assumed.
+- This document: §10 above (Amendment 4's factual, non-legal attribution assessment).
+
+**Confirmed unchanged, every existing gate run against real data, none edited:**
+`make db-test` (122/122), `make golden` (both real fixtures + the election_required one, all
+byte-exact `payload_hash` matches), `make conformance` (0 failures), `scripts/
+test_viewer_rights_gate.py` (5/5), `make smoke-real` (14 passed, 1 skip for the
+documented idempotency reason — step 15's byte-level cc_by_4_0 absence proof included),
+`.claude/hooks/test_guard_destructive.py` (38/38).
+
+**What did not ship, and why:**
+- No migration, no new column — confirmed unnecessary, exactly as §4 predicted.
+- `core/rights.py` and `scripts/compose_property_file.py` — untouched, per the hard boundary;
+  their golden-locked payloads are byte-identical to before this pass.
+- No new refusal code, no spec version bump — §7's reasoning held throughout implementation;
+  nothing arose that needed one.
+- `attribution_text` itself — not rewritten (§10); not this pass's decision to make.
+- The Supabase database (finding #23) — untouched, per explicit out-of-scope instruction.
+
+**Where reality corrected the plan, not the other way round:** none found. Every mechanism
+Phase 1 predicted (existing columns sufficient, golden fixtures byte-locking the composer,
+`OmittedForRights`/`get_rights` as the two extension points, `evaluate_rights_gate` reachable
+via a fake cursor without a real database) held exactly as designed once implemented against
+a real database. The one genuine surprise was not a plan defect: the `internal_test.*` P42
+fixture already had `cleared_by='internal_test_seed'` with `evidence_uri IS NULL` in real
+seeded data, which meant `cleared_unevidenced` rendered correctly on real, organic data
+(`ledgex_smoke`'s own Rights tab) without needing the synthetic demo fixture built for it —
+confirmation the state was worth building, not a correction to anything Phase 1 claimed.
