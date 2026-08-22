@@ -416,3 +416,178 @@ argument, made concrete).
    verifying a real San José city-limits endpoint worth scheduling as its own future pass, or
    does D-C's declarative-but-unfilled gate serve the jurisdiction adequately for the
    foreseeable term?
+
+---
+
+## 10. Q4 — is `jurisdiction.tier` meant to gate, or is it descriptive like `phase_status`?
+
+**Meant to gate.** Evidence, not inference:
+
+- §7.3 says of `source.phase_status`, verbatim: *"is descriptive. It records why a source
+  is off so a human reading the ledger understands the reason. It never grants access."*
+  **No equivalent disclaimer exists anywhere for `jurisdiction.tier`.**
+- §5.3's own table ties tier value directly to composition eligibility, not merely to
+  record-keeping: Tier 1 — *"May compose if rights and minimum core clear."* Tier 2 —
+  *"Partial; useful integrated screening may remain"* / *"Permit/record-to-ground
+  conclusions refuse."* Tier 4 — *"Refused where minimum core cannot be obtained."* These
+  are behavioral claims about what a composition is allowed to produce, not descriptive
+  ledger prose.
+- 0027's own migration header (quoted in §12 of the spec) describes `tier` as *"designed to
+  be mutated as assessment status changes"* — language that presumes a real assessment
+  process feeds it, the same shape LD-1 was designed to have and never got.
+- `jurisdiction_tier`'s enum (`db/migrations/0001`) is `('tier_1','tier_2','tier_3','tier_4',
+  'blocked')` — `'blocked'` is a real, distinct member (the column's own `DEFAULT`), not a
+  placeholder string. Read as "no real assessment has happened yet, so nothing may compose"
+  — itself a gating semantics, not a descriptive one — it is the same honest "not yet
+  assessed" state LD-1's `licence: unknown` already models for a different axis.
+
+**So `tier`, like LD-1, is a real, designed control with zero runtime representation** —
+`_compose()` never selects it (confirmed directly, §1.2), and no coverage/freshness/
+reliability/required-field assessment machinery exists anywhere in this codebase to compute
+a real value for it in the first place (the composer has never built any of §5.3's four
+assessment criteria). Unlike LD-1, there is no small, scoped fix available here — LD-1 needed
+one new source/licence row and a presence check; a real `tier` gate needs the assessment
+machinery to exist before there is anything to gate ON. **Recommendation: this is worth its
+own future pass (P54-shaped), scoped first to designing what §5.3's four criteria actually
+measure and how, before touching the composer at all — not attempted here.** Not built in
+this pass, per §9 question 4's own instruction; this section exists so the answer is on
+record rather than rediscovered as a "gap" later.
+
+## 11. Q5 — the real city-limits endpoint (D-A), scheduled as a pre-paid-output precondition
+
+D-A (real ingest, §3) was rejected for *this* pass on narrow grounds: no verified endpoint,
+and Obstacle 3 means a `method='manual'` row can never produce a fact regardless. That
+rejection does not mean D-A is never worth doing — it means it is not worth doing *while
+output is closed*, which reframes when it becomes worth doing, not whether.
+
+**The reasoning to record:** D-C blocks every composition unconditionally today (§7 of the
+prompt's own restated success criterion — nothing changes today). While that is true,
+*jurisdiction correctness* — whether `parcel.jurisdiction_id` actually reflects reality —
+has no customer-facing consequence, because nothing reaches a customer either way. It starts
+mattering the moment output opens (PASS 3, a separate, unmade decision).
+
+**A second, related gap worth recording in the same place:** `parcel.jurisdiction_id` is
+currently **asserted at ingest time** from the parcels source (a plain column on the `parcel`
+row, set once, never independently verified against a boundary) — it is not derived from,
+or cross-checked against, anything spatial. `jurisdictions/ca_san_jose/sources.yaml`'s own
+`city_limits` entry already contemplates the real check: *"Cross-checked against county
+boundary; disagreement refuses"* (its own `notes` field, §7.1). That cross-check is a
+data-quality capability this repo has never built, distinct from the rights gate D-C adds —
+D-C proves a fact is MISSING; a real D-A ingest would be what could eventually prove the
+`jurisdiction_id` a parcel already carries is actually CORRECT.
+
+**Recommendation: record both — the real endpoint (D-A) and the boundary cross-check
+`sources.yaml` already names — as preconditions of paid or customer-facing output, alongside
+`attribution_text`'s own legal-review precondition (P52 §10)**, not as work items for PASS 3
+itself. Not attempted in this pass.
+
+## 12. `jurisdiction.boundary_source_id` — the both-halves resolution, and the FK ordering
+    problem, resolved explicitly
+
+**The gap the original plan missed (P53 prompt §2), confirmed directly:**
+`db/seeds/day4_sources.sql`'s `jurisdiction` INSERT ends `ON CONFLICT (id) DO NOTHING` — any
+database that already carries a `ca_san_jose` row (`ledgex_schema_check`, `ledgex_smoke`,
+every reachable scratch database) skips that INSERT entirely on a re-run, so a seed-only fix
+would leave `boundary_source_id` NULL exactly on every database this pass is developed and
+tested against, while working correctly on a fresh install and in CI. This is CLAUDE.md's
+own 0026 companion rule, applying again in full — the guarded-migration-plus-seed-fix "both
+halves" pattern is required, not optional, here.
+
+**The FK ordering problem, resolved:** `jurisdiction.boundary_source_id` is an FK to
+`source(id)`; `source.jurisdiction_id` is *itself* an FK to `jurisdiction(id)`
+(`source_jurisdiction_id_fkey`, confirmed directly). No migration in this repo's history has
+ever inserted a `jurisdiction` row (confirmed: zero `INSERT INTO jurisdiction` across
+`db/migrations/`, grepped directly) — jurisdiction rows are seed-only. So on a **fresh**
+database, `ca_san_jose` does not exist at migration time at all, which means a migration
+cannot unconditionally create the `city_limits` source row either (its own `jurisdiction_id`
+FK would have nothing to reference). Resolved with the exact existence-guard pattern
+CLAUDE.md already documents for this FK shape (0032): `INSERT INTO source (...) SELECT ...
+WHERE EXISTS (SELECT 1 FROM jurisdiction WHERE id = 'ca_san_jose')` — zero rows match on a
+fresh database (true no-op, no FK violation possible); on an *already-seeded* database, the
+row is created for real, immediately before the guarded `boundary_source_id` UPDATE that
+needs it. The full statement-by-statement argument, verified against both a fresh
+migrations-only database and an already-seeded one, lives in
+`db/migrations/0056_l0_gate_boundary_source.sql`'s own header.
+
+**Seeding-order convergence, verified for real, not by reasoning about it (per the prompt's
+own explicit instruction):** `scripts/check_golden.py`'s own `seed_reference_rows()` now
+independently seeds the same `'unknown'` licence/`licence_channel`/`city_limits` source/
+`jurisdiction.incorporated` field_definition rows and the `boundary_source_id` backfill —
+the same finding #32/#36-shaped risk (two independent seeders, one PK) applies here too.
+Confirmed convergent both ways: `make golden` run against a schema-only database (no
+`day4_sources.sql` ever applied) correctly activates the gate via `check_golden.py`'s own
+seeding alone; `make golden` run against a database seeded via `day4_sources.sql` FIRST
+(replicating `db.yml`'s real CI order exactly) converges to the identical blessed fixture,
+0 failures, same `payload_hash` values either way.
+
+**The "fails loudly if silently unset" check the prompt required:** `scripts/
+test_compose_l0_gate.py`'s own `test_real_ca_san_jose_boundary_source_id_is_set()` queries
+the real `ca_san_jose` row directly and fails if `boundary_source_id` is not exactly
+`'ca_san_jose.city_limits'` — this runs every time that test file runs, which is now part of
+the standard verification gate list (§13 below).
+
+## 13. Phase 2 close-out
+
+**Nothing a user could observe changed.** Every composition that refused before this pass
+still refuses; every one now carries one additional, honestly-earned refusal
+(`LICENCE_UNKNOWN`, stage L0) it was always entitled to. The negative control (§7) proves the
+gate holds independently of `cc0`/`cc_by_4_0`'s own clearance state — the actual point of
+this pass, restated exactly as the prompt asked: *the value is not that this blocks more, it
+is that the blocking is now deliberate and survives clearing.*
+
+**What shipped:**
+- `db/migrations/0056_l0_gate_boundary_source.sql` — the `'unknown'` licence (permanent, six
+  `licence_channel` rows, all `allowed=false`), the `jurisdiction.incorporated`
+  `field_definition` row, the `ca_san_jose.city_limits` source row (`method='manual'`), and
+  the guarded `boundary_source_id` backfill, all FK-ordering-safe on both fresh and
+  already-seeded databases (§12).
+- The same rows, byte-identical, added to `db/seeds/day4_sources.sql` for every install after
+  this point.
+- `scripts/compose_property_file.py`: the L0 check itself — refuses `LICENCE_UNKNOWN` when
+  `boundary_source_id IS NOT NULL` and no current `jurisdiction.incorporated` fact exists for
+  the parcel. No new query — reuses the exact `touched` set the I6 gate already fetches.
+  `core/rights.py`/`evaluate_rights_gate` untouched.
+- `scripts/check_golden.py`: seeding-order convergence (§12), `expected_count` 2→3 / 3→4, a
+  new `_licence_unknown_refusal()` helper, and positive assertions on its detail fields —
+  following the exact established pattern for `_rights_blocked_refusal`/
+  `_geometry_tier_disabled_refusal`/`_election_required_refusal`.
+- `tests/golden/ca_san_jose/{refused,geometry_disabled,election_required}.json` —
+  regenerated via the existing `--bless` flag (no new tooling), as its own explicit,
+  narrated step. Every `payload_hash` changed, each for the single stated reason: one new
+  `LICENCE_UNKNOWN` refusal, byte-identical in cause across all three.
+- `scripts/test_compose_l0_gate.py` — the negative control, the positive companion, the
+  untouched-jurisdiction control (all three, none dropped), and the activation-switch check
+  — shown RED against unmodified code, then GREEN after implementation.
+- `CLAUDE.md` — the stale CI-seeding claim (§9 question 3), corrected first, as its own
+  commit, per the prompt's own Commit Zero instruction.
+- Stale current-tense "TWO refusals" claims corrected in `scripts/check_golden.py`'s own
+  module docstring and `Makefile`'s `golden:` target comment (found while regenerating
+  fixtures; both were live, current-tense claims, not historical narration, so both were
+  wrong the moment this pass landed and are fixed in the same commit).
+
+**What did not ship, and why:**
+- No new refusal code, no spec version bump for the code itself — `LICENCE_UNKNOWN` was
+  already correct and already documented; nothing about its meaning changed.
+- `jurisdiction.tier` — untouched beyond §10's written decision, per the hard constraint.
+- The real city-limits endpoint (D-A) — not attempted; recorded as a pre-paid-output
+  precondition (§11), not this pass's job.
+- Not one `licence_channel` row for `cc0`/`cc_by_4_0` moved. Confirmed directly: `scripts/
+  test_compose_election.py`, `scripts/test_compose_geometry_tier_used.py`, `scripts/
+  test_compose_collision_invariant.py` and `scripts/test_compose_parcel_refusals.py` all
+  still pass unmodified — none of their synthetic test jurisdictions ever had
+  `boundary_source_id` set, so D-C's own scoping claim held in practice, not just in design.
+
+**Where reality disagreed with the plan (§9's own honesty requirement), not quietly worked
+around:**
+- `build/qa_check.py`'s `check_spec_references_migrations()` requires every migration
+  filename to appear somewhere in `docs/LEDGEX_SPEC.md` — `0056_l0_gate_boundary_source.sql`
+  does not appear there yet, so `make check-boundary` currently reports this one failure.
+  Every OTHER migration in this repo's history that touches `docs/LEDGEX_SPEC.md` also
+  received its own `§12` change-record row and version bump (confirmed by checking: 0037 →
+  v1.19, 0041 → v1.24, 0053/0054/0055 all have their own §12 entries) — satisfying this
+  check in the way this repo actually practices it would mean bumping the spec version and
+  adding a §12 row, which is squarely the thing the hard constraints reserve for the owner
+  ("No spec version bump. If you find you need [one], stop and report"). Reported here
+  rather than resolved unilaterally either direction (neither silently bumping the version
+  nor silently satisfying the check with a token, precedent-breaking mention). `make
+  check-boundary`'s other two checks (import-linter, jurisdiction-name grep) both pass.

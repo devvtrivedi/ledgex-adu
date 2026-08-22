@@ -367,9 +367,11 @@ test:
 # geometry-disabled real too, via scripts/check_golden.py and
 # tests/golden/ca_san_jose/{refused,geometry_disabled}.json -- composed
 # and partial are still not (would mean fabricating a licence clearance
-# STANDING-BLOCKER.md says does not exist). Both real fixtures now carry
-# TWO refusals each (RIGHTS_BLOCKED and GEOMETRY_TIER_DISABLED) -- P25's
-# own report settles why refusals accumulate across stages rather than
+# STANDING-BLOCKER.md says does not exist). All three real fixtures now
+# carry THREE refusals each (RIGHTS_BLOCKED, GEOMETRY_TIER_DISABLED and,
+# since P53, LICENCE_UNKNOWN -- the L0/LD-1 jurisdiction gate given a real
+# runtime representation, prompts/P53-l0-gate.md) -- P25's own report
+# settles why refusals accumulate across stages rather than
 # short-circuiting. This target's own exit code tracks ONLY those two
 # checks' own correctness (0 = both passed, 1 = either failed) -- it does
 # NOT mean "all four classes covered." scripts/check_golden.py prints the

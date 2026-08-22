@@ -28,6 +28,16 @@
           "stage": "L7"
         },
         {
+          "code": "LICENCE_UNKNOWN",
+          "detail": {
+            "boundary_source_id": "ca_san_jose.city_limits",
+            "field_key": "jurisdiction.incorporated",
+            "jurisdiction_id": "ca_san_jose"
+          },
+          "message": "Jurisdiction 'ca_san_jose' declares boundary_source_id='ca_san_jose.city_limits' as the source that resolves its boundary, but no current jurisdiction.incorporated fact exists for this parcel -- default deny (\u00a71.1, \u00a79).",
+          "stage": "L0"
+        },
+        {
           "code": "RIGHTS_BLOCKED",
           "detail": {
             "channel": "paid_property_file",
@@ -42,7 +52,7 @@
       ],
       "status": "refused"
     },
-    "payload_hash": "a4c45aac7eba3fe37ceb3f2247481ba136dc504e92d7c7171ca6987662743139",
+    "payload_hash": "eb948b57ad2ed4f060138b529553ccdd8196d5dcf41a6aaef47afc596adf21f6",
     "refusals": [
       {
         "code": "GEOMETRY_TIER_DISABLED",
@@ -52,6 +62,16 @@
         },
         "message": "placement requires a validated geometry tier, and this jurisdiction's geometry tier is disabled (3DEP gate not cleared, I10).",
         "stage": "L7"
+      },
+      {
+        "code": "LICENCE_UNKNOWN",
+        "detail": {
+          "boundary_source_id": "ca_san_jose.city_limits",
+          "field_key": "jurisdiction.incorporated",
+          "jurisdiction_id": "ca_san_jose"
+        },
+        "message": "Jurisdiction 'ca_san_jose' declares boundary_source_id='ca_san_jose.city_limits' as the source that resolves its boundary, but no current jurisdiction.incorporated fact exists for this parcel -- default deny (\u00a71.1, \u00a79).",
+        "stage": "L0"
       },
       {
         "code": "RIGHTS_BLOCKED",

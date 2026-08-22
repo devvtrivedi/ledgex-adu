@@ -315,6 +315,117 @@ INSERT INTO source_rank (jurisdiction_id, field_key, source_id, rank, rationale)
 ON CONFLICT (jurisdiction_id, field_key, source_id) DO NOTHING;
 
 -- ============================================================================
+-- L0 GATE (P53): a real runtime representation for the LD-1 jurisdiction
+-- gate, prompts/P53-l0-gate.md design D-C. THIS SEED CLEARS NOTHING -- see
+-- that document and db/migrations/0056_l0_gate_boundary_source.sql's own
+-- header for the full argument. Byte-identical to that migration's own
+-- INSERTs (both must converge regardless of which runs first against an
+-- already-existing database -- see that migration's header, and
+-- prompts/P53-l0-gate.md sec 6 for why seeding-order convergence here is a
+-- real requirement, the same class of bug findings #32/#36 already found
+-- and fixed for source/rule rows). This is the copy every install gets
+-- from this point on; 0056 is only for a database that was already seeded
+-- before this pass landed.
+-- ============================================================================
+
+INSERT INTO licence (
+  id, display_name, restriction, commercial_use, redistribution,
+  attribution_text, terms_url, evidence_uri, observed_at, cleared_by, cleared_at, notes
+) VALUES (
+  'unknown',
+  'Licence not yet observed',
+  'unknown', 'unknown', 'unknown',
+  NULL, NULL, NULL,
+  '2026-08-22'::timestamptz,
+  NULL, NULL,
+  'LD-1 gate source (jurisdictions/ca_san_jose/sources.yaml: ca_san_jose.city_limits). '
+  'Licence text never observed -- id, display_name and every restriction/commercial_use/'
+  'redistribution value match jurisdictions/ca_san_jose/licences.yaml (docs/LEDGEX_SPEC.md '
+  'sec 7.2, id=unknown) verbatim, not independently invented. '
+  'observed_at records the date this row was created (the date its UNKNOWN-NESS was '
+  'recorded), never a date on which the licence''s actual terms were read -- no such '
+  'reading has ever happened. See prompts/P53-l0-gate.md.'
+) ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO licence_channel (licence_id, channel, allowed, rationale) VALUES
+  ('unknown', 'free_snapshot', false,
+   'LD-1: gate source unconfirmed, licence text never observed (sec 1.1). No channel is '
+   'ever cleared for an unidentified licence -- identifying it requires a new licence row '
+   '(0027), never an UPDATE to this one.'),
+  ('unknown', 'paid_property_file', false,
+   'LD-1: gate source unconfirmed, licence text never observed (sec 1.1). No channel is '
+   'ever cleared for an unidentified licence -- identifying it requires a new licence row '
+   '(0027), never an UPDATE to this one.'),
+  ('unknown', 'api', false,
+   'LD-1: gate source unconfirmed, licence text never observed (sec 1.1). No channel is '
+   'ever cleared for an unidentified licence -- identifying it requires a new licence row '
+   '(0027), never an UPDATE to this one.'),
+  ('unknown', 'bulk_export', false,
+   'LD-1: gate source unconfirmed, licence text never observed (sec 1.1). No channel is '
+   'ever cleared for an unidentified licence -- identifying it requires a new licence row '
+   '(0027), never an UPDATE to this one.'),
+  ('unknown', 'analytics', false,
+   'LD-1: gate source unconfirmed, licence text never observed (sec 1.1). No channel is '
+   'ever cleared for an unidentified licence -- identifying it requires a new licence row '
+   '(0027), never an UPDATE to this one.'),
+  ('unknown', 'model_training', false,
+   'LD-1: gate source unconfirmed, licence text never observed (sec 1.1). No channel is '
+   'ever cleared for an unidentified licence -- identifying it requires a new licence row '
+   '(0027), never an UPDATE to this one.')
+ON CONFLICT (licence_id, channel) DO NOTHING;
+
+INSERT INTO field_definition (field_key, display_name, claim, value_type, category, description)
+VALUES (
+  'jurisdiction.incorporated', 'Jurisdiction incorporated', 'public_record', 'boolean',
+  'jurisdiction',
+  'Whether this parcel resolves within the jurisdiction''s incorporated boundary, per '
+  'jurisdictions/ca_san_jose/sources.yaml''s own ca_san_jose.city_limits declaration '
+  '(the L0 gate, sec 1.1). No source currently supplies this field as a fact -- see '
+  'prompts/P53-l0-gate.md; the field is declared so the composer''s absence-check has a '
+  'real field_key to require, not so a value exists yet.'
+) ON CONFLICT (field_key) DO NOTHING;
+
+-- method='manual', not sources.yaml's own declared method: direct -- no
+-- real, verified San Jose city-limits endpoint exists (P53-l0-gate.md
+-- Obstacle 2). This row exists as jurisdiction.boundary_source_id's FK
+-- target only, never as an ingest path (I13 forbids a manual source from
+-- ever producing a fact -- P53-l0-gate.md Obstacle 3).
+INSERT INTO source (
+  id, jurisdiction_id, display_name, steward, method, phase_status, phase_status_reason,
+  endpoint_url, licence_id, active
+) VALUES (
+  'ca_san_jose.city_limits', 'ca_san_jose', 'City limits / jurisdiction boundary',
+  'City of San José', 'manual', 'blocked_rights',
+  'Licence not observed. Supplies the L0 gate, so under I6 this blocks ALL channels '
+  'including free_snapshot. Launch dependency LD-1. Plan App K: "Blocked for paid output '
+  '-- required for the jurisdiction gate; confirm licence." method=''manual'' here, not '
+  'sources.yaml''s own declared method: direct -- no real, verified endpoint exists yet '
+  '(P53-l0-gate.md Obstacle 2); this row exists as jurisdiction.boundary_source_id''s FK '
+  'target, never as an ingest path (I13 forbids a manual source from ever producing a '
+  'fact, by design -- see P53-l0-gate.md Obstacle 3).',
+  NULL, 'unknown', false
+) ON CONFLICT (id) DO UPDATE SET
+  jurisdiction_id = EXCLUDED.jurisdiction_id,
+  display_name = EXCLUDED.display_name,
+  steward = EXCLUDED.steward,
+  method = EXCLUDED.method,
+  phase_status = EXCLUDED.phase_status,
+  phase_status_reason = EXCLUDED.phase_status_reason,
+  endpoint_url = EXCLUDED.endpoint_url,
+  licence_id = EXCLUDED.licence_id,
+  active = EXCLUDED.active;
+
+-- Activation switch (D-C): NULL for every jurisdiction except ca_san_jose --
+-- do not set this for any other jurisdiction row this file or any test
+-- fixture ever creates. Guarded (matches the specific old value, IS NULL,
+-- in the WHERE clause), same 0023/0026/0030 pattern, not a blind UPDATE --
+-- safe to re-run this file any number of times.
+UPDATE jurisdiction
+   SET boundary_source_id = 'ca_san_jose.city_limits'
+ WHERE id = 'ca_san_jose'
+   AND boundary_source_id IS NULL;
+
+-- ============================================================================
 -- RULES (P31): one real rule, sourced from a City guidance bulletin, not
 -- the ordinance text itself -- see this row's own citation and finding #34
 -- (prompts/README.md) for why SJMC §20.80.175 could not be read directly
