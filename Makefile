@@ -13,7 +13,7 @@
 # diff against the committed file — match PG_DUMP/DATABASE_URL to 16 before
 # regenerating it.
 
-.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state smoke-real
+.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state smoke-real local-up local-down
 
 # `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
 # not guaranteed under `make -j`: parallel make can start pdf's docs
@@ -438,6 +438,39 @@ SMOKE_DATABASE_URL ?= postgresql://localhost/ledgex_smoke
 SMOKE_PYTHON       ?= $(PYTHON)
 smoke-real:
 	SMOKE_DATABASE_URL="$(SMOKE_DATABASE_URL)" $(SMOKE_PYTHON) scripts/smoke_real.py
+
+# P51. The manual walkthrough this replaces: derive PGPASSWORD from the
+# `ledgex` container by hand, export it into one shell, run uvicorn with a
+# hand-typed DATABASE_URL -- brittle exactly where it matters, because a new
+# terminal or a `cd` loses the exports and a relative .venv-api/bin/python3
+# silently resolves to nothing (exit 127). scripts/local_up.py fixes both:
+# it resolves its own repo root from its own file path (never cwd, never an
+# env var) and re-execs itself under .venv-api's own interpreter the moment
+# it notices it isn't already running there -- so it works invoked by
+# absolute path from anywhere, under whatever python3 happens to be on
+# PATH. `make -C ~/Desktop/ledgex-adu local-up` (or the absolute-path
+# invocation above) is the equivalent from another directory -- `make`
+# itself still needs a Makefile in the cwd; this target does not change
+# that.
+#
+# Reuses P50's env-binding and refusal logic rather than a second copy of
+# the same judgment: infra.env._is_local/resolved_host, imported the same
+# way scripts/smoke_real.py's own step_env() already does (P47 finding #44
+# is on record about what a second hand-rolled copy costs). Binds only
+# SMOKE_DATABASE_URL, defaulting to the local smoke database -- NEVER
+# DATABASE_URL, under any name, for the identical P39/finding #43 reason
+# smoke-real above never reads it either.
+#
+# Idempotent: a second `make local-up` while the viewer is already healthy
+# reports that and exits 0 without starting a second process. `make
+# local-down` stops ONLY the one pid it recorded, and only after confirming
+# that pid's own command line still looks like our uvicorn invocation --
+# never a pattern-matched pkill, never anything else.
+local-up:
+	$(PYTHON) scripts/local_up.py
+
+local-down:
+	$(PYTHON) scripts/local_up.py --down
 
 clean:
 	rm -rf dist build/__pycache__ $(SCHEMA_DUMP).tmp

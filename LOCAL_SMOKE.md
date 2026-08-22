@@ -75,7 +75,38 @@ localhost.
 
 ---
 
-## 3. `make smoke-real`
+## 3. `make local-up` / `make local-down`
+
+P51. `make local-up` starts the internal viewer bound to `ledgex_smoke`, with
+no credential ever typed or exported by hand -- it derives the Postgres
+password itself (an already-set `PGPASSWORD`, else `docker inspect`'s
+`Config.Env`, else trust auth) and never prints or logs the value, only its
+source. `make local-down` stops only the one process it started, after
+confirming that pid's command line still looks like our own uvicorn
+invocation. Both are idempotent: a second `local-up` while it is already
+healthy reports that and exits 0; a second `local-down` reports nothing to
+stop and exits 0. Neither ever reads `DATABASE_URL`, and neither ever binds
+anything but the local smoke database (`SMOKE_DATABASE_URL`, same default
+and same refusal logic as `make smoke-real` above).
+
+State: pidfile at `/tmp/ledgex-local/viewer.pid`, log at
+`/tmp/ledgex-local/viewer.log` -- both printed on every run.
+
+From another directory, `make` still needs a Makefile in the cwd, so
+`make local-up` from `~` does not work. Either
+`make -C ~/Desktop/ledgex-adu local-up`, or invoke the script directly by
+absolute path -- it resolves its own repo root from its own file location
+and re-execs itself under `.venv-api`'s interpreter, so this works from
+anywhere:
+
+```bash
+python3 ~/Desktop/ledgex-adu/scripts/local_up.py
+python3 ~/Desktop/ledgex-adu/scripts/local_up.py --down
+```
+
+---
+
+## 4. `make smoke-real`
 
 ```bash
 make smoke-real
@@ -119,7 +150,7 @@ Printed on every run, pass or fail, in the same coverage-honesty style
 
 ---
 
-## 4. Guardrails
+## 5. Guardrails
 
 Two layers, because they fail differently.
 
@@ -181,7 +212,7 @@ a day.
 
 ---
 
-## 5. One security finding, from writing this
+## 6. One security finding, from writing this
 
 `.env` currently holds a live hosted Postgres URL **with its password in
 plaintext**, pointing at a real database — not a local one.

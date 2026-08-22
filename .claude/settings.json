@@ -38,6 +38,8 @@
       "Bash(docker compose up:*)",
       "Bash(docker compose logs:*)",
       "Bash(make smoke-real:*)",
+      "Bash(make local-up:*)",
+      "Bash(make local-down:*)",
       "Bash(make db-test:*)",
       "Bash(make test:*)",
       "Bash(make golden:*)",
