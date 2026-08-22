@@ -527,7 +527,7 @@ def step_fetch(ctx):
             "in the smoke database to see what came back." % p.returncode)
 
     row = _one(_pg(ctx),
-               "SELECT snapshot_id, content_hash, byte_size, media_type, object_uri, "
+               "SELECT id, content_hash, byte_size, media_type, object_uri, "
                "http_status, fetched_at FROM snapshot WHERE source_id = %s "
                "ORDER BY fetched_at DESC LIMIT 1", (PERMITS_SOURCE_ID,))
     _pg(ctx).rollback()
@@ -612,7 +612,7 @@ def step_verify_hash(ctx):
 
 def step_parcels_snapshot(ctx):
     row = _one(_pg(ctx),
-               "SELECT snapshot_id, content_hash, byte_size, fetched_at FROM snapshot "
+               "SELECT id, content_hash, byte_size, fetched_at FROM snapshot "
                "WHERE source_id = %s AND http_status BETWEEN 200 AND 299 "
                "ORDER BY fetched_at DESC LIMIT 1", (PARCELS_SOURCE_ID,))
     _pg(ctx).rollback()
