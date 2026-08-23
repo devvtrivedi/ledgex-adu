@@ -56,22 +56,33 @@ def main():
             -- comment for why: counsel/owner sign-off is genuinely still Pending, and
             -- this insert must not fabricate it on whatever database it first reaches.
             INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution,
-                                  attribution_text, observed_at, cleared_by, cleared_at)
+                                  attribution_text, observed_at, cleared_by, cleared_at, notes)
             VALUES
               ('cc_by_4_0', 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose',
-               '2026-07-31'::timestamptz, NULL, NULL),
+               '2026-07-31'::timestamptz, NULL, NULL, NULL),
               ('cc0', 'CC0', 'open', 'allowed', 'allowed', NULL,
-               '2026-07-31'::timestamptz, NULL, NULL),
+               '2026-07-31'::timestamptz, NULL, NULL, NULL),
               -- P55: see _p5_setup.py's identical comment -- the real ingest
               -- scripts this run shells out to now write facts citing these
               -- ids; the OLD rows stay for this script's own hand-written
               -- reconciliation-test INSERT further down (literal 'cc_by_4_0').
+              -- notes carries the same SUCCESSION mitigation (P55 §12.6).
               ('cc_by_4_0_api_2026_08', 'CC BY 4.0 (api channel, scoped 2026-08)',
                'attribution', 'allowed', 'allowed', 'City of San Jose',
-               '2026-07-31'::timestamptz, NULL, NULL),
+               '2026-07-31'::timestamptz, NULL, NULL,
+               'SUCCESSION (P55 §12.6): this id did not exist before 2026-08-22 -- minted then '
+               'as a scoping decision under CC BY 4.0 terms observed 2026-07-31 (hence '
+               'observed_at above, not today). A snapshot row citing this id under an earlier '
+               'fetched_at records the terms under which the bytes are used, never that this id '
+               'existed at fetch time.'),
               ('cc0_api_2026_08', 'CC0 1.0 (api channel, scoped 2026-08)',
                'open', 'allowed', 'allowed', NULL,
-               '2026-07-31'::timestamptz, NULL, NULL)
+               '2026-07-31'::timestamptz, NULL, NULL,
+               'SUCCESSION (P55 §12.6): this id did not exist before 2026-08-22 -- minted then '
+               'as a scoping decision under CC0 1.0 terms observed 2026-07-31 (hence observed_at '
+               'above, not today). A snapshot row citing this id under an earlier fetched_at '
+               'records the terms under which the bytes are used, never that this id existed at '
+               'fetch time.')
             ON CONFLICT (id) DO NOTHING
         """)
         cur.execute("""

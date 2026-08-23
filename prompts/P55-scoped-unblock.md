@@ -1340,6 +1340,48 @@ change, and is a larger decision than this pass's own seed-only scope anticipate
 document does not pick between them — that is the owner's call, named here so it is
 recorded as a decision rather than defaulted into.
 
+**RESOLVED, 2026-08-23 — owner decision: option (a).** Accepted, by the owner, in this
+session, with three conditions attached and landed before Stage 6 writes a single snapshot
+row:
+
+1. **Mitigated in the data, not only in this document.** Both new licence rows' own `notes`
+   column now states the succession explicitly, in every seeder that writes them
+   (`db/seeds/day4_sources.sql`, `scripts/check_golden.py`'s `seed_reference_rows()`,
+   `scripts/check_conformance.py`'s own fallback, `scripts/_p5_setup.py`,
+   `scripts/_phaseb_setup.py` — verified byte-identical across the three that share a real
+   convergence risk, per this document's own established discipline): this id did not
+   exist before 2026-08-22, was minted then as a scoping decision under terms observed
+   2026-07-31, and any snapshot row citing it under an earlier `fetched_at` records "these
+   bytes were fetched under the terms this id represents," never that this id existed at
+   fetch time. A query against `licence.notes` now carries this reading with it; a reader
+   is not dependent on having also read this prompt file.
+
+2. **The cost, stated plainly, not as a footnote.** `snapshot.licence_observed_id`, for
+   every snapshot row this pass rebuilds or reuses, will permanently record the scoping
+   decision under which the data is currently used rather than the licence identification
+   genuinely believed to apply at the real, historical moment of fetch. This is a real,
+   deliberate narrowing of what that column means for any reader of a rebuilt row, going
+   forward, for as long as those rows exist. **This belongs in §10 ("what this pass does
+   not do") at close-out, explicitly, not only here** — flagged so it is not dropped
+   between this section and that one.
+
+3. **The honest future fix, named as a scheduled gap, not a someday.** Separating "the
+   licence identification believed to apply when these bytes were fetched" from "the
+   licence id under which this data is currently, lawfully used" needs its own column (or
+   an equivalent structural separation) and its own migration — real design work, out of
+   this seed-only pass's scope (§4.7's own established conclusion). §12.5 already
+   establishes that P45's own ingest-provenance hardening never covered this axis (byte
+   identity, not licence identity over time) — this is that axis's own first real
+   collision with an immutable schema, and the fix belongs to a future package, named here
+   so the next reader who hits this finds a scheduled gap rather than rediscovering the
+   same defect from scratch. **Named successor: a future pass separating
+   `snapshot.licence_observed_id` (historical, at-fetch belief) from a licence's own
+   current-use scoping — not P55, not designed here, owed to whoever picks up
+   `fact_snapshot_licence_fk`'s own consequences next.**
+
+With all three landed, Stage 6 may proceed to register `ledgex_schema_check`'s own real
+snapshots under the new licence ids.
+
 ### 12.7 Flagged for this pass's own close-out — recorded now so neither is lost
 
 **A correction to P52's own close-out claim, not merely a P55-internal fix.**

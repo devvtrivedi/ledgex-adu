@@ -222,7 +222,17 @@ def seed_reference_rows(conn):
                     'counsel review remain outstanding (cleared_by/cleared_at/evidence_uri '
                     'NULL, deliberately) -- this row does NOT assert diligence is complete. '
                     'See prompts/P55-scoped-unblock.md and licence_channel.rationale (per '
-                    'channel) for the authoritative per-channel decision text.')
+                    'channel) for the authoritative per-channel decision text. '
+                    'SUCCESSION (P55 §12.6): this id did not exist before 2026-08-22 -- it '
+                    'was minted then, as a scoping decision (which channel may use already-'
+                    'identified terms), under CC BY 4.0 terms whose TEXT was observed '
+                    '2026-07-31 (hence observed_at above carries that earlier date, not '
+                    'today -- the terms predate this id; this id records a decision about '
+                    'them, not a fresh reading of them). Any snapshot row citing this '
+                    'licence_id under an EARLIER fetched_at records "these bytes were '
+                    'fetched under the terms this id represents," never "this id existed at '
+                    'the time of that fetch" -- read literally as the latter it would be '
+                    'anachronistic, and must not be read that way.')
             ON CONFLICT (id) DO NOTHING
             """,
             (ip.LICENCE_ID,),

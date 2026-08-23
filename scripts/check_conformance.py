@@ -143,25 +143,63 @@ def seed_reference_rows(conn):
         cur.execute(
             """
             INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution,
-                                  attribution_text, terms_url, observed_at, cleared_by, cleared_at)
+                                  attribution_text, terms_url, observed_at, cleared_by, cleared_at,
+                                  notes)
             VALUES
               ('cc0', 'CC0 1.0 Universal', 'open', 'allowed', 'allowed', NULL,
-               'https://creativecommons.org/publicdomain/zero/1.0/', '2026-07-31'::timestamptz, NULL, NULL),
+               'https://creativecommons.org/publicdomain/zero/1.0/', '2026-07-31'::timestamptz, NULL, NULL,
+               NULL),
               ('cc_by_4_0', 'CC BY 4.0', 'attribution', 'allowed', 'allowed',
                'Data © City of San José', 'https://creativecommons.org/licenses/by/4.0/',
-               '2026-07-31'::timestamptz, NULL, NULL),
+               '2026-07-31'::timestamptz, NULL, NULL, NULL),
               -- P55: the `source` INSERT below reads ip.LICENCE_ID /
               -- izp.LICENCE_ID_ZONING / izp.LICENCE_ID_PERMITS directly --
               -- already repointed to these ids (§4.1/§4.5 step 9) -- so this
               -- reference-row fallback needs the licence rows to match, or a
               -- migrations-only `make conformance` run raises
-              -- foreign_key_violation instead of testing the pack.
+              -- foreign_key_violation instead of testing the pack. notes kept
+              -- byte-identical to db/seeds/day4_sources.sql's own two rows
+              -- (same "every seeder of it must agree exactly" discipline
+              -- check_golden.py's seed_reference_rows() already follows) --
+              -- the SUCCESSION text is a real provenance mitigation (P55
+              -- §12.6), not decoration, and must travel with this row no
+              -- matter which seeder gets there first.
               ('cc_by_4_0_api_2026_08', 'CC BY 4.0 (api channel, scoped 2026-08)',
                'attribution', 'allowed', 'allowed', 'Data © City of San José',
-               'https://creativecommons.org/licenses/by/4.0/', '2026-07-31'::timestamptz, NULL, NULL),
+               'https://creativecommons.org/licenses/by/4.0/', '2026-07-31'::timestamptz, NULL, NULL,
+               'Owner decision 2026-08-22: licence terms (CC BY 4.0) are identified and permit this '
+               'use (commercial use and redistribution both allowed per the licence text itself). '
+               'Opened for the api channel only -- viewer-only display of already-ingested facts. '
+               'Written confirmation, evidence and counsel review remain outstanding '
+               '(cleared_by/cleared_at/evidence_uri NULL, deliberately) -- this row does NOT assert '
+               'diligence is complete. See prompts/P55-scoped-unblock.md and licence_channel.rationale '
+               '(per channel) for the authoritative per-channel decision text. '
+               'SUCCESSION (P55 §12.6): this id did not exist before 2026-08-22 -- it was minted then, '
+               'as a scoping decision (which channel may use already-identified terms), under CC BY '
+               '4.0 terms whose TEXT was observed 2026-07-31 (hence observed_at above carries that '
+               'earlier date, not today -- the terms predate this id; this id records a decision '
+               'about them, not a fresh reading of them). Any snapshot row citing this licence_id '
+               'under an EARLIER fetched_at records "these bytes were fetched under the terms this '
+               'id represents," never "this id existed at the time of that fetch" -- read literally '
+               'as the latter it would be anachronistic, and must not be read that way.'),
               ('cc0_api_2026_08', 'CC0 1.0 (api channel, scoped 2026-08)',
                'open', 'allowed', 'allowed', NULL,
-               'https://creativecommons.org/publicdomain/zero/1.0/', '2026-07-31'::timestamptz, NULL, NULL)
+               'https://creativecommons.org/publicdomain/zero/1.0/', '2026-07-31'::timestamptz, NULL, NULL,
+               'Owner decision 2026-08-22: licence terms (CC0 1.0) are identified and permit this '
+               'use (commercial use and redistribution both allowed per the licence text itself). '
+               'Opened for the api channel only -- viewer-only display of already-ingested facts. '
+               'Written confirmation, evidence and counsel review remain outstanding '
+               '(cleared_by/cleared_at/evidence_uri NULL, deliberately) -- this row does NOT assert '
+               'diligence is complete. See prompts/P55-scoped-unblock.md and licence_channel.rationale '
+               '(per channel) for the authoritative per-channel decision text. '
+               'SUCCESSION (P55 §12.6): this id did not exist before 2026-08-22 -- it was minted then, '
+               'as a scoping decision (which channel may use already-identified terms), under CC0 1.0 '
+               'terms whose TEXT was observed 2026-07-31 (hence observed_at above carries that earlier '
+               'date, not today -- the terms predate this id; this id records a decision about them, '
+               'not a fresh reading of them). Any snapshot row citing this licence_id under an '
+               'EARLIER fetched_at records "these bytes were fetched under the terms this id '
+               'represents," never "this id existed at the time of that fetch" -- read literally as '
+               'the latter it would be anachronistic, and must not be read that way.')
             ON CONFLICT (id) DO NOTHING
             """
         )

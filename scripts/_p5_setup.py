@@ -57,12 +57,12 @@ def main():
             -- db/tests/invariants.sql did exactly this and permanently poisoned
             -- ledgex_schema_check.
             INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution,
-                                  attribution_text, observed_at, cleared_by, cleared_at)
+                                  attribution_text, observed_at, cleared_by, cleared_at, notes)
             VALUES
               ('cc_by_4_0', 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose',
-               '2026-07-31'::timestamptz, NULL, NULL),
+               '2026-07-31'::timestamptz, NULL, NULL, NULL),
               ('cc0', 'CC0', 'open', 'allowed', 'allowed', NULL,
-               '2026-07-31'::timestamptz, NULL, NULL),
+               '2026-07-31'::timestamptz, NULL, NULL, NULL),
               -- P55: the real ingest_parcels.py/ingest_zoning_permits.py this
               -- script's own caller shells out to now write facts citing
               -- these ids (LICENCE_ID/_ZONING/_PERMITS, repointed -- see
@@ -70,13 +70,25 @@ def main():
               -- disposable database needs them to exist too, or every real
               -- ingest call below raises a foreign_key_violation. The OLD
               -- rows stay: the reconciliation-test INSERTs further down this
-              -- script still cite them literally by hand.
+              -- script still cite them literally by hand. notes carries the
+              -- same SUCCESSION mitigation (P55 §12.6) as every other seeder
+              -- of these ids -- real facts get written here too.
               ('cc_by_4_0_api_2026_08', 'CC BY 4.0 (api channel, scoped 2026-08)',
                'attribution', 'allowed', 'allowed', 'City of San Jose',
-               '2026-07-31'::timestamptz, NULL, NULL),
+               '2026-07-31'::timestamptz, NULL, NULL,
+               'SUCCESSION (P55 §12.6): this id did not exist before 2026-08-22 -- minted then '
+               'as a scoping decision under CC BY 4.0 terms observed 2026-07-31 (hence '
+               'observed_at above, not today). A snapshot row citing this id under an earlier '
+               'fetched_at records the terms under which the bytes are used, never that this id '
+               'existed at fetch time.'),
               ('cc0_api_2026_08', 'CC0 1.0 (api channel, scoped 2026-08)',
                'open', 'allowed', 'allowed', NULL,
-               '2026-07-31'::timestamptz, NULL, NULL)
+               '2026-07-31'::timestamptz, NULL, NULL,
+               'SUCCESSION (P55 §12.6): this id did not exist before 2026-08-22 -- minted then '
+               'as a scoping decision under CC0 1.0 terms observed 2026-07-31 (hence observed_at '
+               'above, not today). A snapshot row citing this id under an earlier fetched_at '
+               'records the terms under which the bytes are used, never that this id existed at '
+               'fetch time.')
             ON CONFLICT (id) DO NOTHING
         """)
         cur.execute("""
