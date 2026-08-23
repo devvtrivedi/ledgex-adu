@@ -214,6 +214,16 @@ status.** Two readings, presented without a pick:
   `allowed=false` row can be neither updated nor deleted to make room.
 - `fact`: `fact_no_update`/`fact_no_delete` (0007/0017/0040) — a fact's `licence_id` can
   never be repointed once written.
+- `snapshot`: `snapshot_no_update`/`snapshot_no_delete` (0021) — once written, a snapshot
+  row's own `licence_observed_id` can never be changed either. **A third immutable-adjacent
+  constraint this section did not originally name, found during Stage 5's rehearsal, not
+  here at design time:** `fact_snapshot_licence_fk` (`db/schema.sql:1776`, `FOREIGN KEY
+  (snapshot_id, licence_id) REFERENCES snapshot(id, licence_observed_id)`) ties a fact's own
+  `licence_id` to whatever `licence_observed_id` the snapshot row it cites was FIRST written
+  with — meaning a fact citing a NEW licence id can only ever attach to a snapshot row
+  ALSO carrying that new id, forcing every reused/rebuilt snapshot's own provenance record
+  to move with the fact rather than staying historically accurate. Full analysis, and the
+  owner decision it requires, in §12.4-§12.6.
 - `source`: **no immutability trigger** — confirmed directly (no `source_no_update` exists
   anywhere in `db/migrations/`). `source.licence_id` is an ordinary mutable column. This was
   also 0056's own finding, re-confirmed here independently.
@@ -1162,3 +1172,196 @@ for the same reason.
 A step 15 satisfying 0.3 (two-sided) and 0.4 (no silent SKIP) against the code as it
 actually exists is designed above, concretely enough to implement without further
 invention. Phase 2 proceeds to Stage 1.
+
+---
+
+## 12. Stage 5 rehearsal findings — the smoke delta reconciled, and an owner decision
+## on `licence_observed_id`
+
+Written before Stage 6, per the owner's own explicit instruction not to proceed with
+either the acceptance-bar question or the mass snapshot registration until both are
+answered here, in writing, with evidence.
+
+### 12.1 The 41 → 40 `cc_by_4_0`-lineage delta — fully reconciled, no drift
+
+Queried directly against `ledgex_smoke_pre_p55_20260822` (the renamed-aside original):
+all 41 pre-rebuild facts citing `licence_id='cc_by_4_0'`, listed. 40 of them are
+`parcel.apn`/`parcel.geometry` on the 20 real `ca_san_jose` parcels, all citing
+`snapshot_id='ca_san_jose.parcels:sha256:61b58c56...'` — the real `--phase d` load. The
+**41st is `internal_test.viewer_field_blocked_fixture`**, on parcel `9aaa4672-...`
+(`jurisdiction_id='internal_test.viewer_demo'`) — `scripts/seed_internal_test_licences.py`'s
+own P42 "blocked fixture fact," which by that script's own documented design cites the
+literal, real `cc_by_4_0` id on purpose (`seed_internal_test_licences.py`'s own docstring:
+*"licence_id is the real, unchanged 'cc_by_4_0'"*). It has nothing to do with `--phase d`
+ingest and was never going to be reproduced by Stage 5's own runbook, which only re-ingests
+real `ca_san_jose` data.
+
+Confirmed empirically, not assumed: the exact set of 20 APNs loaded from
+`61b58c56...` is **byte-identical** pre- and post-rebuild (`diff` of both sorted APN
+lists — zero differences). `select_parcels()` is deterministic given identical input
+bytes, exactly as content-addressing and the "reproduce from retained snapshots" premise
+require.
+
+**Reconciled: 40 real parcels facts pre-rebuild = 40 real parcels facts post-rebuild,**
+exactly, byte-for-byte, no drift. The apparent "41 → 40" was never a real discrepancy —
+it was comparing 41 (40 real + 1 unrelated fixture residue) against 40 (recorded at a
+moment before the fixture had been re-seeded into the fresh database at all). Not a
+near-miss; a like-for-like match once the comparison is done correctly.
+
+### 12.2 The 0 → 4 permits delta — a re-derivation bug in Stage 5's own execution, not an
+### open design question
+
+**Confirmed, with direct evidence: yes, Stage 5 replayed an ingest operation the original
+`ledgex_smoke` never ran.** Every one of the original database's `ingest_permits` `job_run`
+rows — both `succeeded` entries and every `skipped_unchanged` one — has **`rows_in`,
+`rows_out` and `metrics` all NULL**. `scripts/ingest_zoning_permits.py`'s own matching/
+fact-writing logic (`load_permits()`, its own `rows_out = len(matched)` and the metrics
+block) only runs under `--phase load`; a `--phase b` call (fetch → hash → upload → snapshot
+only, no parcel matching, no fact writes) never touches those columns. Confirmed directly
+by grepping `scripts/smoke_real.py` for every `--phase` it ever passes: **`d` for parcels,
+`b` for permits — `--phase load` for permits appears nowhere in this file.** The original
+`ledgex_smoke`'s zero `cc0`-lineage facts is not a gap or an oddity; it is `make
+smoke-real`'s own design working exactly as built — permits are fetched and snapshotted (to
+exercise and verify the object-store path) but never matched against parcels or written as
+facts, because nothing in this target's own 15-step design ever calls `--phase load`.
+
+**Stage 5, as I ran it, called `ingest_zoning_permits.py --source permits --phase load`
+twice — an operation this database's own real history never performed.** That produced 4
+new, real, immutable facts (2 matched parcels × 2 fields) with no analog in the original
+database at all. This is exactly the re-derivation the owner's question named: not a
+reproduction of `ledgex_smoke`'s own prior state, an expansion of it, done in good faith
+(misreading this document's own §4.5 "2 real snapshots" phrasing — written about
+`ledgex_schema_check`'s multi-source rebuild, not `ledgex_smoke`'s narrower, parcels-only
+one) but wrong.
+
+**Consequence, and the fix.** `fact`/`snapshot` immutability (0007/0017/0040, 0021) means
+these 4 facts and their 2 registered snapshot rows cannot be corrected in place — the
+database that carries them has to be set aside and rebuilt again, correctly this time
+(`--phase d` only; permits stays at the `--phase b` `make smoke-real` already performs on
+its own, matching the original design exactly). **Not done yet** — held pending this
+report, per the owner's own "hold Stage 6" instruction, since the identical mistake at
+schema_check's scale (a real ingest operation beyond what that database's own job_run
+history actually shows) is precisely the class of error this whole rehearsal exists to
+catch before it is expensive. Proposed fix, to run once acknowledged: rename this
+`ledgex_smoke` aside too (e.g. `ledgex_smoke_p55_attempt1_permits_overreach_<date>` —
+evidence of the mistake kept, not dropped, matching this pass's own rename-don't-drop
+discipline throughout), fresh `createdb`, replay `--phase d` only.
+
+### 12.3 What Stage 6's acceptance bar should actually be
+
+**The exact-count bar (1,135,140) is still the right bar — but only under a discipline
+this rehearsal shows is easy to violate by accident.** Nothing about content-addressed,
+SHA-256-verified snapshots or deterministic parcel/fact-write logic makes a rebuild
+inherently lossy or re-derivative — §12.1 already proves byte-for-byte reproduction holds
+when the SAME operations run against the SAME verified bytes. The single, sufficient cause
+of drift found here is procedural, not structural: **running an ingest operation the
+target database's own real `job_run` history does not show**, whether from misreading a
+prose summary (as happened here) or from assuming a phase "should" run rather than
+confirming it did.
+
+**Stage 6's own acceptance bar should therefore be:** exactly 1,135,140 facts, achieved by
+replaying **precisely** the six-operation sequence §4.5 already found by querying
+`job_run` directly (two `ingest_parcels_full --phase e` calls, two `ingest_zoning --phase
+load` calls, two `ingest_permits --phase load` calls, in that order) — re-verified against
+`ledgex_schema_check`'s own live `job_run` table immediately before Stage 6 runs (per
+§4.5's own step 1, "check again, don't assume the earlier catch-up is still current" — the
+same discipline, applied to the OPERATION LIST itself, not only to the migration ledger).
+**Not** a near-miss to be explained after the fact; a bar to be hit exactly, verified by
+generating the replay command list mechanically from `job_run` immediately before Stage 6,
+never from this document's own prose (which is exactly what went wrong at smoke scale).
+
+### 12.4 `licence_observed_id` — what `fact_snapshot_licence_fk` actually asserts
+
+Quoted verbatim, `db/schema.sql:1776`:
+```sql
+ALTER TABLE ONLY public.fact
+    ADD CONSTRAINT fact_snapshot_licence_fk FOREIGN KEY (snapshot_id, licence_id)
+    REFERENCES public.snapshot(id, licence_observed_id);
+```
+This is a **composite** foreign key: for any fact row, the pair `(snapshot_id, licence_id)`
+must exactly match some `snapshot` row's own `(id, licence_observed_id)` pair. Not weaker
+than "must match" — Postgres composite FKs require every column to match the same
+referenced row simultaneously. Since `snapshot.id` is the table's own primary key (one row
+per id) and is itself content-addressed (`snapshot_id_format CHECK (id = source_id ||
+':sha256:' || content_hash)` — determined entirely by the source and the bytes, never by
+which licence anyone believes applies), **there can only ever be one `licence_observed_id`
+value associated with a given `snapshot_id`, permanently, the moment that row is first
+written** (`snapshot_no_update`/`snapshot_no_delete`, 0021).
+
+**Is there a shape where the snapshot keeps `cc_by_4_0`/`cc0` (what was actually observed
+at fetch time) while the fact cites the new id? No — the constraint forbids it, and not
+only administratively: it is structurally impossible, not merely disallowed.** A second
+snapshot row for the identical bytes cannot exist (same `source_id`+`content_hash` ⇒ same
+`id`, the primary key, so a second `INSERT` for "the same content, a different
+`licence_observed_id`" is a primary-key collision, not a legal second row). Considered and
+rejected: writing the fact as `method='derived'` instead, to route around the FK entirely
+(`fact_provenance_complete` only requires `source_id`/`snapshot_id` for non-derived
+methods) — rejected because the fact is not actually derived (no real `fact_input`
+relationship, no genuine computation from another fact); that would trade one false
+provenance claim for a different one. Considered and rejected: a schema change adding a
+second, mutable column separate from `licence_observed_id` to hold the "current scoping"
+value independently — real design work, a migration, out of scope for this seed-only pass
+(§4.7's own established conclusion), not something to improvise here.
+
+**So the repoint is forced, given this pass's own mechanism (reuse the exact retained
+bytes, no re-fetch) and this schema's own constraints as they exist today.** The real cost,
+named plainly rather than left implicit: **for any snapshot whose bytes are reused under a
+rebuild, `snapshot.licence_observed_id` will read a licence id that did not exist at the
+real, historical `fetched_at` timestamp the same row carries.** For `ledgex_schema_check`'s
+own real snapshots (`fetched_at` 2026-08-07/2026-08-17), a rebuilt row would assert
+`cc_by_4_0_api_2026_08` — an id created 2026-08-22 — was the licence *observed* fifteen
+days before it existed. That is a false provenance claim, stated as such, not as
+"a minor detail."
+
+### 12.5 Consistency with P45's own intent
+
+Checked directly, not assumed: `prompts/P45-ingest-provenance.md` and
+`scripts/audit_snapshot_provenance.py` — grepped for `licence_observed_id` — **zero
+mentions in either.** P45's own scope, read from its own text, is byte-identity provenance
+(binding a fact to the *verified, correct bytes*, `--snapshot-id` required, no "newest"
+guess) — a different axis from *which licence applied*. This tension is not something P45
+already resolved or even considered; it is **consistent with P45's own underlying
+principle** (provenance metadata should tell the truth about what was actually observed,
+when) **while being a genuinely new gap P45's own hardening never closed**, because
+`licence_observed_id` sits outside what P45 touched.
+
+### 12.6 Owner decision required before Stage 6 proceeds on this point
+
+Per the owner's own instruction: **not proceeding** with `licence_observed_id` repoints for
+`ledgex_schema_check`'s own nine real snapshots until this is decided. The honest answer to
+"is there a shape that avoids this" is no — the options are: (a) accept the repoint as a
+deliberate, recorded, named consequence of this pass (the snapshot table's own
+`licence_observed_id` column, for any rebuilt/reused snapshot, records the scoping decision
+under which the data is CURRENTLY used, not the licence genuinely believed to apply at the
+historical moment of fetch — a real, permanent narrowing of that column's own meaning for
+every future reader), or (b) decline the rebuild-with-reused-snapshot mechanism for this
+reason and find a different path (not designed here; would need real work, likely a schema
+change, and is a larger decision than this pass's own seed-only scope anticipated). This
+document does not pick between them — that is the owner's call, named here so it is
+recorded as a decision rather than defaulted into.
+
+### 12.7 Flagged for this pass's own close-out — recorded now so neither is lost
+
+**A correction to P52's own close-out claim, not merely a P55-internal fix.**
+`prompts/P52-rights-vs-diligence.md:419-424` lists `make smoke-real`'s step 15 among
+"every existing gate run against real data, none edited," citing "step 15's byte-level
+cc_by_4_0 absence proof" as part of the evidence P52's own changes broke nothing. That
+characterization overstated what the proof actually covered: `_sentinel_text`'s own
+`json.dumps(sort_keys=True)` re-serialization could never byte-match a dict/list value's
+real wire encoding (§4.5's own finding above, commit `7b4e45e`) -- a failed match there was
+indistinguishable from a genuinely absent value, for every run before this one, on any
+blocked fact whose value was non-scalar. Whether P52's own real run actually exercised a
+non-scalar blocked value is not re-derived here; the claim itself -- "byte-level absence
+proof" as an unqualified guarantee -- was not accurate as stated, and this pass's own fix
+narrows it explicitly to scalars. Recorded here for this pass's own close-out (§9-to-be) to
+carry into `prompts/P52-rights-vs-diligence.md`'s own Review findings section, per this
+repo's standing convention for correcting a landed package (`prompts/README.md`'s own
+"Adding a package" rule: findings against a landed package go in *its* Review findings
+section, not a silent rewrite) -- not done in this commit, flagged so it is not forgotten.
+
+**`fact_snapshot_licence_fk` as a documented constraint, not just a fixed bug.** Already
+folded into §4.1's own list above (this section cross-references it, not duplicates it) --
+recorded here too only as a close-out reminder that §4.1 itself was the design document's
+own constraint inventory, written before Stage 5 ever ran, and it was incomplete; the
+close-out should say so plainly rather than let the corrected §4.1 read as though it always
+listed three constraints.
