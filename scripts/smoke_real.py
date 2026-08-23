@@ -26,27 +26,43 @@ WHAT IT PROVES (each step below prints its own line, pass or fail):
         viewer process is bound to the SAME database this run wrote to
         (a viewer started against some other DATABASE_URL returns 404 for a
         parcel that demonstrably exists in SQL, and step 14 says so by name)
-  15    the I6 rights gate, on REAL data: every fact those 20 parcels carry
-        cites cc_by_4_0, whose licence_channel rows are all allowed=false
-        (0030, pending LD-1 clearance). So the viewer MUST report them under
-        omitted_for_rights and MUST NOT put their values in the response --
-        and this step asserts the values are absent from the actual response
-        BYTES, not from a parsed dict.
+  15    the I6 rights gate, on REAL data, BOTH directions (P55 Phase 2 Stage
+        4, prompts/P55-scoped-unblock.md §11 -- re-scoped from this step's
+        original single-direction shape, recorded below under WHAT CHANGED):
+        every OTHER real fact the loaded parcel carries must appear under
+        `facts` with its value on the wire (the ALLOWED side), and a
+        permanent, dedicated smoke_real.py fixture fact -- licensed under an
+        always-blocked id this step seeds itself, so this half no longer
+        depends on which real licence happens to be blocked today -- must be
+        reported under omitted_for_rights and its value absent from the
+        response BYTES, not from a parsed dict (the BLOCKED side).
 
 WHAT IT DOES NOT PROVE. Read this before quoting a PASS anywhere.
   - Not a substitute for `make db-test`, `make conformance`, `make golden`,
     `make test` or `make viewer-test`. It runs none of them. A green
     smoke-real means the machine is wired and one path works end to end; it
     says nothing about the invariant suite or the pack.
-  - Step 15 proves the gate holds for cc_by_4_0 on channel 'api' on these
-    parcels. It does NOT prove the gate PERMITS anything -- there is no
-    permitted fixture here by construction, because the only permitted data
-    in this project comes from scripts/seed_internal_test_licences.py, whose
-    opt-in gate (SEED_INTERNAL_TEST_LICENCES=1) makes a PERMANENT,
-    un-deletable licence/licence_channel write. This target will not trigger
-    that as a side effect, for the same reason viewer-test does not.
-    `make viewer-test` is the both-outcomes proof; run it separately, after
-    running the seed deliberately.
+  - Step 15's ALLOWED side proves the gate permits WHATEVER licence the
+    loaded parcel's real facts currently carry -- not that it is specifically
+    cc_by_4_0_api_2026_08/cc0_api_2026_08 by name; scripts/test_scoped_
+    unblock.py's T1 is what pins the real ids. Its BLOCKED side is a
+    synthetic fixture (smoke_fixture.always_blocked), the same caveat
+    scripts/seed_internal_test_licences.py's own permitted fixture already
+    carries, restated here for the blocked side.
+  - `make viewer-test` remains the fixture-seeded both-outcomes proof against
+    scripts/seed_internal_test_licences.py's own data (SEED_INTERNAL_TEST_
+    LICENCES=1, a separate, PERMANENT, un-deletable, deliberately opt-in
+    write this target still does not trigger); step 15 is now also a
+    both-outcomes proof, but against real --phase d data instead.
+
+WHAT CHANGED (P55 Phase 2 Stage 4). Before this pass, step 15 asserted only
+the blocked side, against the real cc_by_4_0 literal -- and would SKIP, not
+FAIL, if the loaded parcel ever carried no cc_by_4_0 fact (§11's own gate:
+Resolution B made rebuilding ledgex_smoke change exactly that literal's
+own facts, which would have made this SKIP permanently and silently, the
+worse-than-a-failure shape §11 argues against). SKIP no longer exists on
+this step at all: it now seeds its own blocked fact deterministically, so
+an empty match on either side names a real, reportable break instead.
   - Step 12 loads 20 parcels (--phase d). It never runs --phase e. The full
     ~225k load is a separate, explicit decision.
   - Step 3 proves the Docker daemon answers and prints what is running. It
@@ -98,7 +114,20 @@ PARCELS_SOURCE_ID = "ca_san_jose.parcels"
 PERMITS_SOURCE_ID = "ca_san_jose.building_permits_active"
 VIEWER_CHANNEL = "api"          # api/main.py's own VIEWER_CHANNEL, D1
 TARGET_PARCELS = 20             # what --phase d loads
-BLOCKED_LICENCE = "cc_by_4_0"   # every licence_channel row allowed=false (0030)
+BLOCKED_LICENCE = "cc_by_4_0"   # kept for the module docstring's own historical
+
+# P55 Phase 2 Stage 4, exactly per prompts/P55-scoped-unblock.md §11: a
+# permanent, ca_san_jose-scoped fixture -- namespaced smoke_fixture.*,
+# deliberately NOT internal_test.* (that namespace lives in a different
+# jurisdiction P42 already owns; reusing it here would misattribute this
+# fixture as part of that one) -- that step_rights_gate (step 15) seeds
+# for itself, on the SAME real parcel step 13 already selected, so the
+# blocked side of its proof no longer depends on which real licence the
+# --phase d snapshot happens to load facts under.
+SMOKE_FIXTURE_LICENCE_ID = "smoke_fixture.always_blocked"
+SMOKE_FIXTURE_SOURCE_ID = "smoke_fixture.blocked_source"
+SMOKE_FIXTURE_FIELD_KEY = "smoke_fixture.blocked_marker"
+SMOKE_FIXTURE_SENTINEL = "SMOKE FIXTURE BLOCKED VALUE - MUST NOT RENDER"
 
 PASS, FAIL, SKIP = "PASS", "FAIL", "SKIP"
 
@@ -748,46 +777,203 @@ def step_query_viewer(ctx):
 
 
 # ---------------------------------------------------------------------------
-# STEP 15 -- the I6 rights gate, on real data
+# STEP 15 -- the I6 rights gate, on real data (P55 Phase 2 Stage 4, re-scoped
+# per prompts/P55-scoped-unblock.md §11 -- design there, implementation here,
+# nothing invented that wasn't already decided)
 # ---------------------------------------------------------------------------
 
+def _ensure_blocked_fixture(conn, parcel_id):
+    """Idempotently seeds ONE permanent, ca_san_jose-scoped fact -- licensed
+    under a dedicated, always-blocked fixture licence -- on the SAME real
+    parcel step 13 already selected. Modelled directly on
+    scripts/seed_internal_test_licences.py's own P42 "blocked fixture fact"
+    pattern (cite a real-shaped licence from a new fact row; nothing about
+    any OTHER licence is touched), adapted to attach to a REAL ca_san_jose
+    parcel rather than a synthetic internal_test.* one -- which is exactly
+    why this needs its own licence/source/snapshot/field_definition, all
+    namespaced smoke_fixture.*, rather than reusing internal_test.*'s.
+
+    Permanent, like every other write this target makes (module docstring's
+    own WRITES section) -- no separate opt-in gate, because this database is
+    already scoped to SMOKE_DATABASE_URL by construction.
+
+    WHERE NOT EXISTS for the fact row (P42's own reason: `fact` has no
+    unique index this INSERT's own conflict target could lean on); ON
+    CONFLICT DO NOTHING for the rows that do have real primary keys.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO licence (id, display_name, restriction, commercial_use, "
+            "redistribution, attribution_text, observed_at, cleared_by, cleared_at, notes) "
+            "VALUES (%s, 'smoke_real.py step 15 fixture -- always blocked', 'open', "
+            "'allowed', 'allowed', NULL, now(), 'smoke_fixture_seed', now(), "
+            "'P55 Phase 2 Stage 4 -- permanent smoke_real.py fixture, not a real licence. "
+            "Every licence_channel row is deliberately allowed=false, forever, so step 15 "
+            "always has a genuinely-blocked fact to prove the gate withholds, independent "
+            "of which real licence the --phase d snapshot happens to load facts under.') "
+            "ON CONFLICT (id) DO NOTHING",
+            (SMOKE_FIXTURE_LICENCE_ID,),
+        )
+        cur.execute(
+            "INSERT INTO licence_channel (licence_id, channel, allowed, rationale) "
+            "SELECT %s, c, false, "
+            "'P55 Phase 2 Stage 4 smoke_real.py fixture -- deliberately, permanently "
+            "blocked on every channel. Not a real rights decision.' "
+            "FROM unnest(enum_range(NULL::output_channel)) AS c "
+            "ON CONFLICT (licence_id, channel) DO NOTHING",
+            (SMOKE_FIXTURE_LICENCE_ID,),
+        )
+        cur.execute(
+            "INSERT INTO source (id, jurisdiction_id, display_name, steward, method, "
+            "phase_status, phase_status_reason, endpoint_url, licence_id, active) "
+            "VALUES (%s, %s, 'smoke_real.py step 15 fixture source', 'smoke_real.py', "
+            "'bulk', 'active', 'P55 Phase 2 Stage 4 fixture -- not a real ingest source; "
+            "method=bulk (not manual) so I13 does not forbid this fact from existing.', "
+            "'https://smoke-fixture.invalid/p55', %s, false) ON CONFLICT (id) DO NOTHING",
+            (SMOKE_FIXTURE_SOURCE_ID, JURISDICTION_ID, SMOKE_FIXTURE_LICENCE_ID),
+        )
+        digest = hashlib.sha256(SMOKE_FIXTURE_SENTINEL.encode()).hexdigest()
+        snapshot_id = "%s:sha256:%s" % (SMOKE_FIXTURE_SOURCE_ID, digest)
+        cur.execute(
+            "INSERT INTO snapshot (id, source_id, object_uri, content_hash, media_type, "
+            "byte_size, request, http_status, fetched_at, licence_observed_id) "
+            "VALUES (%s, %s, 's3://smoke-fixture/p55/blocked', %s, 'application/json', 1, "
+            "'{}'::jsonb, 200, now(), %s) ON CONFLICT (id) DO NOTHING",
+            (snapshot_id, SMOKE_FIXTURE_SOURCE_ID, digest, SMOKE_FIXTURE_LICENCE_ID),
+        )
+        cur.execute(
+            "INSERT INTO field_definition (field_key, display_name, claim, value_type, "
+            "category, description) VALUES (%s, 'smoke_real.py fixture marker', "
+            "'public_record', 'string', 'parcel', "
+            "'P55 Phase 2 Stage 4 fixture field -- not a real field.') "
+            "ON CONFLICT (field_key) DO NOTHING",
+            (SMOKE_FIXTURE_FIELD_KEY,),
+        )
+        now_ts = datetime.datetime.now(datetime.timezone.utc)
+        cur.execute(
+            "INSERT INTO fact (parcel_id, jurisdiction_id, field_key, value, method, "
+            "source_id, snapshot_id, retrieved_at, source_url, licence_id, confidence, "
+            "confidence_rule_id, effective_from, pack_version) "
+            "SELECT %s, %s, %s, %s, 'bulk', %s, %s, %s, "
+            "'https://smoke-fixture.invalid/p55', %s, 'high', 'smoke_fixture.rule', %s, "
+            "'v1.0' "
+            "WHERE NOT EXISTS ("
+            "  SELECT 1 FROM fact WHERE parcel_id = %s AND field_key = %s AND licence_id = %s"
+            ")",
+            (
+                parcel_id, JURISDICTION_ID, SMOKE_FIXTURE_FIELD_KEY,
+                json.dumps(SMOKE_FIXTURE_SENTINEL), SMOKE_FIXTURE_SOURCE_ID, snapshot_id,
+                now_ts, SMOKE_FIXTURE_LICENCE_ID, now_ts,
+                parcel_id, SMOKE_FIXTURE_FIELD_KEY, SMOKE_FIXTURE_LICENCE_ID,
+            ),
+        )
+    conn.commit()
+
+
 def step_rights_gate(ctx):
-    """Every fact these 20 parcels carry cites cc_by_4_0, and 0030 leaves every
-    licence_channel row allowed=false pending LD-1 clearance. So the correct
-    behaviour of the gate here is total refusal, and that is checkable without
-    seeding anything: the response must carry the field_keys under
-    omitted_for_rights, must carry no cc_by_4_0 fact under facts, and -- the
-    assertion that actually matters -- the fact VALUES must not appear in the
-    response bytes at all.
+    """The I6 rights gate, on real data, both directions (§11 of
+    prompts/P55-scoped-unblock.md):
+
+    BLOCKED side: this step seeds (idempotently, permanently) ONE fact on
+    the real parcel step 13 selected, under a dedicated fixture licence that
+    is allowed=false on every channel forever -- so this half of the proof
+    no longer depends on which real licence happens to be blocked today.
+    The response must carry that field_key under omitted_for_rights, must
+    carry no fixture-licensed fact under `facts`, and -- the assertion that
+    actually matters -- the fixture value must not appear in the response
+    bytes at all.
+
+    ALLOWED side (new, P55): every OTHER current fact on this parcel -- the
+    real, --phase d-ingested ones -- must be reported under `facts`, and
+    its value must actually appear in the response bytes. Proven nowhere
+    at smoke level before this pass.
+
+    Both checked against ONE fresh fetch, not step 14's: the fixture fact
+    is inserted by THIS step, after step 14 already ran, so reusing step
+    14's response would make the blocked-side byte-absence check trivially
+    true for the wrong reason (the fact didn't exist yet when that request
+    was made) rather than because the gate withheld it.
 
     Byte-level, not dict-level, for the reason scripts/test_viewer_rights_gate.py
     already argues: a value absent from a parsed structure but present in the
     serialized body has still left the building.
+
+    No SKIP on either side (§11.4): this step controls whether the blocked
+    fact exists (it seeds it itself), so an empty match there means the
+    seeding broke, not "nothing to block" -- FAIL, naming that specifically.
+    An empty match on the allowed side means a --phase d-loaded parcel
+    (step 13's own WHERE EXISTS already required it to carry a fact) lost
+    every non-fixture fact, which is itself a reportable inconsistency, not
+    a routine skip.
     """
-    doc = ctx["viewer_doc"]
-    body = ctx["viewer_body"]
+    conn = _pg(ctx)
+    parcel_id = ctx["parcel_id"]
+    _ensure_blocked_fixture(conn, parcel_id)
 
-    blocked_sql = [(fk, lic, val) for fk, lic, _s, _sn, val in ctx["sql_facts"]
-                   if lic == BLOCKED_LICENCE]
+    # Fresh SQL read (step 13's own ctx["sql_facts"] predates the fixture)
+    # and fresh HTTP fetch (step 14's own ctx["viewer_doc"]/["viewer_body"]
+    # predates it too) -- see the docstring above for why reusing either
+    # would be the wrong proof.
+    all_facts = _all(
+        conn,
+        "SELECT field_key, licence_id, value FROM current_fact_at(now()) "
+        "WHERE parcel_id = %s ORDER BY field_key",
+        (parcel_id,),
+    )
+    conn.rollback()
+
+    import requests
+    url = "%s/v1/parcels/%s/facts" % (ctx["viewer"], parcel_id)
+    r = requests.get(url, timeout=20)
+    if r.status_code != 200:
+        raise StepFailed("GET %s returned %d (after seeding the blocked fixture)\n%s"
+                         % (url, r.status_code, r.text[:600]))
+    body = r.text
+    doc = json.loads(body)
+
+    # Generalized per §11.3, not hardcoded to SMOKE_FIXTURE_LICENCE_ID alone:
+    # "blocked" means this fact's own licence has no allowed=true row for
+    # VIEWER_CHANNEL, checked live -- the same default-deny I6 itself
+    # applies. This sweeps in the fixture AND, for free, any other fact
+    # that happens to be genuinely blocked, without this step needing to
+    # know its licence id by name.
+    channel_allowed = {
+        lic: allowed
+        for lic, allowed in _all(
+            conn,
+            "SELECT licence_id, bool_or(allowed) FROM licence_channel "
+            "WHERE channel = %s AND licence_id = ANY(%s) GROUP BY licence_id",
+            (VIEWER_CHANNEL, list({lic for _fk, lic, _v in all_facts})),
+        )
+    }
+    conn.rollback()
+    blocked_sql = [(fk, lic, val) for fk, lic, val in all_facts
+                   if not channel_allowed.get(lic, False)]
+    allowed_sql = [(fk, lic, val) for fk, lic, val in all_facts
+                   if channel_allowed.get(lic, False)]
+
     if not blocked_sql:
-        return (SKIP, "this parcel carries no %s fact, so there is nothing for the gate "
-                      "to block here. Not a pass and not a failure -- rerun after a load "
-                      "that includes one, or use `make viewer-test` for the seeded "
-                      "both-outcomes fixture." % BLOCKED_LICENCE)
+        raise StepFailed(
+            "no blocked fact found on parcel %s after _ensure_blocked_fixture ran -- the "
+            "fixture-seeding step itself is broken (or licence_channel for %r was somehow "
+            "changed to allowed=true). This names the seeding, not the gate, as what to "
+            "fix -- see this step's own docstring." % (parcel_id, SMOKE_FIXTURE_LICENCE_ID))
+    if not allowed_sql:
+        raise StepFailed(
+            "parcel %s carries no fact besides the blocked fixture. Step 13's own query "
+            "already required this parcel to carry a fact before the fixture was ever "
+            "seeded -- a real, reportable inconsistency, not something to skip past."
+            % parcel_id)
 
-    leaked = [f for f in doc["facts"] if f.get("licence_id") == BLOCKED_LICENCE]
+    leaked = [f for f in doc["facts"] if not channel_allowed.get(f.get("licence_id"), False)]
     if leaked:
         raise StepFailed(
-            "I6 BREACH: %d fact(s) licensed %s appear under `facts` (permitted) in the\n"
-            "viewer response: %s\n"
-            "Every licence_channel row for that licence is allowed=false (0030). The\n"
-            "gate that produced this is core.rights.evaluate_rights_gate -- the same\n"
-            "function the composer calls."
-            % (len(leaked), BLOCKED_LICENCE,
-               ", ".join(f.get("field_key", "?") for f in leaked)))
+            "I6 BREACH: %d blocked fact(s) appear under `facts` (permitted) in the viewer "
+            "response: %s\nThe gate that produced this is core.rights.evaluate_rights_gate "
+            "-- the same function the composer calls."
+            % (len(leaked), ", ".join(f.get("field_key", "?") for f in leaked)))
 
-    omitted_keys = set(o["field_key"] for o in doc["omitted_for_rights"]
-                       if o.get("licence_id") == BLOCKED_LICENCE)
+    omitted_keys = set(o["field_key"] for o in doc["omitted_for_rights"])
     missing = [fk for fk, _l, _v in blocked_sql if fk not in omitted_keys]
     if missing:
         raise StepFailed(
@@ -796,25 +982,44 @@ def step_rights_gate(ctx):
             "refusal to be reported, not the row to be dropped."
             % (len(missing), ", ".join(missing)))
 
-    sentinels = []
-    for fk, _lic, val in blocked_sql:
+    def _sentinel_text(val):
         text = json.dumps(val, sort_keys=True, default=str)
         if text.startswith('"') and text.endswith('"'):
             text = text[1:-1]
-        if len(text) >= 6:
-            sentinels.append((fk, text))
-    hits = [fk for fk, text in sentinels if text in body]
+        return text if len(text) >= 6 else None
+
+    blocked_sentinels = [(fk, t) for fk, _l, v in blocked_sql
+                         for t in [_sentinel_text(v)] if t]
+    hits = [fk for fk, text in blocked_sentinels if text in body]
     if hits:
         raise StepFailed(
-            "I6 BREACH: the value of %d rights-blocked fact(s) appears in the raw\n"
-            "response body even though the fact is reported as omitted: %s\n"
+            "I6 BREACH: the value of %d rights-blocked fact(s) appears in the raw response "
+            "body even though the fact is reported as omitted: %s\n"
             "Absent from the parsed structure is not absent from the wire."
             % (len(hits), ", ".join(hits)))
 
-    return ("%d fact(s) licensed %s: none under `facts`, all %d reported under "
-            "omitted_for_rights, and %d value sentinel(s) confirmed absent from the "
-            "%d-byte response body" % (len(blocked_sql), BLOCKED_LICENCE,
-                                       len(omitted_keys), len(sentinels), len(body)))
+    present_keys = set(f["field_key"] for f in doc["facts"])
+    missing_allowed = [fk for fk, _l, _v in allowed_sql if fk not in present_keys]
+    if missing_allowed:
+        raise StepFailed(
+            "%d fact(s) whose licence permits channel %r are NOT under `facts` in the "
+            "viewer response: %s\nEither the rebuild's licence_channel row is missing/"
+            "false, or the gate is over-blocking."
+            % (len(missing_allowed), VIEWER_CHANNEL, ", ".join(missing_allowed)))
+
+    allowed_sentinels = [(fk, t) for fk, _l, v in allowed_sql
+                         for t in [_sentinel_text(v)] if t]
+    allowed_misses = [fk for fk, text in allowed_sentinels if text not in body]
+    if allowed_misses:
+        raise StepFailed(
+            "%d permitted fact(s) are reported under `facts` but their own value is "
+            "missing from the raw response body: %s"
+            % (len(allowed_misses), ", ".join(allowed_misses)))
+
+    return ("%d allowed fact(s) (present under `facts`, values on the wire) and "
+            "%d blocked fact(s) (none under `facts`, all under omitted_for_rights, "
+            "values absent from the %d-byte response body)"
+            % (len(allowed_sql), len(blocked_sql), len(body)))
 
 
 # ---------------------------------------------------------------------------
@@ -842,10 +1047,15 @@ STEPS = [
 NOT_PROVEN = """\
   - the invariant suite (`make db-test`), the pack (`make conformance`),
     the golden fixtures (`make golden`), core/'s unit suite (`make test`)
-  - that the gate ever PERMITS a fact: no permitted fixture exists here by
-    construction. `make viewer-test` is the both-outcomes proof, and it
-    needs scripts/seed_internal_test_licences.py run deliberately first --
-    a permanent, un-deletable write this target will not make for you.
+  - that the gate permits the SPECIFIC real licence ids P55 named
+    (cc_by_4_0_api_2026_08/cc0_api_2026_08) rather than whatever licence the
+    loaded parcel's own facts happen to carry -- step 15's allowed side
+    checks the shape, not the id by name; scripts/test_scoped_unblock.py's
+    T1 is what pins the real ids. `make viewer-test` remains the OTHER
+    both-outcomes proof (against scripts/seed_internal_test_licences.py's
+    own synthetic fixture, needing SEED_INTERNAL_TEST_LICENCES=1 run
+    deliberately first -- a separate, permanent, un-deletable write this
+    target still will not make for you).
   - anything about the full ~225k-parcel load (--phase e), which never runs
   - that the HTML viewer renders correctly; only one JSON route was called
   - any source other than the permits CSV and the parcels snapshot reused"""
