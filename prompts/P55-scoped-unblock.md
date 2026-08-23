@@ -1850,3 +1850,45 @@ mismatch is diagnosable and, as this section shows, can be a genuinely important
 the STATED REASON for why it was safe was not checked closely enough before being written
 down as settled. Corrected here, and in `_p55_stage6_replay.py`'s own docstring (commit
 `35c47e1`), rather than left standing.
+
+### 12.14 `b98138f0` excluded; the generalizable lesson, for the close-out
+
+**Resolution.** Checked before excluding, per instruction: all 25 of `b98138f0`'s own APNs
+(`23712112, 23717101, 23717102, 23717099, 58705049-58705053, 23711059, 23711066, 23711071,
+58705054, 58705055, 58624001-58624004, 23707070, 23707063, 23707066, 23707075, 23707039,
+23707019, 23707020`) checked directly against the rebuilt `parcel` table after `0216d539`'s
+own load -- **all 25 present.** Exclusion costs zero real parcels; the replay drops from
+eight operations to seven cleanly (`scripts/_p55_stage6_replay.py`, commit `cd5ba1b`).
+`b98138f0`'s own snapshot row stays registered (the fetch genuinely happened; provenance is
+honest to keep) -- only its `--phase e` load is excluded, so `TARGET_SNAPSHOT_COUNT` stays
+6 and the job_run asymmetry (history has a load for op_num 4, this rebuild will not) is
+recorded here rather than left for a future reader to trip over.
+
+**Two standing findings recorded in `prompts/README.md`** (#51, #52), both outliving this
+pass: `0043_source_feature_identity.sql` has no backfill and has left disappeared-detection
+structurally inert against the real `ca_san_jose.parcels` dataset in every database it has
+ever been applied to without one, `ledgex_schema_check` included -- a live defect, not
+merely a replay artifact, invisible until something rebuilds and populates the ledger
+properly for the first time. And: nothing in the ingest pipeline detects a truncated fetch
+-- content-addressing proves the bytes on disk match what was fetched, and says nothing
+about whether the fetch was complete; a row-count sanity check against the previous
+snapshot from the same source would have caught this specific case in August.
+
+**The generalizable statement, for this pass's own close-out.** This is the THIRD
+independent reason the "replay `job_run` mechanically" premise has broken since Stage 5's
+own rehearsal first assumed it would just work: a contaminated historical parcel set
+(§12.9, `db-test` residue sharing the real jurisdiction), evolved matching code (§12.10,
+two genuine bug fixes landing on real data between the historical run and this one), and
+now schema-versus-data ordering compounded with undetected bad source bytes (§12.12-12.14,
+a tracking table that didn't exist yet meeting a fetch that was silently incomplete).
+**Historical `job_run` rows are not a specification. They are an archaeological record of a
+database that grew up alongside its own schema and its own code, one migration and one bug
+fix at a time -- and every one of these three causes was invisible until a rebuild, run
+against the CURRENT schema and CURRENT code, forced it into the open.** A rebuild that
+trusted the historical record instead of re-deriving its own expectations from first
+principles at each step would have either silently reproduced the contamination, silently
+missed the code-evolution deltas, or (this time) silently written 225,014 false disappearance
+claims into a fresh database and called it a successful replay. The discipline that caught
+all three -- mechanical generation over prose, partition invariants over count-matching,
+git archaeology before accepting any historical figure as ground truth -- is the actual
+deliverable of this whole detour, not just the fixes it produced.
