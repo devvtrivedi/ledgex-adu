@@ -219,7 +219,14 @@ status.** Two readings, presented without a pick:
   also 0056's own finding, re-confirmed here independently.
 - Ingest constants, read directly: `scripts/ingest_parcels.py:88` `LICENCE_ID = "cc_by_4_0"`;
   `scripts/ingest_zoning_permits.py:134` `LICENCE_ID_ZONING = "cc_by_4_0"`;
-  `scripts/ingest_zoning_permits.py:141` `LICENCE_ID_PERMITS = "cc0"`.
+  `scripts/ingest_zoning_permits.py:141` `LICENCE_ID_PERMITS = "cc0"`. **These constants —
+  not `source.licence_id` — are what a fact's own `licence_id` column is written from at
+  fact-write time.** Confirmed by reading the `Fact(...)` construction sites directly
+  (`scripts/ingest_parcels.py:1270,1278,1296,1383,1404,1418`, every one passing
+  `licence_id=LICENCE_ID`, the constant, literally) and by confirming no fact-write path
+  reads `source.licence_id` at all (`grep -n "source\.licence_id" scripts/ingest_parcels.py
+  scripts/ingest_zoning_permits.py` — zero matches). See §4.5's own dedicated step for why
+  this matters and what `source.licence_id` is for instead.
 
 Put together: a new `licence_channel` row for the *existing* `cc_by_4_0`/`cc0` ids is not a
 path (PK collision, immutable). Repointing an *existing* fact's `licence_id` is not a path
@@ -387,12 +394,39 @@ snapshot, not a single call.
    `ON CONFLICT DO NOTHING` throughout, matching the established pattern.
 8. Confirm `source.licence_id` for `ca_san_jose.parcels`/`zoning_districts` now reads
    `cc_by_4_0_api_2026_08` and `building_permits_active` reads `cc0_api_2026_08` (the seed's
-   own `source` INSERT is updated to point at the new ids — this is the "ingest constants
-   updated" half of Q3.1/4.1, landing in the seed alongside the licence rows since `source`
-   is what ingest scripts actually read `LICENCE_ID` from at write time, not the Python
-   constant directly — **confirm this precisely in Phase 2**, it is stated as design intent
-   here, not verified against ingest code's exact read path in this pass).
-9. Re-ingest, replaying the exact `job_run` sequence found in step 2 above, snapshot by
+   own `source` INSERT is updated to point at the new ids). **Corrected reasoning — the
+   original draft of this step gave the wrong reason and it mattered.** This repoint is
+   required, but NOT because ingest scripts read a fact's licence off `source.licence_id` at
+   write time — they do not (see step 9 below, and §4.1's own correction). It is required
+   because `scripts/check_conformance.py` (`make conformance`) directly compares
+   `jurisdictions/ca_san_jose/sources.yaml`'s own declared `licence:` field against the LIVE
+   `source.licence_id` row and asserts they match (`check_conformance.py:259-261`:
+   `"{sid!r}'s pack licence matches the live source row's own licence_id"`, `s["licence"] ==
+   db_licence_id`) — confirmed by reading that assertion directly, not assumed from its
+   name. `source.licence_id` is the human-readable ledger of which licence a source is
+   *currently* ingested under; conformance is what actually reads it, not the ingest path.
+   **A consequence this correction surfaced, not previously stated anywhere in this
+   document:** repointing `source.licence_id` to the new ids means
+   `jurisdictions/ca_san_jose/sources.yaml`'s own `licence:` line for `ca_san_jose.parcels`/
+   `zoning_districts`/`building_permits_active` must ALSO be updated to the new ids in the
+   same Phase 2 change, or `make conformance`'s own check above fails on a mismatch it was
+   never asserting anything wrong about (`s["licence"]` would still say `'cc_by_4_0'`/`'cc0'`
+   against a database that now says `'cc_by_4_0_api_2026_08'`/`'cc0_api_2026_08'`). Not
+   scoped further here — a required Phase 2 edit, named so it is not discovered as a
+   surprise `make conformance` failure after the rebuild.
+9. **Update the three ingest constants** — `scripts/ingest_parcels.py:88` `LICENCE_ID`,
+   `scripts/ingest_zoning_permits.py:134` `LICENCE_ID_ZONING`,
+   `scripts/ingest_zoning_permits.py:141` `LICENCE_ID_PERMITS` — to the two new licence ids,
+   **before** the re-ingest step below. This is not a note about the seed (an earlier draft
+   of this document buried it as one); it is the actual mechanism by which a written fact's
+   `licence_id` column gets its value (§4.1's own correction, verified directly against the
+   `Fact(...)` construction sites). If step 9 is skipped, step 10's re-ingest reproduces
+   every one of the 1,135,140 facts citing the OLD `cc_by_4_0`/`cc0` ids — immutably,
+   permanently — and T1 (§7) fails, indistinguishably at first glance from a
+   `licence_channel` misconfiguration, on a database that just took a full `--phase e` to
+   build. This step exists specifically so that failure is prevented, not diagnosed after
+   the fact.
+10. Re-ingest, replaying the exact `job_run` sequence found in step 2 above, snapshot by
    snapshot, in the same order: `scripts/ingest_parcels.py --phase e --snapshot-id
    0216d539...` (**a real, ~210MB, full-city ingest — flagged prominently as the single
    largest-blast-radius step in this whole runbook; not run in this design-only pass, and
@@ -401,11 +435,11 @@ snapshot, not a single call.
    (`--phase e --snapshot-id b98138f0...`), then `scripts/ingest_zoning_permits.py --source
    zoning --phase load --snapshot-id eae7823...` and `--snapshot-id 699ec193...`, then
    `--source permits --phase load` for both permit snapshots, in the same relative order.
-10. Re-run `scripts/flag_invalid_geometry.py` for parcels and zoning (writes
+11. Re-run `scripts/flag_invalid_geometry.py` for parcels and zoning (writes
     `parcel_exception` rows, not facts — needed for full state parity, not for licence
     correctness).
-11. `current_fact` refresh — see §4.6 immediately below; do this correctly the first time.
-12. Verification queries: `SELECT count(*) FROM fact` (expect 1,135,140, matching the
+12. `current_fact` refresh — see §4.6 immediately below; do this correctly the first time.
+13. Verification queries: `SELECT count(*) FROM fact` (expect 1,135,140, matching the
     pre-rebuild count exactly — content-addressed snapshots reproduce byte-identical source
     data, so an identical fact count is the correct acceptance bar, not merely a
     sanity-check); `SELECT count(*) FROM fact WHERE licence_id IN ('cc_by_4_0_api_2026_08',
@@ -420,6 +454,81 @@ snapshot, not a single call.
 `--phase d` scale, not `--phase e`) — recommended as the FIRST rebuild attempted in Phase 2,
 specifically because its small size makes a failed or wrong rebuild cheap to diagnose and
 redo before touching the 1.1M-fact database.
+
+**A collision this recommendation creates, found by reading `scripts/smoke_real.py`
+directly, not anticipated when the recommendation above was first written.**
+`scripts/smoke_real.py:100` hardcodes `BLOCKED_LICENCE = "cc_by_4_0"` — the OLD id — and its
+own module docstring (`scripts/smoke_real.py:31-33`) states plainly: *"Step 15 proves the
+gate holds for cc_by_4_0 on channel 'api' on these parcels."* `step_rights_gate`
+(`scripts/smoke_real.py:754-817`) filters the smoke parcel's own facts down to
+`lic == BLOCKED_LICENCE` before asserting anything. This pass repoints exactly the licence
+that constant names, on exactly the channel it names, for exactly the parcels `make
+smoke-real` loads (`step_query_sql`, `scripts/smoke_real.py:683-708`, always selects a real
+`ca_san_jose`-jurisdiction parcel, ordered by `apn` — the smoke-loaded parcels are the only
+candidates). Rebuilding `ledgex_smoke` under this design's own runbook (§4.5 steps 8-10)
+means every fact that parcel carries now cites `cc_by_4_0_api_2026_08`, not `cc_by_4_0`.
+**The consequence is not what an earlier reading of this collision assumed — see the
+analysis immediately below, which corrects it against the actual code before proposing
+either resolution.**
+
+**The actual mechanical consequence, read directly from `step_rights_gate`'s own code
+(`scripts/smoke_real.py:770-776`), is not "step 15 goes RED."** It is:
+
+```python
+blocked_sql = [(fk, lic, val) for fk, lic, _s, _sn, val in ctx["sql_facts"]
+               if lic == BLOCKED_LICENCE]
+if not blocked_sql:
+    return (SKIP, "this parcel carries no %s fact, so there is nothing for the gate "
+                  "to block here. Not a pass and not a failure -- ...")
+```
+
+If every fact the smoke-loaded parcel carries now cites `cc_by_4_0_api_2026_08` instead of
+the literal string `cc_by_4_0`, `blocked_sql` is **empty**, and the function's own existing
+"nothing to block here" branch fires — **`SKIP`, not `FAIL`.** Confirmed against the
+runner's own summary logic (`scripts/smoke_real.py:886-900`): a `SKIP` does not fail
+`make smoke-real` overall (`failed = [... == FAIL]` only; the final line still prints
+`RESULT: PASS -- N step(s) passed, M skipped`). **This is a materially different, and in one
+real sense worse, failure mode than "RED":** a hard failure would be impossible to miss; a
+`SKIP` folds invisibly into a summary line (`make smoke-real`'s own step numbering, distinct
+from this runbook's — its step 12, `--phase d`'s non-idempotency skip, already reports one
+routine `SKIP` today) that already reads as "fine, expected." The byte-level proof its own
+step 15 currently provides would not loudly break — it would silently stop existing, in a
+report that still says `PASS`.
+
+**RESOLUTION A — leave `ledgex_smoke` on the old licences; do not rebuild it.** Step 15 keeps
+its current facts, keeps citing `cc_by_4_0` literally, keeps `FAIL`ing loudly if the gate
+ever actually leaked a value, and keeps proving the same real-data, byte-level property it
+proves today. **Cost:** `ledgex_smoke` no longer mirrors `ledgex_schema_check`'s post-rebuild
+licence posture, so `make smoke-real` stops being an end-to-end rehearsal of the real
+database's actual state, and the cheap-first-rebuild strategy this section otherwise
+recommends is lost — the 1.1M-fact database becomes the first real rebuild attempted, not the
+second. Stated plainly because it is the significant cost, not a minor one.
+
+**RESOLUTION B — rebuild `ledgex_smoke` and re-scope step 15 to a licence that is still
+deliberately blocked.** Checked directly, per the prompt's own requirement, rather than
+assumed available: **does anything in `ledgex_smoke` still cite a genuinely-blocked licence
+after a rebuild? No — and not for a reason this document anticipated either.**
+- The `internal_test.*` P42 fixture (`scripts/seed_internal_test_licences.py`) — even if
+  re-seeded after the rebuild — uses `jurisdiction_id = "internal_test.viewer_demo"`, a
+  DIFFERENT jurisdiction than `"ca_san_jose"`. `step_query_sql`'s own SQL
+  (`WHERE p.jurisdiction_id = %s`, bound to the hardcoded `JURISDICTION_ID = "ca_san_jose"`,
+  `scripts/smoke_real.py:95,686`) **structurally cannot select that fixture's parcel**,
+  whether or not the fixture exists in the database. Re-seeding it would not help step 15 as
+  currently written.
+- The `'unknown'` licence (0056) can **never** have a fact under it at all — its own source
+  (`ca_san_jose.city_limits`) is `method='manual'`, and I13 forbids a manual source from ever
+  producing one. Not a candidate, structurally, not just today.
+- The OLD `cc_by_4_0`/`cc0` ids themselves would have **zero** facts in a correctly-rebuilt
+  database (§4.5 step 13's own verification query already asserts this as the acceptance
+  bar for a correct rebuild).
+
+**So Resolution B, exactly as described, is not available without a real code change** — not
+merely "re-point step 15 at a different existing fact," but either widening
+`step_query_sql`'s own jurisdiction scope to also consider `internal_test.*` parcels, or
+seeding a NEW, permanently-blocked fixture fact inside the `ca_san_jose` jurisdiction
+specifically for this purpose. Either is a real `scripts/smoke_real.py` edit, designed
+before Phase 2 runs, not improvised during it — exactly the caveat the original framing of
+this resolution already anticipated, now with the concrete reason why.
 
 ### 4.6 Q3.5 — `current_fact` refresh, confirmed safe, and already built correctly
 
@@ -457,13 +566,28 @@ explicit `CONSTRAINT <name>` per `CLAUDE.md`, and any `INSERT` naming a specific
 an existence guard per the same 0032 pattern P53 already used. Named for completeness, not
 because this design calls for it.)
 
+**A strengthening of this conclusion, not a caveat against it** — verified directly:
+`db/seeds/day4_sources.sql`'s own three-row `INSERT INTO source (...) VALUES (...)` block for
+`ca_san_jose.parcels`/`zoning_districts`/`building_permits_active` (`day4_sources.sql:240-
+283`) ends `ON CONFLICT (id) DO NOTHING;`. Because of that clause, re-running the MODIFIED
+seed (carrying the two new licence rows, their twelve `licence_channel` rows, and this same
+`source` block repointed at the new ids) against a database that is **not** being rebuilt
+does exactly this: the two new licence rows and their `licence_channel` rows get created
+(harmless — zero facts cite them there, since nothing in that database was ever re-ingested
+under the new ids), and the `source` block's own `DO NOTHING` means its **existing**
+`ca_san_jose.parcels`/`zoning_districts`/`building_permits_active` rows are left completely
+untouched — `source.licence_id` does **not** silently move on a database this design isn't
+rebuilding. Nothing repoints by accident. This is the mechanical reason seed-only is safe to
+apply universally (every database, rebuilt or not) rather than needing per-database
+judgment about whether it is safe to run.
+
 ### 4.8 Q3.7 — the old rows, orphaned forever
 
 Confirmed acceptable, matching 0033's own explicit design intent ("the old row's channels
 stay false forever, an accurate record of what was believed at the time"). After a rebuild,
 the old `cc0`/`cc_by_4_0` rows and their twelve `allowed=false` `licence_channel` rows would
 have **zero** facts referencing them in the rebuilt database (verification query in §4.5
-step 12 checks this explicitly) — they become pure historical record, still seeded (their own
+step 13 checks this explicitly) — they become pure historical record, still seeded (their own
 `INSERT ... ON CONFLICT DO NOTHING` statements are not removed from `day4_sources.sql`, so a
 brand-new install still gets the full lineage: both the original, fully-blocked rows and the
 new, api-scoped ones). Nothing in `check_conformance.py` or elsewhere enumerates *all*
@@ -619,8 +743,10 @@ file already owns). Assertion: `GET /v1/parcels/{a real, rebuilt ca_san_jose par
 returns `facts[]` containing `parcel.apn`/`parcel.geometry` (previously in
 `omitted_for_rights[]`, pre-rebuild). **Must run against the rebuilt `ledgex_schema_check` (or
 `ledgex_smoke`), not a synthetic fixture** — the whole point is *existing* facts, not new
-ones. Goes RED if the rebuild didn't happen, if `source.licence_id` wasn't repointed, or if
-the new `licence_channel` row is missing/`false`.
+ones. Goes RED if the three ingest constants (§4.5 step 9) were not updated before
+re-ingest — the actual, corrected root cause a missed edit here would produce (§4.1, §4.5
+step 8's own correction) — or if the rebuild didn't happen, if `source.licence_id` wasn't
+repointed, or if the new `licence_channel` row is missing/`false`.
 
 **T2 — DILIGENCE INDEPENDENCE, C1's guard, the single most important test.** Same response:
 assert `diligence` (surfaced via `GET /v1/rights` for the new licence id) is exactly
@@ -680,6 +806,16 @@ NOT need to change (it seeds its own reference data independently of the real in
 licence; confirm in Phase 2 rather than assume). `scripts/test_viewer_rights_gate.py`
 unaffected (P42's own `internal_test.*` fixture, untouched by real-licence changes).
 
+**`scripts/smoke_real.py` — depends entirely on which resolution §4.5's `ledgex_smoke`
+collision analysis lands on, so it cannot be pre-sorted into either list without that
+decision.** Under Resolution A (don't rebuild `ledgex_smoke`): *expected to pass
+unmodified* — step 15 keeps citing the real, unchanged `cc_by_4_0`. Under Resolution B
+(rebuild it): *expected to change* — `BLOCKED_LICENCE` and step 15's own scope need a real
+edit, or the step silently degrades from `FAIL`-capable to permanent `SKIP` with no error
+(§4.5's own corrected finding — not a `FAIL`, which is its own reason this cannot be left
+unlisted: a test that quietly stops testing something, while its suite still reports
+`PASS`, is exactly the failure T8 exists to catch before Phase 2, not after).
+
 *Golden fixtures — the important one:* `tests/golden/*.json`'s `payload_hash` is byte-locked
 over `_compose()`'s refusal detail. **Does this pass change any composed refusal?** No —
 verified by §2/§3's own findings: `ca_san_jose` still refuses `LICENCE_UNKNOWN` at L0
@@ -705,10 +841,16 @@ Unaffected by this design.
    this pass did not execute it; the multi-wave history found there could still hide an
    ordering dependency not visible from `job_run` alone (e.g. a manual fixup between waves
    that left no `job_run` row).
-2. That `source.licence_id`'s repointing is read correctly by every ingest code path —
-   stated as design intent in §4.5 step 8, not verified against `scripts/ingest_parcels.py`'s
-   exact source of truth for `LICENCE_ID` at write time (the constant, or the live `source`
-   row, or both, and whether they could ever disagree).
+2. That the three ingest constants (§4.1, §4.5 step 9) and `source.licence_id` (§4.5 step 8)
+   can never drift apart from each other once both exist as separate, independently-editable
+   values — this pass confirmed which one governs a fact's own `licence_id` at write time
+   (the constants) and which one `make conformance` checks (`source.licence_id`, against
+   `sources.yaml`'s own declaration), but **nothing in this codebase checks the constants and
+   `source.licence_id` against EACH OTHER.** A future edit to one without the other would
+   pass `make conformance` (which never reads the ingest constants) and would only surface
+   as a mismatch a human happens to notice between what `source.licence_id` claims and what
+   newly-ingested facts actually cite — a real, separate, currently-unguarded gap, not the
+   same uncertainty this correction pass closed.
 3. That the attribution banner proposed in §6.6, if built, is legally sufficient — explicitly
    a question for counsel, never answered here.
 4. That §3.3's asymmetry question has an answer at all — presented as a live, unresolved
@@ -725,6 +867,15 @@ Unaffected by this design.
 8. That `ledgex_smoke` and `ledgex_viewer`'s own rebuild (or non-rebuild) treatment is
    correct for every purpose those databases serve beyond C3 — scoped narrowly to "does C3
    apply," not audited for every other use `make smoke-real`/P40's fixtures make of them.
+9. What a rebuilt `ledgex_smoke` actually looks like, as opposed to what a rebuild's own
+   mechanics predict it should look like. §4.5's collision analysis worked out, from reading
+   the code, that `step_query_sql`'s jurisdiction scoping and I13's own fact-method
+   restriction together mean no genuinely-blocked licence would remain visible to step 15
+   after a rebuild — but that is a claim about the CODE's behavior, checked directly; this
+   pass did not execute a rebuild to confirm the claim against real, rebuilt data. If Phase
+   2's actual rebuilt `ledgex_smoke` disagrees with this reasoning, that disagreement is
+   itself the more important finding, and should be reported rather than the rebuild quietly
+   proceeding past it.
 
 ## 9. Open questions for the owner
 
@@ -751,6 +902,14 @@ Unaffected by this design.
    something the owner wants present for when Phase 2 actually runs it, given every prior
    package in this arc has treated `--phase e` as something to run deliberately, never
    casually.
+8. **§4.5's `ledgex_smoke`/`scripts/smoke_real.py` collision.** Resolution A (leave
+   `ledgex_smoke` on the old licences, keep step 15's current proof, lose the cheap-first-
+   rebuild rehearsal) or Resolution B (rebuild it, and accept that step 15 needs its own
+   real re-scoping — not a small edit, since neither the existing `internal_test.*` fixture
+   nor the `'unknown'` licence can stand in for it as currently written, per §4.5's own
+   analysis)? **If Resolution B is chosen, step 15's own re-scoping needs to be designed
+   before Phase 2 runs the rebuild, not improvised during it** — the same "design first"
+   discipline this whole document exists to apply to the rebuild itself.
 
 ## 10. Rollback
 
@@ -766,7 +925,7 @@ sequence, a snapshot fails its integrity re-check, `current_fact` ends up in a b
   `ledgex_schema_check_pre_p55_<date>` back to `ledgex_schema_check`, and the database is
   exactly where it was before this pass touched anything. **No data is destroyed until the
   operator deliberately drops the renamed-aside copy, which should not happen until the new
-  build is verified (§4.5 step 12) and kept for some agreed retention window after that.**
+  build is verified (§4.5 step 13) and kept for some agreed retention window after that.**
 - The retained snapshots that make re-ingest possible are themselves untouched by any of
   this — they live in the object store (`s3://ledgex-snapshots-locked`, confirmed present in
   P52's own audit), not in the Postgres database being rebuilt, so a failed rebuild never
