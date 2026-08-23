@@ -896,7 +896,14 @@ def step_rights_gate(ctx):
 
     Byte-level, not dict-level, for the reason scripts/test_viewer_rights_gate.py
     already argues: a value absent from a parsed structure but present in the
-    serialized body has still left the building.
+    serialized body has still left the building. Scoped to scalar values
+    (str/int/float/bool) -- found live during Stage 5's own smoke rehearsal:
+    a dict/list value's (e.g. parcel.geometry) own re-serialization here is
+    not guaranteed to byte-match Pydantic/FastAPI's actual wire encoding
+    (key order, separators), so a substring search against it would prove
+    nothing reliable either way. Dict/list values still get the
+    parsed-structure guarantee (leaked/missing/present_keys, below) -- only
+    the EXTRA byte-level check is scoped to what it can actually prove.
 
     No SKIP on either side (§11.4): this step controls whether the blocked
     fact exists (it seeds it itself), so an empty match there means the
@@ -983,7 +990,20 @@ def step_rights_gate(ctx):
             % (len(missing), ", ".join(missing)))
 
     def _sentinel_text(val):
-        text = json.dumps(val, sort_keys=True, default=str)
+        # Scalars only (str/int/float/bool) -- a dict/list value's own
+        # re-serialization here (key order, separators) is not guaranteed
+        # to byte-match the actual wire response's serialization (Pydantic/
+        # FastAPI's own encoder), so a substring search against it proves
+        # nothing reliable either way. Found live, not theoretically: a
+        # geometry value on the ALLOWED side (P55's own new check) failed
+        # this way -- present, correctly, in both `doc["facts"]` and the
+        # raw body, just not as this function's own sort_keys=True text.
+        # The parsed-structure checks (leaked/missing/present_keys, all
+        # above and below) still cover dict/list values; only the extra
+        # byte-level guarantee is scoped down to what it can actually prove.
+        if isinstance(val, (dict, list)):
+            return None
+        text = json.dumps(val, default=str)
         if text.startswith('"') and text.endswith('"'):
             text = text[1:-1]
         return text if len(text) >= 6 else None
