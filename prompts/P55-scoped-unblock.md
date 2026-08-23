@@ -971,3 +971,194 @@ licence-level label.
 `permits_with_conditions` / `prohibits_use` / `unknown` throughout this document and its
 proposed test names — never `"allowed"`, which collides with `licence_channel.allowed`, the
 actual gate this whole pass is about.
+
+---
+
+## 11. Step 15 re-scope — design (Phase 2, Stage 0)
+
+Design only, per Phase 2's own Stage 0 gate. No code below is written yet; Stage 4
+implements exactly this, or Stage 4 stops and reports why not.
+
+### 11.1 What step 15 must prove after this pass
+
+In one sentence: that `core.rights.evaluate_rights_gate`, exercised end-to-end through a
+real HTTP request against the real `ledgex_smoke` database, both (a) permits and renders a
+real, currently-ingested fact whose licence is `allowed=true` for channel `'api'`, and (b)
+withholds — from both the parsed response and the raw response bytes — a fact whose licence
+is genuinely `allowed=false`, on the same parcel, in the same request.
+
+### 11.2 Options, enumerated from the code, not assumed complete
+
+Checked directly against `scripts/smoke_real.py` and the schema, three options were found,
+not the two this document's own §4.5 anticipated:
+
+**Option 1 — widen `step_query_sql`'s jurisdiction scope to also consider
+`internal_test.*` parcels.** Rejected. Three independent problems, each sufficient alone:
+(a) it would make `make smoke-real` depend on `scripts/seed_internal_test_licences.py`
+having been run — the module's own docstring states twice, in the "WHAT IT DOES NOT PROVE"
+section, that this target deliberately "will not trigger that as a side effect, for the
+same reason viewer-test does not"; widening scope to select an `internal_test.*` parcel
+would either violate that (auto-seed it) or leave step 13 selecting nothing on a database
+where it hasn't been run, reintroducing a SKIP-shaped hole one level up. (b) `ORDER BY
+p.apn NULLS LAST LIMIT 1` across two jurisdictions makes the parcel selection depend on
+apn string comparison between two different id spaces (`internal_test.viewer_demo`'s
+literal apn `INTERNAL_TEST-VIEWER-DEMO-1` vs. real numeric APNs) — fragile, and a bad fit
+for a step whose entire point (module docstring, "9-10... a real byte from a real city
+endpoint") is proving something about the real fetch. (c) It does not even solve the
+problem cleanly: `step_query_viewer` (step 14) and `step_rights_gate` (step 15) would then
+be exercising the SYNTHETIC fixture parcel instead of the REAL one on some runs,
+undermining step 13-14's own "one parcel read back" real-data claim depending on ordering
+luck.
+
+**Option 2 — seed a new, permanently-blocked fixture fact inside the `ca_san_jose`
+jurisdiction, attached to the real, `--phase d`-ingested parcel `step_query_sql` already
+selects.** Recommended — argued in 11.3 below.
+
+**Option 3 — prove the property on a different axis: a direct, non-HTTP call to
+`core.rights.evaluate_rights_gate` (the same function §2.3 of this document already calls
+standalone, no database write) instead of a full HTTP round-trip.** Rejected. This would
+weaken, not merely change, what step 15 proves: the module docstring's own "WHAT IT PROVES"
+list (§ near the top) frames step 15 as byte-level proof through the *viewer's own HTTP
+response*, catching exactly the class of bug `scripts/test_viewer_rights_gate.py`'s own
+docstring already argues for ("a value absent from a parsed structure but present in the
+serialized body has still left the building") — a class of bug a direct function call
+cannot see at all, because there is no serialization step to get wrong. §0.1's own
+requirement ("real-data, byte-level, end-to-end") rules this out on its face; recorded here
+because it was a real candidate before being checked against that requirement, not because
+it survives.
+
+**Recommendation: Option 2.**
+
+### 11.3 The two-sided design (0.3), concretely
+
+Schema constraints checked directly, not assumed, before proposing INSERT shapes:
+`fact_parcel_jurisdiction_fk` (`db/schema.sql:1760`, `FOREIGN KEY (parcel_id,
+jurisdiction_id) REFERENCES parcel(id, jurisdiction_id)`) and `fact_source_jurisdiction_fk`
+(`db/schema.sql:1800`, same shape against `source`) together mean a fixture fact's own
+`jurisdiction_id` — and its fixture `source`'s own `jurisdiction_id` — must both literally
+be `'ca_san_jose'` to attach to a real `ca_san_jose` parcel at all; there is no fixture
+jurisdiction to hide behind here, unlike P42's `internal_test.viewer_demo`. `fact_
+method_automated` (I13) additionally forbids `method='manual'` on the fixture's `source`
+row — confirmed relevant because `ca_san_jose.city_limits` already demonstrates exactly
+that shape blocking a fact from ever existing (§2.2); the fixture source must use
+`method='bulk'` (or `'direct'`), matching P42's own fixture sources, not `city_limits`'s.
+
+**New, permanent, `ca_san_jose`-scoped fixture, modelled directly on
+`scripts/seed_internal_test_licences.py`'s own P42 "blocked fixture fact" pattern (same
+idempotency shape, `WHERE NOT EXISTS` for the fact/parcel-shaped rows since P42's own
+comment already explains why `ON CONFLICT` cannot be used there; `ON CONFLICT DO NOTHING`
+for the rows that do have real PKs) — but namespaced `smoke_fixture.*`, deliberately
+distinct from `internal_test.*`, so a reader never mistakes this for part of the P40/P42
+viewer-demo fixture set living in a different jurisdiction:**
+
+```
+licence:            id='smoke_fixture.always_blocked', restriction='open',
+                     commercial_use='allowed', redistribution='allowed',
+                     cleared_by='smoke_fixture_seed', cleared_at=now() -- deliberately
+                     marked resolved/fake, exactly like internal_test.*'s own two licences,
+                     so nobody reads this as a second real pending-diligence item
+licence_channel:    all six KNOWN_CHANNELS, allowed=false, rationale states plainly this is
+                     scripts/smoke_real.py's own permanent fixture, asserts nothing about
+                     any real licence
+source:             id='smoke_fixture.blocked_source', jurisdiction_id='ca_san_jose',
+                     method='bulk', active=false, licence_id='smoke_fixture.always_blocked'
+snapshot:           one row, object_uri/content_hash fabricated the same way P42's own
+                     fixture snapshot is (a fixed, greppable non-real URI) -- required by
+                     fact_provenance_complete for any non-derived method
+field_definition:   field_key='smoke_fixture.blocked_marker'
+fact:               one row, parcel_id=ctx["parcel_id"] (the SAME parcel step 13 already
+                     selected -- not a second parcel), jurisdiction_id='ca_san_jose',
+                     value a greppable sentinel string mirroring P42's own
+                     "BLOCKED FIXTURE VALUE - MUST NOT RENDER"
+```
+
+**Placement: inside `step_rights_gate` (step 15) itself, at the top, before either of its
+two directions is checked — not a new numbered step, and not folded into step 13.**
+Argued: `step_rights_gate` is the one place already named "step 15" in the Makefile
+comment (`Makefile:437`), this document (repeatedly), and `prompts/P52-rights-vs-
+diligence.md`. Inserting a new step ahead of it would silently renumber it to 16 across
+every one of those references — the same class of staleness `CLAUDE.md`'s own 2026-08-22
+correction exists to prevent, self-inflicted for no benefit. Folding the ensure-fixture
+logic into step 13 was considered and rejected for a sharper reason: step 14's HTTP GET
+runs *between* step 13 and step 15 today, so a fixture inserted during step 13 would be
+captured correctly by step 14's fetch — BUT that makes step 15's byte-level "absent from
+the body" check trivially true by insertion-timing coincidence (the fact simply existed
+before the one fetch that happened), not because a load-bearing property of the gate was
+exercised at the moment it mattered. Keeping the ensure-and-then-fetch-fresh sequence
+entirely inside step 15 makes step 15 a self-contained, non-order-dependent proof: it seeds
+the one fact whose blocked status is under test, queries `current_fact_at` fresh (not
+reusing step 13's own `ctx["sql_facts"]`, captured before the fixture could exist), and
+performs its OWN `GET /v1/parcels/{id}/facts` (not reusing step 14's `ctx["viewer_doc"]`/
+`ctx["viewer_body"]`, captured before the fixture could exist either) — so both directions
+it asserts are checked against one fresh, complete snapshot of real, current state.
+
+**Both directions, from that one fresh fetch:**
+- **Blocked side (unchanged mechanism, new source):** `blocked_sql` becomes "current facts
+  on this parcel whose `licence_id == SMOKE_FIXTURE_LICENCE_ID`" instead of `==
+  BLOCKED_LICENCE`. The existing three checks (not leaked into `facts`, present in
+  `omitted_for_rights`, sentinel value byte-absent from the raw body) carry over verbatim,
+  generalized to the new constant.
+- **Blocked side ALSO used as-is for a fourth thing, decided here rather than left implicit:
+  the search for `blocked_sql` covers every current fact on the parcel, not just the
+  fixture** — meaning if a rebuild bug ever left a real fact citing an old, still-genuinely-
+  blocked id (`cc_by_4_0`/`cc0` pre-rebuild, or some future mis-scoped id) on this SAME
+  parcel, it would be swept into the same blocked-side proof for free. Not relied upon as
+  the primary mechanism (the fixture is), but not discarded either — the filter is written
+  as "licence_id in the set of licences whose `('api', allowed=false)` row this step
+  confirms live, per-run" rather than a single hardcoded id, so it stays correct without
+  editing if a second permanently-blocked id is ever added later. (Implementation detail
+  for Stage 4, not a new design axis — flagged so Stage 4 does not narrow it back to a
+  single hardcoded constant without noticing this was intentional.)
+- **Allowed side (new):** `allowed_sql` = "current facts on this parcel whose `licence_id`
+  is NOT the fixture licence" — on a rebuilt `ledgex_smoke`, this is exactly the real
+  `parcel.apn`/`parcel.geometry`/`parcel.source_parcel_id` facts, now citing
+  `cc_by_4_0_api_2026_08`. Asserts: every one of those `field_key`s IS present in
+  `doc["facts"]` (mirroring the blocked side's `omitted_keys` check, inverted), and — the
+  byte-level half, symmetric with the existing sentinel check — each one's own value IS
+  present in the raw response body. This is the "new property this pass creates, currently
+  proven nowhere at smoke level" the Phase 2 prompt names in its own 0.3.
+
+### 11.4 The SKIP path (0.4)
+
+**Argued explicitly, per 0.4's own instruction, rather than inherited: SKIP is removed
+entirely from step 15, on both sides, and this is correct, not merely convenient.** The
+existing SKIP branch existed because whether the loaded parcel carried a `cc_by_4_0` fact
+was NOT under this step's control — a fact of which real parcels the live snapshot happened
+to contain. That precondition no longer holds for the blocked side: this step now *creates*
+the fixture fact itself, deterministically, on the one parcel it already knows about. If
+`blocked_sql` is empty after `_ensure_blocked_fixture` runs, that is not "nothing to block
+here" — it is the seeding step failing silently, which must FAIL loudly, naming that
+specifically (not the gate) as the thing to fix, so a future reader is not sent looking for
+a rights-gate bug that does not exist. Symmetrically, if `allowed_sql` is empty (the
+selected parcel carries no fact besides the fixture), that would mean step 13's own
+selection query — `WHERE EXISTS (SELECT 1 FROM fact WHERE f.parcel_id = p.id)` — matched a
+parcel with a fact, and yet after the rebuild no non-fixture fact exists for it, which is
+itself a real, reportable inconsistency (not a "rerun later" condition) — FAIL, not SKIP,
+for the same reason.
+
+### 11.5 What this re-scope does not prove
+
+1. That the specific real ids `cc_by_4_0_api_2026_08` / `cc0_api_2026_08` are the ones
+   permitting the allowed-side fact — the check is written against "whatever licence isn't
+   the fixture," not those ids by name, so it would pass unchanged if the real ingest
+   constants pointed somewhere else entirely. T1 (§7, DB-level, run against the rebuilt
+   database directly) is what actually pins the real ids; step 15 only proves the *shape*
+   of the two-sided property on whatever `--phase d` currently loads.
+2. Anything about a licence that is `allowed=true` on some channel other than `'api'` — `
+   VIEWER_CHANNEL` stays fixed (D1), unchanged by this re-scope.
+3. Anything about `ledgex_schema_check`'s real, ~1.1M-fact database — `make smoke-real`
+   only ever binds to `SMOKE_DATABASE_URL` (module docstring, "WRITES"); this proof is, and
+   remains, `--phase d`-scale only.
+4. That `smoke_fixture.always_blocked` represents a real city licence or a real diligence
+   decision — synthetic by construction, the same caveat `internal_test.*` already carries
+   for its own permitted-side fixture, stated here for the blocked side.
+5. That the gate behaves correctly for a fact whose licence is *unknown to the response
+   entirely* (a licence id with no `licence` row at all) — out of scope; I3's FK already
+   makes that state unreachable for any real fact (§4.5 step 8 of this pass reuses that same
+   guarantee), so there is nothing real to construct a fixture for.
+
+### GATE — resolved
+
+A step 15 satisfying 0.3 (two-sided) and 0.4 (no silent SKIP) against the code as it
+actually exists is designed above, concretely enough to implement without further
+invention. Phase 2 proceeds to Stage 1.
