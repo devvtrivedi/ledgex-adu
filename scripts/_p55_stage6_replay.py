@@ -5,12 +5,20 @@ already generated (prompts/P55-scoped-unblock.md §12.3/§12.9), ONE OPERATION
 AT A TIME, against the REPLACEMENT bar §12.11 sets (§12.6-owner-decided,
 2026-08-23):
 
-  - PARCELS operations (--phase e, no cross-row matching logic -- §12.10's
-    own structural argument for why this bar can stay exact): rows_in/
-    rows_out must match the historical job_run row EXACTLY. A mismatch here
-    halts -- there is no cross-row logic for a later bug fix to have
-    changed, so a parcels deviation would mean something genuinely wrong,
-    not code evolution.
+  - PARCELS operations (--phase e): rows_in/rows_out must match the
+    historical job_run row EXACTLY. A mismatch halts. CORRECTED 2026-08-23
+    (§12 Stage 6 recovery): this file's own original justification --
+    "--phase e has no cross-row matching logic for a bug fix to have
+    changed" -- was WRONG. phase_e's own "Phase B reconciliation" has
+    substantial cross-row logic (new/changed/disappeared against ALL
+    previously-tracked source_feature_identity rows for the source), and
+    it is exactly this logic that caught operation 4's real deviation
+    (b98138f0: predicted 25/25, actual rows_in=25 rows_out=0, 225,014
+    parcel_disappeared_from_source exceptions written). The exact-count
+    bar for parcels stays right -- it caught a real problem -- but the
+    REASON given for why it was safe to keep was incorrect; kept exact
+    because a deviation here is diagnosable and rare, not because the code
+    path is simple.
 
   - ZONING/PERMITS operations: the historical rows_in/rows_out are PRINTED
     (informational -- §12.10 already explains why they will not match:
@@ -32,9 +40,15 @@ No origin fetch anywhere in this file: every operation below is
 both bound exclusively to `verified_snapshot_file()` (reads snapshot.
 object_uri -- s3://ledgex-snapshots-locked/..., never a San Jose endpoint).
 
-Usage: DATABASE_URL=<fresh, post-rename, post-migrate, post-seed,
-post-_p55_stage6_prep.py-register ledgex_schema_check> \
-  .venv-ingest/bin/python3 scripts/_p55_stage6_replay.py
+Usage (note `set -o pipefail` -- REQUIRED if piping through `tee`; without
+it, a halted script's own sys.exit(1) is masked by tee's own exit 0, and a
+background-task summary reporting "exit code 0" reads as success when the
+script actually stopped on a real deviation -- this nearly cost the Stage 6
+recovery investigation its own most important finding, 2026-08-23):
+  set -o pipefail
+  DATABASE_URL=<fresh, post-rename, post-migrate, post-seed,
+  post-_p55_stage6_prep.py-register ledgex_schema_check> \
+    .venv-ingest/bin/python3 scripts/_p55_stage6_replay.py 2>&1 | tee <logfile>
 """
 import os
 import subprocess
