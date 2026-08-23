@@ -47,6 +47,7 @@
   .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 14px; margin-bottom: 16px; }
   .rationale { font-style: italic; color: var(--muted); }
   .refusal { background: rgba(229,83,75,.08); border-left: 3px solid var(--blocked); padding: 6px 10px; margin: 4px 0; border-radius: 3px; }
+  .attribution-banner { background: rgba(79,143,247,.08); border-left: 3px solid var(--accent); padding: 8px 12px; margin-bottom: 10px; border-radius: 3px; font-size: 13px; }
   input[type=text] { background: var(--panel); border: 1px solid var(--border); color: var(--text); padding: 5px 8px; border-radius: 5px; width: 320px; }
   .toolbar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; }
   .fact-row.blocked td { opacity: 0.85; }
@@ -108,6 +109,12 @@
       <button onclick="loadFacts()">Load</button>
       <span class="muted">Channel: <code id="facts-channel">api</code> (D1 -- fixed, not selectable)</span>
     </div>
+    <!-- P55 §6.6: persistent, page-level -- not per-row, not hover-only --
+         so the licence's own attribution condition is visible in the SAME
+         place the now-visible facts are, without a separate visit to the
+         Rights tab. Empty/hidden until loadFacts() below finds an
+         attribution-restricted licence among the rendered facts. -->
+    <div id="facts-attribution-banner" class="attribution-banner" style="display:none"></div>
     <table id="tbl-facts"><thead><tr>
       <th>Field</th><th>Value</th><th>Licence</th><th>Source</th><th>Retrieved</th><th>Status</th>
     </tr></thead><tbody></tbody></table>
@@ -287,6 +294,30 @@ async function loadFacts() {
   document.getElementById("facts-channel").textContent = channel;
   const tb = document.querySelector("#tbl-facts tbody");
   const rows = [];
+
+  // P55 §6.6: same source the Rights tab itself fetches (GET /v1/rights),
+  // called fresh here rather than reusing a cached value from a possibly-
+  // never-called loadRights() -- looked up per licence_id actually present
+  // among this parcel's own permitted facts, not every licence in the DB.
+  const { data: rightsRows } = await j("/v1/rights");
+  const attributionByLicence = {};
+  rightsRows.forEach(r => {
+    if (r.restriction === "attribution") attributionByLicence[r.licence_id] = r.attribution_text;
+  });
+  const banner = document.getElementById("facts-attribution-banner");
+  const attributedLicences = [...new Set(facts.map(f => f.licence_id).filter(l => l in attributionByLicence))];
+  if (attributedLicences.length) {
+    banner.style.display = "";
+    banner.innerHTML = attributedLicences.map(l => {
+      const text = attributionByLicence[l];
+      return `Facts from this parcel include data under <span class="mono">${esc(l)}</span>, `
+        + `which requires attribution: ${text ? esc(text) : '<span class="muted">(text not yet recorded)</span>'}`;
+    }).join("<br>");
+  } else {
+    banner.style.display = "none";
+    banner.innerHTML = "";
+  }
+
   // I9: a derived conclusion never renders in the visual/structural
   // treatment reserved for a retrieved fact -- distinct border, italic
   // field name, and its own DERIVED badge, layered on top of (not instead
@@ -300,7 +331,8 @@ async function loadFacts() {
       <td class="mono">${esc(f.licence_id)}</td>
       <td class="mono">${esc(f.source_id)}</td>
       <td>${esc(f.retrieved_at)}</td>
-      <td><span class="pill pill-allowed">VISIBLE</span>${f.is_derived ? ' <span class="pill pill-derived">DERIVED</span>' : ''}</td>
+      <td><span class="pill pill-allowed">VISIBLE</span>${f.is_derived ? ' <span class="pill pill-derived">DERIVED</span>' : ''}
+        ${f.diligence && f.diligence !== "cleared" ? `<br>${diligencePill(f.diligence)}` : ''}</td>
     </tr>`));
   // P52 section 5 item 4: never a bare colour or a bare word. The channel
   // decision (blocked -- the field's value is absent either way) stays

@@ -398,6 +398,16 @@ class FactEnvelopeLite(BaseModel):
     method: str | None = None
     retrieved_at: datetime.datetime | None = None
     is_derived: bool
+    # P55 §5.3: a permitted row previously carried no rights_position/
+    # diligence at all -- a viewer looking at the Facts tab saw a bare
+    # "VISIBLE" pill with no diligence signal anywhere on that row, the
+    # only place it rendered being the Rights tab (different tab, keyed by
+    # licence, not by fact). Same OPTIONAL/additive shape as
+    # OmittedForRights' own two fields, same reason: response_model=
+    # ParcelFactsResponse silently drops an undeclared field (P41 Fix
+    # 3(ii)'s own precedent, restated on that model just below).
+    rights_position: str | None = None
+    diligence: str | None = None
 
 
 class OmittedForRights(BaseModel):
@@ -526,6 +536,17 @@ def get_parcel_facts(
     permitted = []
     omitted_for_rights = []
     for fact_id, field_key, licence_id, value, source_id, snapshot_id, method, retrieved_at in touched_full:
+        # P55 §5.3: computed for EVERY touched fact now, not only the
+        # omitted ones -- the same one implementation, two call sites (P52's
+        # own discipline; no second variant). A permitted fact's own
+        # rights_position/diligence is genuine, real context (P55 opens
+        # 'api' while diligence stays written_confirmation_pending -- C1),
+        # not merely inherited from the omitted branch below.
+        lic = licence_by_id[licence_id]
+        rights_position = derive_rights_position(
+            lic["commercial_use"], lic["redistribution"], lic["restriction"]
+        )
+        diligence = derive_diligence(lic["cleared_by"], lic["evidence_uri"])
         row = {
             "fact_id": str(fact_id), "field_key": field_key, "value": value,
             "licence_id": licence_id, "source_id": source_id,
@@ -541,15 +562,12 @@ def get_parcel_facts(
             # to having no source_id/snapshot_id, so it is the same signal
             # field_definition.claim would give, already on this row.
             "is_derived": method == "derived",
+            "rights_position": rights_position,
+            "diligence": diligence,
         }
         if allowed_by_licence.get(licence_id, False):
             permitted.append(row)
         else:
-            lic = licence_by_id[licence_id]
-            rights_position = derive_rights_position(
-                lic["commercial_use"], lic["redistribution"], lic["restriction"]
-            )
-            diligence = derive_diligence(lic["cleared_by"], lic["evidence_uri"])
             # P52 section 3: this is licence-level context ONLY. The
             # actual reason THIS channel is blocked is licence_channel.
             # rationale (channel-level, already the authoritative text
