@@ -198,15 +198,76 @@ def seed_reference_rows(conn):
     observed_at/cleared_by/cleared_at matching db/seeds/day4_sources.sql
     exactly, never a fabricated clearance."""
     with conn.cursor() as cur:
+        # P55: ip.LICENCE_ID is now 'cc_by_4_0_api_2026_08', not the original
+        # 'cc_by_4_0' this INSERT's literal VALUES were written for -- kept
+        # byte-identical to db/seeds/day4_sources.sql's own row for this id
+        # (the same "every seeder of it must agree exactly" discipline the
+        # 'unknown' licence below already follows), not the old text, so a
+        # `make golden` run against a truly schema-only database (before
+        # day4_sources.sql ever reaches it) cannot permanently (licence is
+        # immutable, 0027) plant a mismatched row under this id.
         cur.execute(
             """
             INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution,
-                                  attribution_text, observed_at, cleared_by, cleared_at)
-            VALUES (%s, 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose',
-                    '2026-07-31'::timestamptz, NULL, NULL)
+                                  attribution_text, terms_url, observed_at, cleared_by, cleared_at,
+                                  notes)
+            VALUES (%s, 'CC BY 4.0 (api channel, scoped 2026-08)', 'attribution', 'allowed',
+                    'allowed', 'Data © City of San José',
+                    'https://creativecommons.org/licenses/by/4.0/', '2026-07-31'::timestamptz,
+                    NULL, NULL,
+                    'Owner decision 2026-08-22: licence terms (CC BY 4.0) are identified and '
+                    'permit this use (commercial use and redistribution both allowed per the '
+                    'licence text itself). Opened for the api channel only -- viewer-only '
+                    'display of already-ingested facts. Written confirmation, evidence and '
+                    'counsel review remain outstanding (cleared_by/cleared_at/evidence_uri '
+                    'NULL, deliberately) -- this row does NOT assert diligence is complete. '
+                    'See prompts/P55-scoped-unblock.md and licence_channel.rationale (per '
+                    'channel) for the authoritative per-channel decision text.')
             ON CONFLICT (id) DO NOTHING
             """,
             (ip.LICENCE_ID,),
+        )
+        # licence_channel rows, byte-identical to day4_sources.sql's own six
+        # rows for this id -- without these, a make-golden-first database
+        # would leave 'api' default-deny (absent row) forever on this
+        # immutable id, silently diverging from day4_sources.sql's own
+        # allowed=true, functionally, not just cosmetically (unlike the
+        # licence row's own display_name/notes text, nothing here is merely
+        # descriptive -- I6 reads this table directly).
+        cur.execute(
+            """
+            INSERT INTO licence_channel (licence_id, channel, allowed, rationale) VALUES
+              (%s, 'api', true,
+               'Owner decision 2026-08-22: licence terms are identified and permit this use. '
+               'Opened for viewer-only display (api channel) of already-ingested facts. '
+               'Written confirmation / evidence / counsel review remain outstanding -- this '
+               'is NOT a diligence-complete signal. See prompts/P55-scoped-unblock.md.'),
+              (%s, 'free_snapshot', false,
+               'Licence identification confirmed; counsel/owner sign-off Pending. No channel '
+               'is cleared for output beyond the api-channel decision recorded above until '
+               'sign-off completes.'),
+              (%s, 'paid_property_file', false,
+               'Licence identification confirmed; counsel/owner sign-off Pending. No channel '
+               'is cleared for output beyond the api-channel decision recorded above until '
+               'sign-off completes. paid_property_file additionally depends on the L0 gate '
+               '(P53, still closed -- no verified ca_san_jose.city_limits ingest exists) and '
+               'the boundary cross-check + counsel review named as its own precondition in '
+               'P52 §10 / P53 §11, unaffected by this pass either way.'),
+              (%s, 'bulk_export', false,
+               'Licence identification confirmed; counsel/owner sign-off Pending. No channel '
+               'is cleared for output beyond the api-channel decision recorded above until '
+               'sign-off completes.'),
+              (%s, 'analytics', false,
+               'Licence identification confirmed; counsel/owner sign-off Pending. No channel '
+               'is cleared for output beyond the api-channel decision recorded above until '
+               'sign-off completes.'),
+              (%s, 'model_training', false,
+               'Denied pending review: no one has yet read cc_by_4_0''s terms as applied '
+               'specifically to model-training use, separately from the api-channel decision '
+               'above. Requires its own rationale before this can flip.')
+            ON CONFLICT (licence_id, channel) DO NOTHING
+            """,
+            (ip.LICENCE_ID,) * 6,
         )
         cur.execute(
             """

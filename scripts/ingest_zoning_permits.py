@@ -131,14 +131,16 @@ from core.exceptions import insert_exceptions, close_resolved_exceptions, relink
 JURISDICTION_ID = "ca_san_jose"
 
 SOURCE_ID_ZONING = "ca_san_jose.zoning_districts"
-LICENCE_ID_ZONING = "cc_by_4_0"
+LICENCE_ID_ZONING = "cc_by_4_0_api_2026_08"  # P55: repointed from 'cc_by_4_0' -- see
+                                              # prompts/P55-scoped-unblock.md §4.1/§4.5 step 9
 ENDPOINT_URL_ZONING = (
     "https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/"
     "adf17ae739214787ad42945c5f72ccd8/geojson?layers=401"
 )
 
 SOURCE_ID_PERMITS = "ca_san_jose.building_permits_active"
-LICENCE_ID_PERMITS = "cc0"
+LICENCE_ID_PERMITS = "cc0_api_2026_08"  # P55: repointed from 'cc0' -- see
+                                         # prompts/P55-scoped-unblock.md §4.1/§4.5 step 9
 ENDPOINT_URL_PERMITS = (
     "https://data.sanjoseca.gov/dataset/fd9ceb0c-75e0-402e-9fe3-3f6e04f2c23f/"
     "resource/761b7ae8-3be1-4ad6-923d-c7af6404a904/download/buildingpermitsactive.csv"

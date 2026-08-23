@@ -16,6 +16,16 @@
 # completeness (every licence a source in this pack's own sources.yaml
 # references, active or not), matching sources.yaml's own "declared, not
 # fabricated" posture for non-active entries.
+#
+# P55 (2026-08-22): two MORE real licence table rows now also exist --
+# cc_by_4_0_api_2026_08 / cc0_api_2026_08 -- but are deliberately NOT added
+# as entries below. This file's own header states its content is "SPEC.md
+# §7.2, transcribed verbatim" -- the two new rows are a runtime SCOPE
+# decision (which channel may use already-identified terms), not a new
+# licence identification the spec itself describes, so they do not belong
+# in a verbatim transcription of it. See db/seeds/day4_sources.sql's own
+# notes column and prompts/P55-scoped-unblock.md for their authoritative
+# record instead.
 
 licences:
   - id: cc0

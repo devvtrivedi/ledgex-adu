@@ -85,7 +85,9 @@ from core.exceptions import insert_exceptions, close_exceptions_for_parcels, rel
 
 SOURCE_ID = "ca_san_jose.parcels"
 JURISDICTION_ID = "ca_san_jose"
-LICENCE_ID = "cc_by_4_0"
+LICENCE_ID = "cc_by_4_0_api_2026_08"  # P55: repointed from 'cc_by_4_0' (licence immutable,
+                                       # facts cite THIS constant at write time -- see
+                                       # prompts/P55-scoped-unblock.md §4.1/§4.5 step 9)
 ENDPOINT_URL = (
     "https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/"
     "4bb085cb99a64eff8e83d2bf92a8d5cb/geojson?layers=270"

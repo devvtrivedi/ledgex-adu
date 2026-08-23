@@ -62,6 +62,20 @@ def main():
               ('cc_by_4_0', 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose',
                '2026-07-31'::timestamptz, NULL, NULL),
               ('cc0', 'CC0', 'open', 'allowed', 'allowed', NULL,
+               '2026-07-31'::timestamptz, NULL, NULL),
+              -- P55: the real ingest_parcels.py/ingest_zoning_permits.py this
+              -- script's own caller shells out to now write facts citing
+              -- these ids (LICENCE_ID/_ZONING/_PERMITS, repointed -- see
+              -- prompts/P55-scoped-unblock.md §4.1/§4.5 step 9), so this
+              -- disposable database needs them to exist too, or every real
+              -- ingest call below raises a foreign_key_violation. The OLD
+              -- rows stay: the reconciliation-test INSERTs further down this
+              -- script still cite them literally by hand.
+              ('cc_by_4_0_api_2026_08', 'CC BY 4.0 (api channel, scoped 2026-08)',
+               'attribution', 'allowed', 'allowed', 'City of San Jose',
+               '2026-07-31'::timestamptz, NULL, NULL),
+              ('cc0_api_2026_08', 'CC0 1.0 (api channel, scoped 2026-08)',
+               'open', 'allowed', 'allowed', NULL,
                '2026-07-31'::timestamptz, NULL, NULL)
             ON CONFLICT (id) DO NOTHING
         """)
@@ -75,11 +89,11 @@ def main():
                                  phase_status_reason, endpoint_url, licence_id, active)
             VALUES
               ('ca_san_jose.parcels', 'ca_san_jose', 'Parcels', 'City of San Jose', 'bulk', 'active',
-               'P5 acceptance run', 'https://example.com/parcels', 'cc_by_4_0', false),
+               'P5 acceptance run', 'https://example.com/parcels', 'cc_by_4_0_api_2026_08', false),
               ('ca_san_jose.zoning_districts', 'ca_san_jose', 'Zoning', 'City of San Jose', 'bulk', 'active',
-               'P5 acceptance run', 'https://example.com/zoning', 'cc_by_4_0', false),
+               'P5 acceptance run', 'https://example.com/zoning', 'cc_by_4_0_api_2026_08', false),
               ('ca_san_jose.building_permits_active', 'ca_san_jose', 'Permits', 'City of San Jose', 'bulk', 'active',
-               'P5 acceptance run', 'https://example.com/permits', 'cc0', false)
+               'P5 acceptance run', 'https://example.com/permits', 'cc0_api_2026_08', false)
             ON CONFLICT (id) DO NOTHING
         """)
         cur.execute("""
@@ -104,15 +118,15 @@ def main():
         bucket = env("OBJECT_STORE_BUCKET")
 
         parcels_sid = upload_and_snapshot(cur, s3, bucket, f"{phaseb_fixtures_dir}/phaseb_A.geojson",
-                                           "ca_san_jose.parcels", "cc_by_4_0", "application/geo+json")
+                                           "ca_san_jose.parcels", "cc_by_4_0_api_2026_08", "application/geo+json")
         zoning_a_sid = upload_and_snapshot(cur, s3, bucket, f"{fixtures_dir}/p5_zoning_A.geojson",
-                                            "ca_san_jose.zoning_districts", "cc_by_4_0", "application/geo+json")
+                                            "ca_san_jose.zoning_districts", "cc_by_4_0_api_2026_08", "application/geo+json")
         zoning_b_sid = upload_and_snapshot(cur, s3, bucket, f"{fixtures_dir}/p5_zoning_B.geojson",
-                                            "ca_san_jose.zoning_districts", "cc_by_4_0", "application/geo+json")
+                                            "ca_san_jose.zoning_districts", "cc_by_4_0_api_2026_08", "application/geo+json")
         permits_a_sid = upload_and_snapshot(cur, s3, bucket, f"{fixtures_dir}/p5_permits_A.csv",
-                                             "ca_san_jose.building_permits_active", "cc0", "text/csv")
+                                             "ca_san_jose.building_permits_active", "cc0_api_2026_08", "text/csv")
         permits_b_sid = upload_and_snapshot(cur, s3, bucket, f"{fixtures_dir}/p5_permits_B.csv",
-                                             "ca_san_jose.building_permits_active", "cc0", "text/csv")
+                                             "ca_san_jose.building_permits_active", "cc0_api_2026_08", "text/csv")
 
     conn.commit()
     conn.close()

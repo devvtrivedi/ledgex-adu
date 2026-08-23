@@ -42,6 +42,45 @@ INSERT INTO licence (
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
+-- P55: scoped-unblock licence rows -- new ids, NOT a repoint of the two rows
+-- above (licence is immutable, 0027 -- there is no other path; see
+-- prompts/P55-scoped-unblock.md §4.1). These mirror cc0/cc_by_4_0's own
+-- licence text and observed_at exactly -- this is a new SCOPE decision
+-- (which channel may use already-identified terms), not a new reading of
+-- the licence text, so observed_at is NOT today's date; see §4.3's own
+-- argument. cleared_by/cleared_at/evidence_uri stay NULL, same reason as
+-- cc0/cc_by_4_0 above: nobody has performed written confirmation, evidence
+-- retention or counsel/owner sign-off for these rows either -- opening a
+-- channel is not diligence completing (C1, prompts/P55-scoped-unblock.md §5).
+INSERT INTO licence (
+  id, display_name, restriction, commercial_use, redistribution,
+  attribution_text, terms_url, evidence_uri, observed_at, cleared_by, cleared_at, notes
+) VALUES
+  ('cc_by_4_0_api_2026_08', 'CC BY 4.0 (api channel, scoped 2026-08)', 'attribution',
+   'allowed', 'allowed', 'Data © City of San José',
+   'https://creativecommons.org/licenses/by/4.0/', NULL, '2026-07-31'::timestamptz,
+   NULL, NULL,
+   'Owner decision 2026-08-22: licence terms (CC BY 4.0) are identified and permit this '
+   'use (commercial use and redistribution both allowed per the licence text itself). '
+   'Opened for the api channel only -- viewer-only display of already-ingested facts. '
+   'Written confirmation, evidence and counsel review remain outstanding '
+   '(cleared_by/cleared_at/evidence_uri NULL, deliberately) -- this row does NOT assert '
+   'diligence is complete. See prompts/P55-scoped-unblock.md and licence_channel.rationale '
+   '(per channel) for the authoritative per-channel decision text.'),
+  ('cc0_api_2026_08', 'CC0 1.0 (api channel, scoped 2026-08)', 'open',
+   'allowed', 'allowed', NULL,
+   'https://creativecommons.org/publicdomain/zero/1.0/', NULL, '2026-07-31'::timestamptz,
+   NULL, NULL,
+   'Owner decision 2026-08-22: licence terms (CC0 1.0) are identified and permit this '
+   'use (commercial use and redistribution both allowed per the licence text itself). '
+   'Opened for the api channel only -- viewer-only display of already-ingested facts. '
+   'Written confirmation, evidence and counsel review remain outstanding '
+   '(cleared_by/cleared_at/evidence_uri NULL, deliberately) -- this row does NOT assert '
+   'diligence is complete. See prompts/P55-scoped-unblock.md and licence_channel.rationale '
+   '(per channel) for the authoritative per-channel decision text.')
+ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================================
 -- LICENCE CHANNELS: Which output channels each licence permits
 -- ============================================================================
 -- Default deny: if a channel row is missing, output is denied.
@@ -103,6 +142,75 @@ INSERT INTO licence_channel (licence_id, channel, allowed, rationale) VALUES
   ('cc0', 'model_training', false, 'Denied pending review: no one has yet read cc0''s terms as applied specifically to model-training use, separately from counsel/owner sign-off on the licence generally. Requires its own rationale before this can flip.'),
   ('cc_by_4_0', 'analytics', false, 'Licence identification confirmed (Municipal Data & API Audit v1.1, observed 2026-07-31); counsel/owner sign-off Pending per the audit''s diligence register, Evidence Index p.36. No channel cleared for output until sign-off completes.'),
   ('cc_by_4_0', 'model_training', false, 'Denied pending review: no one has yet read cc_by_4_0''s terms as applied specifically to model-training use, separately from counsel/owner sign-off on the licence generally. Requires its own rationale before this can flip.')
+ON CONFLICT (licence_id, channel) DO NOTHING;
+
+-- ============================================================================
+-- P55: scoped-unblock licence_channel rows, both new licence ids.
+-- api=true is the ONLY channel this pass opens (C2, owner decision --
+-- prompts/P55-scoped-unblock.md §4.4/§10). The other five stay false, each
+-- with its own rationale: four echo the pre-existing Pending-clearance
+-- wording (continuity with the posture this pass did NOT touch for them),
+-- and model_training keeps its own separate, independent reason, never
+-- inferred from the api-channel decision (0032's own standing pattern).
+-- ============================================================================
+INSERT INTO licence_channel (licence_id, channel, allowed, rationale) VALUES
+  ('cc_by_4_0_api_2026_08', 'api', true,
+   'Owner decision 2026-08-22: licence terms are identified and permit this use. Opened '
+   'for viewer-only display (api channel) of already-ingested facts. Written '
+   'confirmation / evidence / counsel review remain outstanding -- this is NOT a '
+   'diligence-complete signal. See prompts/P55-scoped-unblock.md.'),
+  ('cc_by_4_0_api_2026_08', 'free_snapshot', false,
+   'Licence identification confirmed; counsel/owner sign-off Pending. No channel is '
+   'cleared for output beyond the api-channel decision recorded above until sign-off '
+   'completes.'),
+  ('cc_by_4_0_api_2026_08', 'paid_property_file', false,
+   'Licence identification confirmed; counsel/owner sign-off Pending. No channel is '
+   'cleared for output beyond the api-channel decision recorded above until sign-off '
+   'completes. paid_property_file additionally depends on the L0 gate (P53, still '
+   'closed -- no verified ca_san_jose.city_limits ingest exists) and the boundary '
+   'cross-check + counsel review named as its own precondition in P52 §10 / P53 §11, '
+   'unaffected by this pass either way.'),
+  ('cc_by_4_0_api_2026_08', 'bulk_export', false,
+   'Licence identification confirmed; counsel/owner sign-off Pending. No channel is '
+   'cleared for output beyond the api-channel decision recorded above until sign-off '
+   'completes.'),
+  ('cc_by_4_0_api_2026_08', 'analytics', false,
+   'Licence identification confirmed; counsel/owner sign-off Pending. No channel is '
+   'cleared for output beyond the api-channel decision recorded above until sign-off '
+   'completes.'),
+  ('cc_by_4_0_api_2026_08', 'model_training', false,
+   'Denied pending review: no one has yet read cc_by_4_0''s terms as applied '
+   'specifically to model-training use, separately from the api-channel decision above. '
+   'Requires its own rationale before this can flip.'),
+
+  ('cc0_api_2026_08', 'api', true,
+   'Owner decision 2026-08-22: licence terms are identified and permit this use. Opened '
+   'for viewer-only display (api channel) of already-ingested facts. Written '
+   'confirmation / evidence / counsel review remain outstanding -- this is NOT a '
+   'diligence-complete signal. See prompts/P55-scoped-unblock.md.'),
+  ('cc0_api_2026_08', 'free_snapshot', false,
+   'Licence identification confirmed; counsel/owner sign-off Pending. No channel is '
+   'cleared for output beyond the api-channel decision recorded above until sign-off '
+   'completes.'),
+  ('cc0_api_2026_08', 'paid_property_file', false,
+   'Licence identification confirmed; counsel/owner sign-off Pending. No channel is '
+   'cleared for output beyond the api-channel decision recorded above until sign-off '
+   'completes. paid_property_file additionally depends on the L0 gate (P53, still '
+   'closed -- no verified ca_san_jose.city_limits ingest exists) and the boundary '
+   'cross-check + counsel review named as its own precondition in P52 §10 / P53 §11, '
+   'unaffected by this pass either way.'),
+  ('cc0_api_2026_08', 'bulk_export', false,
+   'Licence identification confirmed; counsel/owner sign-off Pending. No channel is '
+   'cleared for output beyond the api-channel decision recorded above until sign-off '
+   'completes.'),
+  ('cc0_api_2026_08', 'analytics', false,
+   'Licence identification confirmed; counsel/owner sign-off Pending. No channel is '
+   'cleared for output beyond the api-channel decision recorded above until sign-off '
+   'completes.'),
+  ('cc0_api_2026_08', 'model_training', false,
+   'Denied pending review: no one has yet read cc0''s terms as applied specifically to '
+   'model-training use, separately from the api-channel decision above. Requires its '
+   'own rationale before this can flip.')
 ON CONFLICT (licence_id, channel) DO NOTHING;
 
 -- ============================================================================
@@ -250,7 +358,7 @@ INSERT INTO source (
    'active',
    'Licence confirmed: CC BY 4.0. Endpoint verified 2026-08-06: GET, 200, Content-Type application/json, body is a well-formed GeoJSON FeatureCollection (225,039 Polygon features). expected_fields corrected 2026-08-07: scripts/ingest_parcels.py Phase C found the source supplies neither parcel.lot_area_gis nor parcel.situs_address -- see field_definition.deferral_reason on both. parcel.source_parcel_id added 2026-08-07 (0035): PARCELID confirmed unique and fully populated across all 225,039 features by the parcel identity diagnostic.',
    'https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/4bb085cb99a64eff8e83d2bf92a8d5cb/geojson?layers=270',
-   'cc_by_4_0',
+   'cc_by_4_0_api_2026_08',
    true,
    '2026-08-06'::timestamptz,
    '["parcel.apn","parcel.geometry","parcel.source_parcel_id"]'::jsonb),
@@ -263,7 +371,7 @@ INSERT INTO source (
    'active',
    'Licence confirmed: CC BY 4.0. Endpoint verified 2026-08-06: GET, 200, Content-Type application/json, body is a well-formed GeoJSON FeatureCollection (13,691 Polygon features).',
    'https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/adf17ae739214787ad42945c5f72ccd8/geojson?layers=401',
-   'cc_by_4_0',
+   'cc_by_4_0_api_2026_08',
    true,
    '2026-08-06'::timestamptz,
    '["zoning.district","zoning.district_verbatim"]'::jsonb),
@@ -276,7 +384,7 @@ INSERT INTO source (
    'active',
    'Licence confirmed: CC0. Endpoint verified 2026-08-06: GET, 200, Content-Type text/csv, body is 17,492 real permit rows (not HTML).',
    'https://data.sanjoseca.gov/dataset/fd9ceb0c-75e0-402e-9fe3-3f6e04f2c23f/resource/761b7ae8-3be1-4ad6-923d-c7af6404a904/download/buildingpermitsactive.csv',
-   'cc0',
+   'cc0_api_2026_08',
    true,
    '2026-08-06'::timestamptz,
    '["permits.active","permits.series_earliest"]'::jsonb)

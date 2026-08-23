@@ -149,7 +149,19 @@ def seed_reference_rows(conn):
                'https://creativecommons.org/publicdomain/zero/1.0/', '2026-07-31'::timestamptz, NULL, NULL),
               ('cc_by_4_0', 'CC BY 4.0', 'attribution', 'allowed', 'allowed',
                'Data © City of San José', 'https://creativecommons.org/licenses/by/4.0/',
-               '2026-07-31'::timestamptz, NULL, NULL)
+               '2026-07-31'::timestamptz, NULL, NULL),
+              -- P55: the `source` INSERT below reads ip.LICENCE_ID /
+              -- izp.LICENCE_ID_ZONING / izp.LICENCE_ID_PERMITS directly --
+              -- already repointed to these ids (§4.1/§4.5 step 9) -- so this
+              -- reference-row fallback needs the licence rows to match, or a
+              -- migrations-only `make conformance` run raises
+              -- foreign_key_violation instead of testing the pack.
+              ('cc_by_4_0_api_2026_08', 'CC BY 4.0 (api channel, scoped 2026-08)',
+               'attribution', 'allowed', 'allowed', 'Data © City of San José',
+               'https://creativecommons.org/licenses/by/4.0/', '2026-07-31'::timestamptz, NULL, NULL),
+              ('cc0_api_2026_08', 'CC0 1.0 (api channel, scoped 2026-08)',
+               'open', 'allowed', 'allowed', NULL,
+               'https://creativecommons.org/publicdomain/zero/1.0/', '2026-07-31'::timestamptz, NULL, NULL)
             ON CONFLICT (id) DO NOTHING
             """
         )

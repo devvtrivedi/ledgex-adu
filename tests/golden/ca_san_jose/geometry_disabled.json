@@ -44,15 +44,15 @@
             "field_keys": [
               "parcel.apn"
             ],
-            "licence_id": "cc_by_4_0"
+            "licence_id": "cc_by_4_0_api_2026_08"
           },
-          "message": "Licence cc_by_4_0 forbids channel paid_property_file for touched field(s): parcel.apn.",
+          "message": "Licence cc_by_4_0_api_2026_08 forbids channel paid_property_file for touched field(s): parcel.apn.",
           "stage": "L8"
         }
       ],
       "status": "refused"
     },
-    "payload_hash": "eb948b57ad2ed4f060138b529553ccdd8196d5dcf41a6aaef47afc596adf21f6",
+    "payload_hash": "99cf98709550ad7990ff32c0b9e40c91989cca59ec769316d9a1a864c38b1177",
     "refusals": [
       {
         "code": "GEOMETRY_TIER_DISABLED",
@@ -80,9 +80,9 @@
           "field_keys": [
             "parcel.apn"
           ],
-          "licence_id": "cc_by_4_0"
+          "licence_id": "cc_by_4_0_api_2026_08"
         },
-        "message": "Licence cc_by_4_0 forbids channel paid_property_file for touched field(s): parcel.apn.",
+        "message": "Licence cc_by_4_0_api_2026_08 forbids channel paid_property_file for touched field(s): parcel.apn.",
         "stage": "L8"
       }
     ],

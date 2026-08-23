@@ -52,15 +52,15 @@
             "field_keys": [
               "parcel.apn"
             ],
-            "licence_id": "cc_by_4_0"
+            "licence_id": "cc_by_4_0_api_2026_08"
           },
-          "message": "Licence cc_by_4_0 forbids channel paid_property_file for touched field(s): parcel.apn.",
+          "message": "Licence cc_by_4_0_api_2026_08 forbids channel paid_property_file for touched field(s): parcel.apn.",
           "stage": "L8"
         }
       ],
       "status": "refused"
     },
-    "payload_hash": "51ddcad1cedab5688eec374a2dc20eed43ec5e21bef85cf1416dd54aebe89a47",
+    "payload_hash": "80ae4d77de3bdbf2fa83e778b32ec42c3235368e76f9cccb3514e827e0551974",
     "refusals": [
       {
         "code": "ELECTION_REQUIRED",
@@ -96,9 +96,9 @@
           "field_keys": [
             "parcel.apn"
           ],
-          "licence_id": "cc_by_4_0"
+          "licence_id": "cc_by_4_0_api_2026_08"
         },
-        "message": "Licence cc_by_4_0 forbids channel paid_property_file for touched field(s): parcel.apn.",
+        "message": "Licence cc_by_4_0_api_2026_08 forbids channel paid_property_file for touched field(s): parcel.apn.",
         "stage": "L8"
       }
     ],

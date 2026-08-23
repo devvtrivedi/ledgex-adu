@@ -265,11 +265,87 @@ def test_no_fabricated_evidence_in_either_response():
         )
 
 
+# P55 Phase 2, §7/T8: additive coverage for the two new scoped-unblock
+# licence ids -- NEW functions, not edits to the two above. The existing
+# assertions about cc0/cc_by_4_0 stay true and unmodified (both retain their
+# original six-channel, model_training-distinct, no-fabrication shape); this
+# is parallel coverage for cc_by_4_0_api_2026_08/cc0_api_2026_08, which carry
+# the identical shape (design §4.3/§4.4) except one channel (api) is now
+# allowed=true rather than false.
+P55_NEW_LICENCE_IDS = ("cc_by_4_0_api_2026_08", "cc0_api_2026_08")
+
+
+def test_model_training_rationale_distinct_new_licence_ids():
+    """Same property as test_model_training_rationale_distinct_from_the_other_five,
+    for the two P55 licence ids: model_training keeps its own, independent
+    rationale, never collapsed into the (now five, still 'the other five'
+    minus api which is a different string again) shared text."""
+    conn = get_db()
+    try:
+        rows = viewer.get_rights(conn)["data"]
+    finally:
+        conn.close()
+
+    for licence_id in P55_NEW_LICENCE_IDS:
+        by_channel = {r["channel"]: r["rationale"] for r in rows if r["licence_id"] == licence_id}
+        check(
+            f"{licence_id} has all six channels present in GET /v1/rights",
+            set(by_channel) == {
+                "free_snapshot", "paid_property_file", "api", "bulk_export",
+                "analytics", "model_training",
+            },
+            f"got channels: {sorted(by_channel)}",
+        )
+        check(
+            f"{licence_id}: model_training's rationale is distinct from api's",
+            by_channel.get("model_training") != by_channel.get("api"),
+            f"model_training={by_channel.get('model_training')!r} api={by_channel.get('api')!r}",
+        )
+        check(
+            f"{licence_id}: model_training's rationale explicitly names model-training use",
+            "model-training" in (by_channel.get("model_training") or ""),
+            f"got: {by_channel.get('model_training')!r}",
+        )
+
+
+def test_no_fabricated_evidence_new_licence_ids():
+    """Same property as test_no_fabricated_evidence_in_either_response, for
+    the two P55 licence ids -- C1's guard, restated here at the reporting
+    layer (T2 in scripts/test_scoped_unblock.py already asserts it directly
+    against licence.cleared_by/cleared_at/evidence_uri; this is the same
+    fact checked through GET /v1/rights's own derived fields instead)."""
+    conn = get_db()
+    try:
+        rights_rows = viewer.get_rights(conn)["data"]
+    finally:
+        conn.close()
+
+    for licence_id in P55_NEW_LICENCE_IDS:
+        rows = [r for r in rights_rows if r["licence_id"] == licence_id]
+        check(
+            f"{licence_id}: evidence_uri is NULL in the live database",
+            all(r["evidence_uri"] is None for r in rows),
+            f"got evidence_uri values: {[r['evidence_uri'] for r in rows]}",
+        )
+        check(
+            f"{licence_id}: diligence is never 'cleared' while evidence_uri is NULL",
+            all(r["diligence"] != "cleared" for r in rows),
+            f"got diligence values: {[r['diligence'] for r in rows]}",
+        )
+        check(
+            f"{licence_id}: diligence is exactly 'written_confirmation_pending' everywhere",
+            all(r["diligence"] == "written_confirmation_pending" for r in rows),
+            f"got diligence values: {[r['diligence'] for r in rows]}",
+        )
+
+
 if __name__ == "__main__":
     test_rights_position_matrix()
     test_diligence_matrix()
     test_default_deny_unaffected_by_reporting()
     test_model_training_rationale_distinct_from_the_other_five()
     test_no_fabricated_evidence_in_either_response()
+    test_model_training_rationale_distinct_new_licence_ids()
+    test_no_fabricated_evidence_new_licence_ids()
     print(f"\n{len(failures)} failure(s)" if failures else "\nAll assertions passed")
     sys.exit(1 if failures else 0)

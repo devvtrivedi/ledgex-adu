@@ -61,6 +61,16 @@ def main():
               ('cc_by_4_0', 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose',
                '2026-07-31'::timestamptz, NULL, NULL),
               ('cc0', 'CC0', 'open', 'allowed', 'allowed', NULL,
+               '2026-07-31'::timestamptz, NULL, NULL),
+              -- P55: see _p5_setup.py's identical comment -- the real ingest
+              -- scripts this run shells out to now write facts citing these
+              -- ids; the OLD rows stay for this script's own hand-written
+              -- reconciliation-test INSERT further down (literal 'cc_by_4_0').
+              ('cc_by_4_0_api_2026_08', 'CC BY 4.0 (api channel, scoped 2026-08)',
+               'attribution', 'allowed', 'allowed', 'City of San Jose',
+               '2026-07-31'::timestamptz, NULL, NULL),
+              ('cc0_api_2026_08', 'CC0 1.0 (api channel, scoped 2026-08)',
+               'open', 'allowed', 'allowed', NULL,
                '2026-07-31'::timestamptz, NULL, NULL)
             ON CONFLICT (id) DO NOTHING
         """)
@@ -74,11 +84,11 @@ def main():
                                  phase_status_reason, endpoint_url, licence_id, active)
             VALUES
               ('ca_san_jose.parcels', 'ca_san_jose', 'Parcels', 'City of San Jose', 'bulk', 'active',
-               'Phase B acceptance run', 'https://example.com/parcels', 'cc_by_4_0', false),
+               'Phase B acceptance run', 'https://example.com/parcels', 'cc_by_4_0_api_2026_08', false),
               ('ca_san_jose.zoning_districts', 'ca_san_jose', 'Zoning', 'City of San Jose', 'bulk', 'active',
-               'Phase B acceptance run', 'https://example.com/zoning', 'cc_by_4_0', false),
+               'Phase B acceptance run', 'https://example.com/zoning', 'cc_by_4_0_api_2026_08', false),
               ('ca_san_jose.building_permits_active', 'ca_san_jose', 'Permits', 'City of San Jose', 'bulk', 'active',
-               'Phase B acceptance run', 'https://example.com/permits', 'cc0', false)
+               'Phase B acceptance run', 'https://example.com/permits', 'cc0_api_2026_08', false)
             ON CONFLICT (id) DO NOTHING
         """)
         cur.execute("""
@@ -103,13 +113,13 @@ def main():
         bucket = env("OBJECT_STORE_BUCKET")
 
         a_sid = upload_and_snapshot(cur, s3, bucket, f"{fixtures_dir}/phaseb_A.geojson",
-                                     "ca_san_jose.parcels", "cc_by_4_0", "application/geo+json")
+                                     "ca_san_jose.parcels", "cc_by_4_0_api_2026_08", "application/geo+json")
         b_sid = upload_and_snapshot(cur, s3, bucket, f"{fixtures_dir}/phaseb_B.geojson",
-                                     "ca_san_jose.parcels", "cc_by_4_0", "application/geo+json")
+                                     "ca_san_jose.parcels", "cc_by_4_0_api_2026_08", "application/geo+json")
         zoning_sid = upload_and_snapshot(cur, s3, bucket, f"{fixtures_dir}/phaseb_zoning.geojson",
-                                          "ca_san_jose.zoning_districts", "cc_by_4_0", "application/geo+json")
+                                          "ca_san_jose.zoning_districts", "cc_by_4_0_api_2026_08", "application/geo+json")
         permits_sid = upload_and_snapshot(cur, s3, bucket, f"{fixtures_dir}/phaseb_permits.csv",
-                                           "ca_san_jose.building_permits_active", "cc0", "text/csv")
+                                           "ca_san_jose.building_permits_active", "cc0_api_2026_08", "text/csv")
 
     conn.commit()
     conn.close()

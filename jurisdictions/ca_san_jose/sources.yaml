@@ -36,7 +36,9 @@ sources:
     display_name: Parcels
     steward: City of San José
     method: bulk
-    licence: cc_by_4_0                    # CONFIRMED by audit; Plan App K active
+    licence: cc_by_4_0_api_2026_08         # P55: repointed from cc_by_4_0 (immutable;
+                                            # scoped-unblock, api channel only -- see
+                                            # prompts/P55-scoped-unblock.md §4.5 step 8)
     phase_status: active
     phase_status_reason: "CC BY confirmed; attribution attached automatically."
     cadence_stated: "weekly, Mondays"
@@ -48,7 +50,9 @@ sources:
     display_name: Zoning Districts
     steward: City of San José
     method: bulk
-    licence: cc_by_4_0                    # CONFIRMED by audit; Plan App K active
+    licence: cc_by_4_0_api_2026_08         # P55: repointed from cc_by_4_0 (immutable;
+                                            # scoped-unblock, api channel only -- see
+                                            # prompts/P55-scoped-unblock.md §4.5 step 8)
     phase_status: active
     phase_status_reason: "CC BY confirmed; attribution attached automatically."
     cadence_stated: "weekly, Mondays"
@@ -59,7 +63,9 @@ sources:
     display_name: Active Building Permits
     steward: City of San José
     method: bulk
-    licence: cc0                          # CONFIRMED -- strongest position in the stack
+    licence: cc0_api_2026_08              # P55: repointed from cc0 (immutable; scoped-
+                                           # unblock, api channel only -- see
+                                           # prompts/P55-scoped-unblock.md §4.5 step 8)
     phase_status: active
     phase_status_reason: "CC0 confirmed; no restriction. Basis of the tier 1 posture (coverage and cadence, not fetch mode)."
     cadence_stated: "daily"
