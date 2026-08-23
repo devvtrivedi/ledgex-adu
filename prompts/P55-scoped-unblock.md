@@ -1733,3 +1733,120 @@ Once acknowledged: rename the current, partial `ledgex_schema_check` aside (per 
 owner's own item 3 -- kept, not dropped, alongside the two P55-attempt renamed-aside
 copies already retained), rebuild from scratch, and replay all eight operations against
 this new bar.
+
+### 12.12 Stage 6, second recovery: operation 4's deviation, closed -- a migration-sequencing
+### artifact in the ORIGINAL build, not a code regression and not (necessarily) a bad file
+
+**Background, so the record is complete.** The replay against §12.11's bar was launched;
+its own `verify_no_contamination()` (still the pre-fix `NOT IN` form at the time) stalled
+for 44+ minutes on operation 3's own post-check -- diagnosed and fixed in commit `8c4a1d6`
+(the query itself, `NOT IN` -> `NOT EXISTS`, proven via `EXPLAIN`: cost 4,713,162,723 ->
+101,573). While that fix was being designed (database untouched, per explicit instruction),
+the ORIGINAL running process -- still executing the *pre-fix* code already loaded into its
+own memory, invisible in real time because its own `print()` output was buffered under
+`tee` -- eventually finished that same slow query on its own, continued, and **operation 4
+(parcels, `b98138f0...`) deviated for real**: predicted `rows_in=25 rows_out=25`, actual
+`rows_in=25 rows_out=0`, writing **225,014 permanent `parcel_exception` rows**
+(`type='record_to_ground', detector_key='parcel_disappeared_from_source'`) falsely claiming
+225,014 real, still-valid parcels had disappeared from the source, and retiring 225,014
+`source_feature_identity` rows. The script's own exact-count bar for parcels correctly
+halted there (confirmed from the log directly, not from the task-summary's own misleading
+"exit code 0" -- see §12.13 on the `pipefail` bug that caused that). Operations 5-8 never
+ran.
+
+**Archaeology, same technique as §12.10, applied to `phase_e`.** OLDREF2 (`git log
+--before='2026-08-17 00:28' -1`) -> `10f6a11f` (2026-08-16 19:29:52, the commit checked
+out at the historical moment b98138f0 was ingested). `git log --oneline OLDREF2..HEAD --
+scripts/ingest_parcels.py`: 7 commits, none touching the disappeared-detection query by
+name. **Direct diff of that exact query (`SELECT sfi.source_feature_id, sfi.parcel_id FROM
+source_feature_identity sfi WHERE sfi.source_id = %s AND sfi.retired_at IS NULL AND NOT
+EXISTS (...)`) between OLDREF2 and HEAD: byte-identical.** Checked P55's own commit
+explicitly and separately, per the owner's own instruction: `git show 6bcb97d --
+scripts/ingest_parcels.py`, every added/removed line -- exactly the one `LICENCE_ID`
+constant reassignment. **Not a code regression. The reconciliation logic never changed.**
+
+**So why did the historical run produce 25/25 with zero disappearance, running the
+identical code against the identical bytes?** Queried the ORIGINAL database's own
+`source_feature_identity` table directly: **25 total rows for `ca_san_jose.parcels` --
+all 25 of them, with `first_seen_at = last_seen_at = 2026-08-17 00:28:25`, the exact
+moment b98138f0 itself was ingested.** The original 225,039-feature wave (`0216d539`,
+ingested 2026-08-07) never wrote a single `source_feature_identity` row. Found why:
+`db/migrations/0043_source_feature_identity.sql` (`git log --follow`) was first committed
+**2026-08-08 09:23:05 -- the morning AFTER `0216d539`'s own historical ingest, ten days
+BEFORE `b98138f0`'s.** The table this reconciliation logic depends on did not exist yet
+when the original 225,039 parcels were loaded, and no migration ever backfilled identities
+for data ingested before it landed. **When `b98138f0` ran historically, `source_feature_
+identity` was empty for this source by construction -- not because the file was a genuine
+small delta, but because the tracking mechanism itself had nothing recorded yet.** The
+"DISAPPEARED" query legitimately found zero rows to compare against and correctly reported
+"new: 25, disappeared: 0" -- against an empty baseline, both truthfully.
+
+**In this rebuild, by contrast, all 56 migrations (including 0043) apply before any
+ingest runs at all**, so `0216d539`'s own real ingest correctly populates 225,039
+`source_feature_identity` rows -- and when `b98138f0` then runs, the SAME, unchanged query
+correctly finds 225,014 of them absent from this file's own 25 features and reports them
+disappeared. **The rebuild's own behavior is not a bug. It is what full reconciliation is
+supposed to do when the tracking table is actually populated -- something the historical
+build never exercised, because the table came into existence at the wrong moment relative
+to the historical wave order.**
+
+**Is `b98138f0` a legitimate `--phase e` input at all?** Downloaded and inspected its own
+bytes directly (not inferred): a genuine `FeatureCollection`, 25 features, identical
+property schema to the main dataset (`OBJECTID`, `PARCELID`, `APN`, ...), fetched from the
+**exact same endpoint URL** as `0216d539` -- `gisdata-csj.opendata.arcgis.com/.../4bb085cb
+.../geojson?layers=270`, no date-range, "changed-since," or pagination-cursor parameter
+anywhere in it. This source exposes no delta/incremental-fetch mechanism at all; every
+fetch against this URL returns whatever the full-dump endpoint currently has. A 25-feature
+response from a 225,039-feature endpoint, with no filtering parameter to explain the
+difference, is most consistent with a **truncated or partial fetch** (a timeout, a
+connection drop mid-stream, a transient service limit) that happened to succeed at the
+HTTP level (200, valid JSON) while returning far less than the full dataset -- not a
+genuine "these are the 25 parcels that changed" delta the source itself asserts. **This
+was never actually verified by any earlier pass; §4.5's own original archaeology recorded
+this job_run's existence and its 25/25 result without checking what the file itself
+represented.**
+
+**Conclusion, stated as plainly as the owner's own instruction asked for: the defect is in
+the REPLAY LIST's own assumption, not in `phase_e`.** Every job_run row with populated
+`rows_in`/`rows_out` was treated as "a legitimate load, safe to mechanically replay" (§12.3
+step 5's own discriminator). That discriminator correctly separates real loads from
+fetch-only calls, but it does NOT establish that a given load's own historical *result* was
+obtained under conditions this rebuild can safely reproduce -- `b98138f0`'s own historical
+"success" was contingent on a migration-sequencing accident (an empty tracking table) that
+cannot and should not be reproduced (reproducing it would mean deliberately migrating
+`0216d539`'s own wave under an older schema, then upgrading -- manufacturing the exact
+historical accident on purpose, which is not a rebuild, it's a re-enactment of a bug).
+**Replaying `b98138f0` via `--phase e`'s full reconciliation against a properly-migrated,
+fully-tracked parcel set is not safe, regardless of code version, because the file itself
+most likely does not represent what full reconciliation requires it to represent.** Whether
+that means `b98138f0` should be excluded from the replay list entirely, replayed through a
+different (currently nonexistent) partial-update mechanism, or something else, is not
+decided here -- flagged for the owner, matching the same posture §12.6 took for its own
+open question.
+
+**What currently sits in `ledgex_schema_check`, untouched, per explicit instruction:**
+225,014 `parcel_exception` rows (`parcel_disappeared_from_source`) and 225,014 retired
+`source_feature_identity` rows, all false claims, all still present. Not cleaned up, not
+resolved, not deleted -- the database itself is disposable (§10's own rename-aside
+discipline is exactly why); a clean rebuild that excludes or otherwise correctly handles
+`b98138f0` is cheaper and more honest than unwinding a false claim with a corrective one.
+
+### 12.13 Two corrections recorded, per the owner's own explicit instruction
+
+**The `pipefail` bug.** `_p55_stage6_replay.py` was invoked as `... | tee <logfile>`
+without `set -o pipefail`. When the script correctly halted on operation 4's real deviation
+(`sys.exit(1)`), the pipeline's own reported exit code was `tee`'s (always 0, since `tee`
+itself succeeded), not Python's -- the background-task completion summary read "exit code
+0," which momentarily looked like a clean pass despite the script's own printed `STOP:`
+message sitting in the same log. Fixed in the script's own usage docstring (commit
+`35c47e1`): every future invocation must `set -o pipefail` first.
+
+**§12.11's own error.** This document told the owner, with confidence: *"Operation 1
+(parcels) keeps the exact-count bar... there is no logic between the bytes and the count
+for a `git log` to ever show evolving."* That was wrong. `phase_e`'s own Phase B
+reconciliation has real, substantial cross-row logic -- and it is exactly that logic which
+caught operation 4's real deviation. The bar itself was right to stay exact (a parcels
+mismatch is diagnosable and, as this section shows, can be a genuinely important finding);
+the STATED REASON for why it was safe was not checked closely enough before being written
+down as settled. Corrected here, and in `_p55_stage6_replay.py`'s own docstring (commit
+`35c47e1`), rather than left standing.
