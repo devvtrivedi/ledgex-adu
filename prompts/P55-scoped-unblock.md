@@ -1543,3 +1543,138 @@ Target fact count, unchanged throughout this whole reconciliation:    1,135,140
 Nothing above changes Stage 6's own plan: the 8-operation replay list in §12.3 was already
 correct and already accounts for the asymmetric double-replay of `699ec193...`/`70bf19c1...`.
 This section exists so no other number in this document contradicts it.
+
+### 12.10 The operation-2 deviation, closed: code evolution, not contamination alone, and
+### not a regression
+
+§12.9's own bounded experiment (fresh scratch database, real 225,039 parcels from
+`0216d539...` plus the 4 reconstructed stray parcels identified via `parcel.first_seen_at`)
+did **not** reproduce history: `rows_in` 225,040 (predicted 225,042), `rows_out` 214,903
+(predicted 214,892, identical to the unmodified rebuild's own figure) — the stray parcels
+moved `rows_in` by exactly 1 (only one of the four had real geometry) and moved `rows_out`
+by **zero**. The owner's own instruction on a non-reproducing bounded experiment was to
+stop and check whether the ingest script's own matching logic had changed since the
+historical run, rather than keep guessing. It had.
+
+**OLDREF, found mechanically:** `git log --before='2026-08-07 21:17:24' -1` →
+`24849dfee40c608684b356ba78a54bebe4757ec5` (2026-08-07 19:47:48 -0700, "Extract the fact
+and parcel_exception insert primitives into core/store, core/exceptions") — the commit
+checked out at the exact historical moment `ingest_zoning`'s job_run for `eae7823a...`
+started.
+
+**The zoning matching logic changed, and the commit that changed it names the exact delta
+by itself, independently, a week before this pass existed.** `git log --oneline
+OLDREF..HEAD -- scripts/ingest_zoning_permits.py` shows 17 commits; the load-bearing one is
+`40b953d` (2026-08-14 11:21:16 -0700, **eight days after OLDREF, eight days before P55's
+first commit**), *"Fix zoning ambiguity: count distinct real classifications, not candidate
+rows."* Read directly, not summarized: the old code counted intersecting *candidate
+polygon rows* to decide ambiguity; a parcel touching two candidate rows that happened to
+agree on the real zoning classification (or where one candidate carried a null/blank
+classification field) was wrongly recorded ambiguous even though exactly one real answer
+existed. The fix replaced that with counting *distinct real classification values* --
+`classify_zoning_candidates()`'s own three-way split (`matched` / `matched with a
+polygon-overlap anomaly, non-blocking` / genuinely `ambiguous`) did not exist in the
+OLDREF-era code at all (confirmed: `grep` for `anomaly`/`classify_zoning_candidates`
+against the OLDREF-era file returns nothing; the old file's own "ambiguous" concept is a
+flat "ambiguous (multiple districts)" bucket with no overlap-resolution path). **The
+commit's own message states, verified against this exact real snapshot, before P55 ever
+touched this repo: "matched 214,892 -> 214,903, ambiguous 12 -> 1, zero-match unchanged at
+10,138."** `214,892 -> 214,903` is not a similar number to this rehearsal's own delta -- it
+is the identical delta, to the digit, independently recorded eight days before this pass
+began.
+
+**Permits matching logic also changed, the same day, a different bug.** `bd5db19` (also
+2026-08-14, one minute after `40b953d`), *"Fix APN mismatch between permits and parcels:
+shared canonicaliser"* -- a permit CSV row's leading-apostrophe APN artifact (an Excel
+"force text" export shape) never string-equalled `parcel.apn` before this fix; a shared
+`canonicalize_identifier()` now strips it on both sides of the join. The commit's own
+message: 1 of 17,499 real permit rows carried this artifact. A real, if small, change to
+which permit rows can match a parcel -- confirmed present, not assumed, by reading the
+commit directly.
+
+**Did any P55 commit touch this logic? Checked explicitly and separately, per the owner's
+own instruction -- no.** `git show 6bcb97d -- scripts/ingest_zoning_permits.py`, every
+added/removed line: exactly two constant reassignments (`LICENCE_ID_ZONING`,
+`LICENCE_ID_PERMITS`) plus their own comments. No P55 commit anywhere in this branch's
+history touches `load_zoning`, `load_permits`, `classify_zoning_candidates`, or
+`canonicalize_identifier`. **This is not a P55 regression.** It is two genuine correctness
+fixes (P-something, 2026-08-14, a full arc before this one) landing, correctly, on the same
+real production data this rebuild replays -- an improvement arriving late to a database
+that was never rebuilt since, not a defect this pass introduced.
+
+**Consequence, stated exactly as the owner's own instruction requires: the exact-count
+acceptance bar is retired completely, not narrowed to zoning.** Operation 1 (parcels)
+matched only because `--phase e` is a straight per-feature write with no cross-row
+matching logic to evolve -- `rows_in`/`rows_out` there are just "how many features are in
+the file," unaffected by either the ambiguity fix or the APN canonicaliser. Zoning and
+permits both have real matching/resolution logic that has demonstrably evolved since the
+historical run, independent of anything this pass did. **1,135,140 is unreachable for TWO
+independent, now-confirmed reasons, both recorded:**
+
+1. **A contaminated parcel set** (§12.9) -- historical `job_run` metrics for zoning/permits
+   reflect incidental `db-test` invariant-suite parcels sharing the real `ca_san_jose`
+   jurisdiction at ingest time, not reproducible by a clean rebuild and not something a
+   clean rebuild should try to reproduce.
+2. **Evolved matching code** (this section) -- the ingest scripts a rebuild runs today are
+   not the ingest scripts that produced the historical figures; two real bug fixes (
+   `40b953d`, `bd5db19`, both 2026-08-14) changed how many zoning/permits facts a real
+   parcel resolves to, correctly, in ways that will never reproduce the original,
+   less-correct counts and should not be made to.
+
+No historical `job_run` metric -- for zoning or permits, on any snapshot, replayed once or
+twice -- can serve as a per-operation acceptance bar for this or any future replay. §12.11
+proposes the bar this retirement requires.
+
+### 12.11 The replacement bar
+
+Proposed, not yet run against -- `ledgex_schema_check` stays exactly as §12.10 left it
+(operations 1-2 committed, 3-8 not run) until this is settled.
+
+**Operation 1 (parcels) keeps the exact-count bar.** `--phase e` reads only the verified
+snapshot bytes and writes one parcel/fact set per feature -- no cross-row matching, no
+join, nothing for a later bug fix to have changed. It already matched exactly
+(225,039/225,039) and §12.10 gives the structural reason it always will: there is no logic
+between the bytes and the count for a `git log` to ever show evolving.
+
+**Zoning and permits are accepted on structural correctness, not a count match.** For each
+of the six operations covering these two sources:
+- Every real parcel (one from the real `ca_san_jose.parcels` snapshot, confirmed by
+  `source_feature_identity` or an equivalent real-source join) that the source data can
+  resolve gets its zoning/permits fact -- checked by re-deriving the match set directly
+  from the verified snapshot bytes and the *current* `parcel` table's own real-source rows,
+  independent of any historical count.
+- No fact attaches to a parcel that is not from the real source (rules out the contaminated-
+  parcel-set failure mode from ever mattering to the final database, regardless of what it
+  did historically).
+- Zero facts under the old licence ids (`cc_by_4_0`/`cc0`) -- already the acceptance
+  criterion §4.5 step 13 specifies, unaffected by anything in this section.
+- The delta from the historical `job_run` figure is **stated and explained**, not required
+  to be zero -- §12.10's own two named causes (contaminated historical parcel set, evolved
+  matching code) are the explanation for every one of the six zoning/permits operations,
+  recorded per-operation rather than asserted away.
+
+**The final fact count is recorded with its delta from 1,135,140 and the reason, not
+asserted equal to it.** The expected shape, stated before running so it is a prediction and
+not a rationalization: more than 1,135,140, because `40b953d`'s own fix resolves parcels
+the historical run left as `zero-match`/`ambiguous` (net positive to `matched`, hence to
+fact count) and `bd5db19`'s own fix recovers at least the one permit row it names. No
+attempt is made here to predict the exact new total -- doing so from the two commits' own
+before/after deltas (zoning: `+11` per operation, times however many of the eight
+operations that logic path affects; permits: `+1` known, more possible) would be exactly
+the prose-arithmetic this whole rehearsal exists to distrust. The real total is measured
+after the replay runs, not predicted and then defended.
+
+**A stronger bar is not available, argued rather than assumed:** the only inputs that are
+genuinely fixed and reproducible are the retained snapshot bytes (SHA-256 verified, §12.9)
+and the current, live matching code -- both already exact-match constraints in the
+structural bar above (real-source-only facts, zero old-licence facts). Historical
+`job_run` counts are not a third fixed input; they are the output of a *different* version
+of that code, which is precisely what this section demonstrates. Asking for exact
+reproduction of a value produced by code that no longer exists is not a stronger bar, it is
+an unsatisfiable one -- already proven unsatisfiable twice, mechanically, in this rehearsal
+alone.
+
+Once acknowledged: rename the current, partial `ledgex_schema_check` aside (per the
+owner's own item 3 -- kept, not dropped, alongside the two P55-attempt renamed-aside
+copies already retained), rebuild from scratch, and replay all eight operations against
+this new bar.
