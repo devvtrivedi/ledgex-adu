@@ -199,11 +199,22 @@ jobs:
       # irreversible) unless explicitly confirmed. ledgex_ci is fresh and
       # disposable, torn down with this runner regardless of what 0013
       # blocks, so confirming here is correct -- unlike a bare local
-      # `make golden`, which must NOT be confirmed by default (Makefile's
-      # own DATABASE_URL default is ledgex_schema_check, the real shared
-      # dev database).
+      # `make golden`, which must NOT be confirmed by default. Kept even
+      # though GOLDEN_DATABASE_URL (below) now also guards which database
+      # this target can reach at all -- the two guards protect different
+      # axes (which database vs. whether an irreversible write on THAT
+      # database is expected), per P56 containment's own §2.4 argument for
+      # keeping this gate rather than treating GOLDEN_DATABASE_URL as a
+      # replacement for it.
+      #
+      # P56 containment (prompts/P56-fixture-contamination-boundary.md
+      # close-out): make golden now reads GOLDEN_DATABASE_URL, never
+      # DATABASE_URL, same shape db-test already uses for
+      # DB_TEST_DATABASE_URL above -- passing this job's own already-fresh,
+      # already-seeded ledgex_ci explicitly, so CI's own behaviour is
+      # unchanged: same database, same seeding order, same result.
       - name: make golden
-        run: make golden DATABASE_URL="$DATABASE_URL" PYTHON=python3 GOLDEN_ALLOW_RULE_SEED=1
+        run: make golden GOLDEN_DATABASE_URL="$DATABASE_URL" PYTHON=python3 GOLDEN_ALLOW_RULE_SEED=1
 
       # P25: property_file.geometry_tier_used regression guard -- same
       # reasoning as the snapshot-race test and golden above, no new job.

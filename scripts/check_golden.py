@@ -160,7 +160,92 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 import ingest_parcels as ip  # noqa: E402 -- reused for its honest reference-row shape
 import compose_property_file as cpf  # noqa: E402 -- module under test, imported, not reimplemented
-from infra.env import get_db  # noqa: E402
+import psycopg2  # noqa: E402
+from infra.env import _is_local, resolved_host  # noqa: E402
+
+# P56 containment (prompts/P56-fixture-contamination-boundary.md close-out).
+# This file's own seed_reference_rows()/make_fixture_parcel_and_fact() write
+# real snapshot/parcel/fact rows under the REAL ca_san_jose.parcels source id
+# and the REAL current licence id, request='{}', bypassing job_run entirely --
+# the identical shape README finding #53 names, just a fourth independent
+# writer of it (P56 Phase 1 design doc §2.4). infra.env.get_db() reads plain
+# DATABASE_URL, which this file used to call directly -- exactly how this
+# repo's own freshly-rebuilt ledgex_schema_check was contaminated hours after
+# being certified clean, 2026-08-23. GOLDEN_DATABASE_URL is a dedicated
+# variable, modelled on scripts/smoke_real.py's own SMOKE_DATABASE_URL
+# (step_env(), P50): never falls back to DATABASE_URL under any name, refuses
+# a non-local host outright with NO override flag (D3: this family refuses,
+# it does not warn-and-continue -- a recorded anomaly nobody reads, per #53,
+# is not a boundary), and refuses loudly if the target isn't there or isn't
+# migrated+seeded, naming the exact commands that fix it rather than creating
+# anything itself.
+DEFAULT_GOLDEN_DB = "postgresql://localhost/ledgex_golden"
+
+
+def golden_get_db():
+    golden_url = os.environ.get("GOLDEN_DATABASE_URL") or DEFAULT_GOLDEN_DB
+
+    host = resolved_host(golden_url)
+    if not _is_local(golden_url):
+        raise SystemExit(
+            "refusing to run make golden: GOLDEN_DATABASE_URL resolves to host "
+            f"{host!r}, which is not local. This target makes PERMANENT writes "
+            "(fact_no_delete/fact_no_update -- 0017, 0007/0040; snapshot_no_update/"
+            "_no_delete -- 0021) under the REAL ca_san_jose.parcels source id and "
+            "the REAL current licence id, every run. There is no override flag for "
+            "this refusal, on the same reasoning scripts/smoke_real.py's own "
+            "step_env() already applies to SMOKE_DATABASE_URL: there is no "
+            "legitimate reason to point this target at a non-local database.\n"
+            f"Set GOLDEN_DATABASE_URL to a local database, e.g. {DEFAULT_GOLDEN_DB}"
+        )
+
+    setup_commands = (
+        f"    createdb ledgex_golden\n"
+        f"    make schema DATABASE_URL={DEFAULT_GOLDEN_DB}\n"
+        f"    psql {DEFAULT_GOLDEN_DB} -v ON_ERROR_STOP=1 -f db/seeds/day4_sources.sql"
+    )
+    try:
+        conn = psycopg2.connect(golden_url)
+    except Exception as e:
+        raise SystemExit(
+            f"cannot connect to the golden database ({type(e).__name__}: {str(e).strip()}).\n"
+            f"One-time setup, from the repo root:\n{setup_commands}"
+        )
+    conn.autocommit = False
+    try:
+        with conn.cursor() as cur:
+            try:
+                cur.execute("SELECT count(*) FROM schema_migrations")
+                n_ledger = cur.fetchone()[0]
+            except Exception:
+                conn.rollback()
+                raise SystemExit(
+                    "schema_migrations does not exist -- ledgex_golden has never been "
+                    f"migrated. One-time setup:\n{setup_commands}"
+                )
+            mig_dir = os.path.join(REPO_ROOT, "db", "migrations")
+            n_files = len([f for f in os.listdir(mig_dir) if f.endswith(".sql")])
+            if n_ledger < n_files:
+                conn.rollback()
+                raise SystemExit(
+                    f"schema_migrations has {n_ledger} row(s) but db/migrations/ has "
+                    f"{n_files} .sql file(s) -- ledgex_golden is behind. Run:\n"
+                    f"    make migrate DATABASE_URL={golden_url}"
+                )
+            cur.execute("SELECT 1 FROM source WHERE id = 'ca_san_jose.parcels'")
+            if cur.fetchone() is None:
+                conn.rollback()
+                raise SystemExit(
+                    "db/seeds/day4_sources.sql has not been applied to ledgex_golden "
+                    f"(no ca_san_jose.parcels source row). Run:\n"
+                    f"    psql {golden_url} -v ON_ERROR_STOP=1 -f db/seeds/day4_sources.sql"
+                )
+    except SystemExit:
+        conn.close()
+        raise
+    conn.rollback()
+    return conn
+
 
 FIXTURE_PATH = os.path.join(REPO_ROOT, "tests", "golden", "ca_san_jose", "refused.json")
 GEOMETRY_DISABLED_FIXTURE_PATH = os.path.join(
@@ -619,7 +704,7 @@ def normalize(pf_row, pf_facts):
 
 
 def run_composition(apn, digest, election):
-    conn = get_db()
+    conn = golden_get_db()
     seed_reference_rows(conn)
     parcel_id = make_fixture_parcel_and_fact(conn, apn, ip.snapshot_id_for(digest))
 
@@ -815,6 +900,8 @@ def main():
                               "instead of comparing against them")
     args = parser.parse_args()
 
+    print(f"GOLDEN: writing to {os.environ.get('GOLDEN_DATABASE_URL') or DEFAULT_GOLDEN_DB} "
+          "(GOLDEN_DATABASE_URL, never DATABASE_URL -- P56 containment).")
     print("GOLDEN: checking 2 of 4 sec 1.2 fixture classes this run -- refused, geometry-disabled -- "
           "plus one additional fixture beyond that taxonomy (election_required, P34, README finding #35).")
     print(f"GOLDEN: NOT covered within sec 1.2's taxonomy (see scripts/check_golden.py's own module "

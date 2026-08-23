@@ -47,6 +47,27 @@ DATABASE_URL   ?= postgresql://localhost/ledgex_schema_check
 # DATABASE_URL).
 DB_TEST_DATABASE_URL ?= postgresql://localhost/ledgex_test
 
+# P56 containment (prompts/P56-fixture-contamination-boundary.md close-out):
+# same shape as DB_TEST_DATABASE_URL above, same reason. `make golden`
+# (scripts/check_golden.py) writes real snapshot/parcel/fact rows under the
+# REAL ca_san_jose.parcels source id and the REAL current licence id --
+# request='{}' every time, no job_run row, bypassing every provenance
+# convention the real ingest path follows. Run bare against whatever
+# DATABASE_URL a developer's shell already has pointed at a local database
+# (exactly how this repo's own P55 rebuild was contaminated hours after
+# being certified clean, 2026-08-23), that lands permanently (0021) on
+# whatever database is live. scripts/check_golden.py now reads this
+# variable and never falls back to DATABASE_URL -- see its own
+# golden_get_db() for the refusal shape. Explicit override:
+# `make golden GOLDEN_DATABASE_URL=postgresql://...` (or, from CI, db.yml's
+# own golden step, which passes the same already-seeded ledgex_ci this way).
+# One-time local setup (golden_get_db() names these same three commands in
+# its own refusal text if you skip this and hit it live):
+#     createdb ledgex_golden
+#     make schema DATABASE_URL=postgresql://localhost/ledgex_golden
+#     psql postgresql://localhost/ledgex_golden -v ON_ERROR_STOP=1 -f db/seeds/day4_sources.sql
+GOLDEN_DATABASE_URL ?= postgresql://localhost/ledgex_golden
+
 # pg_dump >=16.10 wraps every dump in a \restrict/\unrestrict pair keyed by a
 # fresh random token each run (a psql safety marker, unrelated to schema
 # content). Left random, schema-dump would show a diff every single run even
@@ -380,7 +401,7 @@ test:
 # either silently inflating this to "done" or silently keeping it at
 # an uninformative permanent exit 1.
 golden:
-	$(PYTHON) scripts/check_golden.py
+	GOLDEN_DATABASE_URL="$(GOLDEN_DATABASE_URL)" $(PYTHON) scripts/check_golden.py
 
 # P43. scripts/test_viewer_rights_gate.py (P42) proves the I6 rights gate
 # holds on api/'s one fact-rendering route (GET /v1/parcels/{id}/facts) --

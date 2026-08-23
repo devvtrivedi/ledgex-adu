@@ -677,3 +677,204 @@ ends at "revert the code/migration that added the guard," never "recover lost or
 data," because C2 and §6.1/§6.6 together mean nothing this design proposes is capable of
 losing or damaging data in the first place — the worst case in every scenario is a legitimate
 write refused loudly, not an illegitimate write silently accepted.
+
+---
+
+## Close-out — CONTAINMENT: `make golden` gets its own database
+
+Single-phase, harness-only, 2026-08-23, same session and branch as the design above. No
+migration, no seed change, no ingest change, no CHECK constraint, no new invariant, no
+database dropped. Owner decisions D1-D4 (§0 of the containment prompt) followed exactly;
+none relitigated.
+
+### What shipped
+
+- **`Makefile`**: `GOLDEN_DATABASE_URL ?= postgresql://localhost/ledgex_golden`, same block
+  and style as `DB_TEST_DATABASE_URL`, with the one-time setup commands in the comment.
+  `golden:`'s recipe now explicitly passes `GOLDEN_DATABASE_URL="$(GOLDEN_DATABASE_URL)"`
+  into the subprocess environment — required, not cosmetic: verified directly (R2, below)
+  that a Makefile `?=` default is **not** automatically inherited by a recipe that never
+  references it, which is the exact mechanism that let this contamination happen in the
+  first place.
+- **`scripts/check_golden.py`**: new `golden_get_db()`, modelled directly on
+  `scripts/smoke_real.py`'s `step_env()` (P50) and `scripts/local_up.py`'s
+  `check_smoke_database()` (P51) — reads `GOLDEN_DATABASE_URL` only, never falls back to
+  `DATABASE_URL` under any name; refuses a non-local host outright, no override flag (D3);
+  refuses loudly, before any write, if the target database doesn't exist, isn't migrated, or
+  isn't seeded, naming the exact three fixing commands in the error text every time. `main()`
+  now prints the resolved DSN it's about to write to, unconditionally, at the top of every
+  run. `run_composition()`'s single `get_db()` call site now calls `golden_get_db()` instead.
+  `GOLDEN_ALLOW_RULE_SEED` is unchanged — kept deliberately (§2.4's own question, answered
+  below).
+- **`.github/workflows/db.yml`**: the `make golden` step now passes
+  `GOLDEN_DATABASE_URL="$DATABASE_URL"` instead of `DATABASE_URL="$DATABASE_URL"` — the same
+  shape the `db-test` step already uses for `DB_TEST_DATABASE_URL` two steps earlier in the
+  same job. The stale comment claiming a bare local `make golden`'s risk was "Makefile's own
+  `DATABASE_URL` default is `ledgex_schema_check`" is corrected in place (that claim was true
+  before this change and is no longer accurate — see R2 below for what a bare invocation
+  actually does now).
+- **§2.5's setup path**: option (b), documented commands — not a new `make golden-db`
+  target. Argued: `db-test` itself has no dedicated setup target either (`db/README.md`'s own
+  three-command sequence is the precedent), a new target for one gate would be its own small
+  inconsistency, and the refusal text in `golden_get_db()` already names the exact commands
+  verbatim, so a developer who skips the docs and hits the refusal live is not left worse off
+  than one who read the Makefile comment first.
+
+### §2.4 — `GOLDEN_ALLOW_RULE_SEED`, argued, kept
+
+**Still makes sense, and stays.** It protects a different axis than `GOLDEN_DATABASE_URL`
+does. The new guard answers "is this the right database"; `GOLDEN_ALLOW_RULE_SEED` answers
+"do you know this specific write can never be undone" — and `ledgex_golden` being
+purpose-built and disposable-by-designation doesn't make the `rule` row it inserts (0013's
+`rule_no_delete`) any less permanent once it lands. A first-time contributor running `make
+golden` against a freshly-created `ledgex_golden` still deserves the same "this is
+irreversible" warning a `ledgex_schema_check`-pointed run would have given them; removing the
+gate because the database is now "safe" would conflate database-safety with
+write-reversibility, which are not the same property. CI continues passing
+`GOLDEN_ALLOW_RULE_SEED=1` unchanged, for the same reason it always did (`ledgex_ci` is torn
+down with the runner regardless of what 0013 blocks).
+
+### §4 (RED first) — R1, R2
+
+**R1 — reproduced on purpose, on a throwaway database (`p56_golden_repro`, migrated, seeded,
+never referenced by anything else this pass touches).** `check_golden.py` (pre-fix) PASSED
+(0 failures) and planted exactly 3 contaminated snapshot rows —
+`request='{}'`, `source_id='ca_san_jose.parcels'`, `licence_observed_id='cc_by_4_0_api_2026_08'`
+— confirmed by direct query. Baseline captured for the T1 comparison below: refused=3
+refusals, geometry-disabled=3 refusals, election-required=4 refusals, all three
+`payload_hash` comparisons PASS.
+
+**R2 — the resolved DSN, printed and checked, not inferred from `Makefile:32`. This is a
+real correction to the containment prompt's own §1 claim, not a confirmation of it.** A truly
+bare invocation (no shell-exported `DATABASE_URL`, no command-line override) does **not**
+resolve to `ledgex_schema_check`. Verified directly, with zero shell exports:
+`infra.env.env("DATABASE_URL")` resolves to the repo-root `.env`'s own value — in this
+checkout, a **live remote Supabase host**, not the Makefile's local default at all, because
+`golden:`'s pre-fix recipe (`$(PYTHON) scripts/check_golden.py`) never referenced
+`$(DATABASE_URL)`, and the Makefile carries no blanket `export` — so the Makefile's own
+`?=` default was never actually reachable by this specific target in the first place. What
+*actually* stopped that from being catastrophic, both before and independent of this fix, is
+`infra.env.get_db()`'s own pre-existing P39/finding-#43 guard: it refuses a non-local host
+outright unless `LEDGEX_ALLOW_REMOTE_DB=1`. **The real, exploited vulnerability was never
+"golden's true default is the shared local dev database" — it is "golden inherits whatever
+local database a developer's shell already has `DATABASE_URL` pointed at for other work,"**
+exactly the mechanism that contaminated `ledgex_schema_check` in this session's own Stage 7
+run (`DATABASE_URL` was explicitly set to it, for legitimate unrelated reasons, and `make
+golden` silently inherited that). This distinction doesn't change what the fix needed to be —
+a dedicated, never-falling-back variable closes both paths identically — but it changes what
+the fix's own *justification* should say, and the corrected comment in `db.yml` (above)
+reflects this.
+
+### §5 — the acceptance test and the stop condition
+
+**T1 — PASSED, exact match, stop condition not triggered.** `make golden` (via
+`GOLDEN_DATABASE_URL`) against a freshly created, migrated, seeded `ledgex_golden`: refused=3,
+geometry-disabled=3, election-required=4, all three `payload_hash` comparisons PASS, 0
+failures — identical to R1's own baseline, to the digit. `--bless` was never run.
+
+**T2 — confirmed, `ledgex_schema_check` untouched.** No command in this containment pass ever
+set `GOLDEN_DATABASE_URL` or `DATABASE_URL` to name it. Cross-checked directly, not only
+asserted from the command history: its own `request='{}'` contamination count under the real
+`ca_san_jose.*` source ids — 6, exactly matching Phase 1's own §2.4 finding (3 golden + 3
+wave) — is unchanged after every fix-and-test action in this pass, including after the full
+T5 gate run below. Fact/snapshot/parcel counts (1,118,855 / 22 / 225,053) were re-checked
+identically before and after T5; no literal timestamped snapshot was captured at the very
+start of this turn (an honest gap, not papered over), but the contamination-count invariant
+and the command-history audit together are conclusive: nothing in this pass wrote to it.
+
+**T3 — PASSED.** `GOLDEN_DATABASE_URL` naming a non-local host: refused, exit 1, error names
+the resolved host and the reason, no override flag exists to bypass it.
+
+**T4 — PASSED.** A nonexistent `GOLDEN_DATABASE_URL` target: refused, exit 1, error names the
+exact three setup commands verbatim.
+
+**T5 — every other gate unmoved, real numbers, nothing edited to pass:**
+
+```
+make db-test        123 PASS (matches the 122/123-shape baseline), exit 0
+make conformance     PASSED, 0 failures, exit 0
+make check-boundary  import-linter 5/5 kept, name-grep PASS, qa_check PASS, exit 0
+make test            61 passed, 107 skipped, exit 0
+make viewer-test      all assertions PASS, exit 0
+make smoke-real       PASS -- 14/15 steps, 1 correctly SKIPPED, exit 0
+.claude/hooks/test_guard_destructive.py   38/38, exit 0
+make migrate-verify   MATCH, 56/56 (run at this pass's own start, per hygiene)
+```
+
+No test needed editing. No guard was weakened, widened, or routed around.
+
+**T6 — CI reasoned through step by step, `.github/workflows/db.yml`'s schema job:**
+
+```
+CREATE DATABASE ledgex_ci                          -- unaffected
+make schema DATABASE_URL=ledgex_ci                 -- unaffected
+make migrate-verify DATABASE_URL=ledgex_ci          -- unaffected
+make db-test DB_TEST_DATABASE_URL=ledgex_ci          -- unaffected (already its own variable)
+psql ledgex_ci -f db/seeds/day4_sources.sql          -- unaffected, unchanged order
+make golden GOLDEN_DATABASE_URL=ledgex_ci PYTHON=python3 GOLDEN_ALLOW_RULE_SEED=1
+                                                      -- BEFORE: DATABASE_URL=ledgex_ci, read by
+                                                         get_db() directly.
+                                                         AFTER: GOLDEN_DATABASE_URL=ledgex_ci,
+                                                         read by golden_get_db() -- same value,
+                                                         same host (localhost, passes the local
+                                                         check trivially), same already-migrated
+                                                         and already-seeded database, same result.
+                                                         GOLDEN_ALLOW_RULE_SEED=1 unaffected --
+                                                         still auto-exported by Make's own
+                                                         command-line-variable behaviour,
+                                                         untouched by this recipe edit.
+make schema-dump DATABASE_URL=ledgex_ci              -- unaffected, runs after golden as before
+(remaining steps: P25/P34 regression checks, viewer-test, make test, make conformance)
+                                                      -- unaffected, none reference
+                                                         GOLDEN_DATABASE_URL or the changed
+                                                         code path
+```
+
+**CI behaviour is unchanged: same database, same seeding order, same result.**
+
+### §3 — confirmed untouched, per the containment prompt's own list
+
+- `_p5_setup.py`/`_phaseb_setup.py` still write `request='{}'` under production source ids,
+  unmodified. Phase 2's problem, not this pass's.
+- No already-contaminated database was cleaned. `ledgex_schema_check` still carries its own 6
+  contaminated rows (3 golden, from Stage 7; 3 wave, kept for provenance per P55 §12.18) —
+  confirmed unchanged, not merely unclaimed.
+- `ledgex_schema_check_pre_p55_20260823`: not connected to, not queried, not referenced by
+  any command in this pass at all. Read-only guarantee trivially holds — nothing in a
+  golden-database containment change had any reason to touch it, and nothing did.
+- No database dropped. Two new databases exist that didn't before this pass:
+  `ledgex_golden` (permanent — this is the whole point of the change) and
+  `p56_golden_repro` (a throwaway R1 scratch database, left in place rather than dropped, per
+  the instruction and matching this instance's own existing convention of leaving disposable
+  scratch databases — `p22_scratch`, `p24_scratch`, etc. — rather than cleaning them up).
+- Nothing merged, nothing pushed. Branch `p56-fixture-boundary`, one commit for the Phase 1
+  design document, a separate commit for this containment change (below).
+
+### The accepted risk, recorded in the owner's own terms (D2)
+
+No row-level backstop exists after this change. B2's own argument — three independent
+writers falling into the identical `request='{}'`-under-a-real-source-id trap predicts a
+fourth — was not acted on here, by deliberate owner decision (D2), in favor of harness
+discipline and namespacing alone. **This is a knowingly accepted trade, not an oversight.**
+`_p5_setup.py` and `_phaseb_setup.py` remain exactly as exposed as they were before this
+pass; only the writer that was *actively, currently* bleeding (`check_golden.py`, via `make
+golden`'s own missing database scoping) is now contained. If a fifth writer with this same
+shape is found later, **it is not a new finding — it is this decision's own known cost
+arriving, exactly as named here in advance.**
+
+### §9.6, proposed, not written
+
+Per instruction, `prompts/README.md` is untouched. Proposed for the owner, next free number
+as of this writing (#54, unconfirmed since the file wasn't checked again for intervening
+edits):
+
+> **#54** | `scripts/check_golden.py` writes real snapshot/parcel/fact rows under the real
+> `ca_san_jose.parcels` source id and the real current licence id (`request='{}'`, no
+> `job_run` row) every time `make golden` runs against a database that isn't its own dedicated
+> target — the finding #53 signature, independently, in a fourth writer. Found live during
+> P56 Phase 1's own blast-radius survey (`prompts/P56-fixture-contamination-boundary.md`
+> §2.4), which found it in 20 of 70 surveyed databases, including this repo's own freshly
+> P55-rebuilt `ledgex_schema_check`, contaminated hours after being certified clean.
+> **Contained, not fixed at the source**, by giving `make golden` its own dedicated
+> `GOLDEN_DATABASE_URL` (P56 containment close-out, same day) — the writer itself is
+> unchanged; only its blast radius going forward is now bounded to `ledgex_golden`.
