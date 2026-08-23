@@ -1260,15 +1260,42 @@ prose summary (as happened here) or from assuming a phase "should" run rather th
 confirming it did.
 
 **Stage 6's own acceptance bar should therefore be:** exactly 1,135,140 facts, achieved by
-replaying **precisely** the six-operation sequence §4.5 already found by querying
-`job_run` directly (two `ingest_parcels_full --phase e` calls, two `ingest_zoning --phase
-load` calls, two `ingest_permits --phase load` calls, in that order) — re-verified against
-`ledgex_schema_check`'s own live `job_run` table immediately before Stage 6 runs (per
-§4.5's own step 1, "check again, don't assume the earlier catch-up is still current" — the
-same discipline, applied to the OPERATION LIST itself, not only to the migration ledger).
-**Not** a near-miss to be explained after the fact; a bar to be hit exactly, verified by
-generating the replay command list mechanically from `job_run` immediately before Stage 6,
-never from this document's own prose (which is exactly what went wrong at smoke scale).
+replaying **precisely** the operation sequence a mechanical query against `job_run`
+produces — not a document's own prose summary of it, including this one's.
+
+**Correction, caught live while building that mechanical query (`scripts/
+_p55_stage6_prep.py`), not left standing:** §4.5's own "two `ingest_parcels_full` calls,
+two `ingest_zoning --phase load` calls, two `ingest_permits --phase load` calls" — six
+operations — **is itself wrong.** Filtering `job_run` for `job_key IN
+('ingest_parcels','ingest_parcels_full','ingest_zoning','ingest_permits')` with
+`rows_in IS NOT NULL` (the discriminator this rehearsal's own permits bug established)
+returns **eight** real loads, not six: `ingest_zoning` ran the `699ec193...` delta snapshot
+**twice** on 2026-08-17 (`rows_out=522` then `rows_out=443`), and `ingest_permits` ran the
+`70bf19c1...` delta snapshot **twice** the same day (`rows_out=0` both times). §4.5's own
+prose collapsed each pair into one mention. This is the exact failure mode item 5 warned
+about, caught by building the mechanical query rather than trusting the document that
+asked for one — including this document's own earlier count. The verified, complete list:
+
+```
+2026-08-07 20:23:04  ingest_parcels_full  225,039 -> 225,039  ...0216d539...
+2026-08-07 21:17:24  ingest_zoning        225,042 -> 214,892  ...eae7823a...
+2026-08-07 21:22:59  ingest_permits        17,499 ->   8,322  ...8f3328b5...
+2026-08-17 00:28:25  ingest_parcels_full       25 ->      25  ...b98138f0...
+2026-08-17 00:28:40  ingest_zoning        225,088 ->     522  ...699ec193... (1st)
+2026-08-17 00:29:18  ingest_permits             2 ->       0  ...70bf19c1... (1st)
+2026-08-17 00:29:22  ingest_zoning        225,088 ->     443  ...699ec193... (2nd)
+2026-08-17 00:29:25  ingest_permits             3 ->       0  ...70bf19c1... (2nd)
+```
+
+All 6 distinct snapshot ids independently re-hashed against S3 and confirmed to match
+their own id-embedded `content_hash` exactly (`scripts/_p55_stage6_prep.py`'s own dry run,
+2026-08-23) — byte integrity is not in question; **operation count and order were.**
+
+Re-verify this list live, immediately before Stage 6 actually runs (per §4.5's own step 1,
+"check again, don't assume the earlier catch-up is still current," now applied to the
+OPERATION LIST itself, not only the migration ledger, and now proven to matter: this
+document's own list was wrong until the mechanical query ran) — **not** a near-miss to be
+explained after the fact; a bar to be hit exactly.
 
 ### 12.4 `licence_observed_id` — what `fact_snapshot_licence_fk` actually asserts
 
@@ -1407,3 +1434,41 @@ recorded here too only as a close-out reminder that §4.1 itself was the design 
 own constraint inventory, written before Stage 5 ever ran, and it was incomplete; the
 close-out should say so plainly rather than let the corrected §4.1 read as though it always
 listed three constraints.
+
+### 12.8 Stage 6 housekeeping, completed
+
+**`scripts/_p55_stage6_prep.py`** -- a one-off utility (not wired into any make target),
+built and dry-run 2026-08-23. Generates §12.3's replay list mechanically from `job_run`
+(never typed), and independently re-downloads and re-hashes each of the 6 distinct
+snapshot ids against S3/MinIO before registering anything, refusing on any mismatch
+against the id's own embedded hash -- `content_hash`/`byte_size` are read from the
+retained object, never transcribed by hand. `--register` mode (not yet run) inserts the
+verified rows, `licence_observed_id` already repointed per the ingest constants Stage 2
+set, into whatever `DATABASE_URL` points at -- intended for the fresh, post-rename,
+post-migrate, post-seed `ledgex_schema_check`.
+
+**`ledgex_schema_check`'s own current baseline, recorded before Stage 6 touches it:**
+
+```
+fact count:      1,135,143   (1,135,140 real + 3 golden-fixture facts, this session's own
+                              Stage 2 isolated-convergence testing -- see §2's own commit)
+parcel count:      225,391   (225,388 real + 3 golden-fixture parcels, same cause)
+snapshot count:         27   (24 real + 3 golden-fixture snapshots, same cause)
+licence_id breakdown (fact table):
+  cc_by_4_0    1,106,855     (1,106,852 real + 3 golden-fixture facts -- P52's own
+                              recorded figure, 1,106,852, confirmed still exactly right
+                              for the real data)
+  cc0             27,936     (unchanged -- golden fixtures never touch permits.* fields)
+  test.*                352  (pre-existing db-test invariant-suite residue across 17
+                              distinct test.* ids, fact-bearing and therefore permanent
+                              by teardown.sql's own design -- unrelated to P55, not
+                              reconciled further here)
+```
+
+The 3 golden-fixture rows (`GOLDEN-REFUSED-FIXTURE`, `GOLDEN-GEOMETRY-DISABLED-FIXTURE`,
+`GOLDEN-ELECTION-REQUIRED-FIXTURE` apns) are this session's own residue, confirmed by
+`apn LIKE 'GOLDEN-%'` matching exactly 3 parcels/3 facts. Stage 6.7's own acceptance bar
+(exactly 1,135,140) is unaffected -- the rebuilt database starts from an empty `createdb`
+and will not carry these -- but the PRE-rebuild count a future reader might compare against
+is 1,135,143, not 1,135,140, and should be read with this note rather than as an
+unexplained discrepancy.
