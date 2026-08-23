@@ -389,6 +389,13 @@ snapshot, not a single call.
    mismatch. Run this for all 9 real (non-test) snapshot ids named above *before* dropping
    anything — confirms the rebuild's raw material is intact while the pre-rebuild database
    (and its ability to cross-check) still exists.
+
+   **Correction (2026-08-23, §12.9): "9 real (non-test) snapshot ids" was itself wrong,
+   found while reconciling every count claim in this document against a direct query
+   rather than trusting any of them, including this one. See §12.9 for the full,
+   mechanically-verified count — it is 8, not 9, and §12.9 also names two real snapshots
+   this figure implicitly (and incorrectly) counted as replay-relevant when they never
+   fed a load at all.**
 3. Take the current database offline from any consumer (`make local-down` if the viewer is
    bound to it — it is not; the viewer binds to `ledgex_smoke`, confirmed by `LOCAL_SMOKE.md`
    §2 — so this step is a no-op for `ledgex_schema_check` specifically, worth confirming
@@ -1472,3 +1479,67 @@ The 3 golden-fixture rows (`GOLDEN-REFUSED-FIXTURE`, `GOLDEN-GEOMETRY-DISABLED-F
 and will not carry these -- but the PRE-rebuild count a future reader might compare against
 is 1,135,143, not 1,135,140, and should be read with this note rather than as an
 unexplained discrepancy.
+
+### 12.9 Every snapshot/operation count reconciled to one authoritative set
+
+Five different numbers were in circulation across this document and the owner's own
+prompts before this section: "24 snapshots" (§1), "24 real snapshot rows" / "9 real
+(non-test) snapshot ids" (§4.5), "6 distinct snapshots" / "eight operations" (§12.3). Not
+all of these describe the same thing, and one of them (the "9") was simply wrong. Queried
+directly, 2026-08-23, against `ledgex_schema_check` as it currently stands (before Stage 6
+touches it):
+
+```
+Total snapshot rows, this database, right now:                    27
+  = 24 (§1's own original Phase 1 figure, before this session)
+  +  3 (this session's own Stage 2 golden-fixture contamination, §12.8)
+
+Of the 24 "original" rows, by source:
+  ca_san_jose.parcels                    2   (0216d539..., b98138f0...)
+  ca_san_jose.zoning_districts           3   (eae7823a..., ea709a04..., 699ec193...)
+  ca_san_jose.building_permits_active    3   (8f3328b5..., 15b57694..., 70bf19c1...)
+  ca_san_jose.test_source                7   ] fixture rows, db-test's own invariant
+  ca_san_jose.test_source_b              1   ] suite (P5/P34 election tests etc.) --
+  test_other_jurisdiction.test_source    1   ] not San José production data, not
+  test.p21_source_{bulk,derived,direct}  3   ] relevant to this pass or Stage 6 in
+  test.p34_election_source_* (x4)        4   ] any way
+                                        ----
+                                         24
+```
+
+**§4.5's own "9 real (non-test) snapshot ids" was wrong — it is 8** (2 + 3 + 3 above), not
+9. No 9th real `ca_san_jose` production snapshot exists anywhere in this database; queried
+directly, not inferred.
+
+**Of those 8, only 6 distinct ids ever fed a real load** (the discriminator §12.2/§12.3
+already established: a `job_run` row with `rows_in` populated). The other two --
+`ca_san_jose.zoning_districts:sha256:ea709a04...` (817 bytes) and
+`ca_san_jose.building_permits_active:sha256:15b57694...` (153 bytes), both `fetched_at`
+2026-08-17 00:28:25, the identical timestamp their own sibling loaded snapshots
+(`699ec193...`/`70bf19c1...`) carry -- **have zero `job_run` rows referencing them at
+all**, confirmed by checking every one of the 6 distinct `job_key` values that exist
+anywhere in this database (`ingest_parcels`, `ingest_parcels_full`, `ingest_zoning`,
+`ingest_permits`, `flag_invalid_geometry_parcels`, `flag_invalid_geometry_zoning` -- no
+missed job_key this time). Real, historical, and legitimately part of what `--phase b`
+fetched on 2026-08-17 -- apparently a second, differently-hashed fetch attempt in the same
+wave that was never subsequently matched/loaded. **Contribute zero facts. Out of Stage 6's
+own reproduction scope** -- the acceptance bar is fact count, and no operation ever
+attaches a fact to either of these two ids. Named here so the rebuilt database's own
+(smaller, by exactly these two rows) snapshot table is a stated, understood gap rather than
+a silently incomplete mirror of the original.
+
+**The reconciled, authoritative set, going forward:**
+
+```
+Real ca_san_jose production snapshots (parcels+zoning+permits):     8, not 9
+  -- of which fed a real load (distinct ids):                        6
+  -- of which never fed a load ("orphaned", real, not replayed):     2
+Real load OPERATIONS (job_run rows, replayed by Stage 6):            8, not 6
+  -- because 2 of the 6 loaded ids were each replayed TWICE
+     (zoning 699ec193..., permits 70bf19c1...)
+Target fact count, unchanged throughout this whole reconciliation:    1,135,140
+```
+
+Nothing above changes Stage 6's own plan: the 8-operation replay list in §12.3 was already
+correct and already accounts for the asymmetric double-replay of `699ec193...`/`70bf19c1...`.
+This section exists so no other number in this document contradicts it.
