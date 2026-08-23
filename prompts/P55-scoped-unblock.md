@@ -396,6 +396,13 @@ snapshot, not a single call.
    mechanically-verified count — it is 8, not 9, and §12.9 also names two real snapshots
    this figure implicitly (and incorrectly) counted as replay-relevant when they never
    fed a load at all.**
+
+   **The "24" itself is also stale as anything but a description of the ORIGINAL
+   database, corrected here so it does not survive as an implied post-rebuild target
+   (§12.11): the rebuilt database's own snapshot table is predicted to carry exactly 6
+   rows — the 6 that actually feed a replay operation — not 24. The other 18 (`db-test`
+   fixture rows, plus the 2 orphaned real snapshots §12.9 names) will not exist in a
+   clean rebuild by construction, not by omission.**
 3. Take the current database offline from any consumer (`make local-down` if the viewer is
    bound to it — it is not; the viewer binds to `ledgex_smoke`, confirmed by `LOCAL_SMOKE.md`
    §2 — so this step is a no-op for `ledgex_schema_check` specifically, worth confirming
@@ -1636,33 +1643,81 @@ join, nothing for a later bug fix to have changed. It already matched exactly
 (225,039/225,039) and §12.10 gives the structural reason it always will: there is no logic
 between the bytes and the count for a `git log` to ever show evolving.
 
-**Zoning and permits are accepted on structural correctness, not a count match.** For each
-of the six operations covering these two sources:
-- Every real parcel (one from the real `ca_san_jose.parcels` snapshot, confirmed by
-  `source_feature_identity` or an equivalent real-source join) that the source data can
-  resolve gets its zoning/permits fact -- checked by re-deriving the match set directly
-  from the verified snapshot bytes and the *current* `parcel` table's own real-source rows,
-  independent of any historical count.
-- No fact attaches to a parcel that is not from the real source (rules out the contaminated-
-  parcel-set failure mode from ever mattering to the final database, regardless of what it
-  did historically).
-- Zero facts under the old licence ids (`cc_by_4_0`/`cc0`) -- already the acceptance
-  criterion §4.5 step 13 specifies, unaffected by anything in this section.
+**Zoning and permits are accepted on structural correctness, not a count match --
+partition invariants that can actually fail, not a re-derivation that calls
+`classify_zoning_candidates()` again and risks proving the matcher equals itself.**
+Considered a genuinely independent PostGIS re-derivation (a second, hand-written spatial
+join bypassing `classify_zoning_candidates()` entirely) and did not build one: it would
+substantially duplicate the real join/classification logic, risking a second, independent
+place to get the same bug wrong, for a check this partition approach already covers.
+Chose partition invariants over persisted, independently-queryable outcome data instead
+(facts + `parcel_exception`, never a second call into the matcher):
+
+For each zoning operation:
+- **`matched + ambiguous + zero_match == the real-source parcel count, exactly`** --
+  `matched` = distinct `parcel_id` with a current `zoning.district` fact;
+  `zero_match` = open `parcel_exception` rows, `detector_key='zoning_spatial_join_
+  unresolvable'`, `detail->>'reason'='no_containing_district'`;
+  `ambiguous` = same detector_key, `detail->>'reason'='multiple_containing_districts'`
+  (both reason strings read directly from `scripts/ingest_zoning_permits.py`'s own
+  `REASON_NO_CONTAINING_DISTRICT`/`REASON_MULTIPLE_CONTAINING_DISTRICTS` constants, not
+  guessed); `real-source parcel count` = `count(*) FROM parcel WHERE jurisdiction_id=
+  'ca_san_jose' AND centroid IS NOT NULL` (the same denominator `load_zoning()` itself
+  uses). **NEW check** -- nothing in `db-test`'s own invariant suite asserts this
+  partition; it is specific to this rebuild's own concern (did every parcel land
+  somewhere, with nothing silently falling through all three buckets).
+- **No parcel carries two conflicting current `zoning.district` facts.** **NOT a new
+  check** -- already an unconditional schema guarantee (`current_fact_pk UNIQUE
+  (parcel_id, field_key)` on the `current_fact` materialized view, itself built via
+  `DISTINCT ON (parcel_id, field_key)`). Verifying it here would only confirm the
+  materialized view refreshed without error, which the ingest scripts' own successful
+  exit already establishes.
+- **Every zoning/permits fact's parcel resolves through the real parcels snapshot.**
+  Simplified from "trace each fact's own parcel" to the stronger, sufficient claim this
+  clean rebuild actually needs: `count(*) FROM parcel WHERE jurisdiction_id='ca_san_jose'
+  AND id NOT IN (SELECT parcel_id FROM fact WHERE source_id='ca_san_jose.parcels')` is
+  **exactly 0** -- i.e., there is no non-real-source `ca_san_jose` parcel in this database
+  at all (§12.9's own contamination could not exist even in principle). **NEW check.**
+  Named risk, not hypothetical: `check_golden.py`'s own `make_fixture_parcel_and_fact()`
+  creates exactly this kind of contamination (§2's own commit already found and fixed
+  once) -- `make golden` must not run against this rebuilt database before this check
+  runs, or it reintroduces the exact defect being guarded against.
+- **Zero facts under the old licence ids** (`cc_by_4_0`/`cc0`) -- already the acceptance
+  criterion §4.5 step 13 specifies. **Not new.**
 - The delta from the historical `job_run` figure is **stated and explained**, not required
   to be zero -- §12.10's own two named causes (contaminated historical parcel set, evolved
   matching code) are the explanation for every one of the six zoning/permits operations,
   recorded per-operation rather than asserted away.
 
-**The final fact count is recorded with its delta from 1,135,140 and the reason, not
-asserted equal to it.** The expected shape, stated before running so it is a prediction and
-not a rationalization: more than 1,135,140, because `40b953d`'s own fix resolves parcels
-the historical run left as `zero-match`/`ambiguous` (net positive to `matched`, hence to
-fact count) and `bd5db19`'s own fix recovers at least the one permit row it names. No
-attempt is made here to predict the exact new total -- doing so from the two commits' own
-before/after deltas (zoning: `+11` per operation, times however many of the eight
-operations that logic path affects; permits: `+1` known, more possible) would be exactly
-the prose-arithmetic this whole rehearsal exists to distrust. The real total is measured
-after the replay runs, not predicted and then defended.
+**The final fact count is recorded with its delta from 1,135,140 and the reason -- and the
+direction of that delta is now a BINDING stop condition, not a range.** The predicted
+shape, stated before running: strictly more than 1,135,140, because `40b953d`'s own fix
+resolves parcels the historical run left as `zero-match`/`ambiguous` (net positive to
+`matched`, hence to fact count) and `bd5db19`'s own fix recovers at least the one permit
+row it names -- both are strictly additive, never subtractive, to the real fact count. **A
+final count at or below 1,135,140 does not merely deviate from a prediction -- it
+contradicts both named mechanisms directly, and is a HALT, to be diagnosed before this
+document records any final number, not a delta folded into the close-out as if it were
+just another explained gap.** No attempt is made here to predict the exact new total --
+doing so from the two commits' own before/after deltas (zoning: `+11` per operation, times
+however many of the eight operations that logic path affects; permits: `+1` known, more
+possible) would be exactly the prose-arithmetic this whole rehearsal exists to distrust.
+The real total is measured after the replay runs, not predicted and then defended -- only
+its *direction* is predicted and bound.
+
+**Predicted post-rebuild snapshot count: exactly 6, stated before running.** Only the 6
+real, verified snapshots this rebuild explicitly registers (`0216d539...`, `b98138f0...`
+for parcels; `eae7823a...`, `699ec193...` for zoning; `8f3328b5...`, `70bf19c1...` for
+permits, per §12.9/§12.3). Not 24 -- that count (§1, §4.5 step 2) describes the *original*
+database's full snapshot table, including `db-test`'s own `test_source`/`p21`/`p34`
+fixture rows and the 2 orphaned real snapshots that never fed a load (§12.9) -- none of
+which this clean rebuild will ever create, because `db-test` will not have been run
+against it and the 2 orphans are explicitly out of replay scope. **§4.5 step 2's own "24
+real snapshot rows" is corrected here to state plainly what it actually describes: the
+pre-rebuild integrity-check scope on the ORIGINAL database, not a post-rebuild target --
+already narrowed to "8, not 9" real `ca_san_jose` production snapshots by §12.9; this
+paragraph adds the missing other half, what the REBUILT database's own snapshot table
+should contain, which §4.5 never stated at all.**
 
 **A stronger bar is not available, argued rather than assumed:** the only inputs that are
 genuinely fixed and reproducible are the retained snapshot bytes (SHA-256 verified, §12.9)
