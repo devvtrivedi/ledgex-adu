@@ -99,11 +99,29 @@ def verify_no_contamination(conn):
     """Every ca_san_jose parcel must trace to the real ca_san_jose.parcels
     source. Zero is the only acceptable count -- named risk in §12.11:
     check_golden.py's own make_fixture_parcel_and_fact() creates exactly
-    this contamination; must not have run against this database."""
+    this contamination; must not have run against this database.
+
+    STAGE 6 RECOVERY (2026-08-23): the original `NOT IN` form here is
+    PATHOLOGICAL, found live -- pid 97239 + 2 parallel workers ran the
+    literal query below for 44+ minutes on operation 3's own post-check,
+    zero locks, zero idle-in-transaction, pure CPU/IO on a materialized
+    SubPlan re-probed per outer row. `fact.parcel_id` is NOT NULL
+    (confirmed, db/schema.sql:284), so `NOT IN`/`NOT EXISTS` are
+    semantically identical here -- Postgres just doesn't rewrite an
+    uncorrelated `NOT IN` into an anti-join the way it does `NOT EXISTS`.
+    Proven, not assumed: EXPLAIN on the old form costs 4,713,162,723;
+    EXPLAIN on the NOT EXISTS form below costs 101,573 (a Parallel Hash
+    Right Anti Join, not a SubPlan) -- a ~46,000x reduction -- and the
+    corrected form actually ran in 0.817s against this same live database
+    while the old one was still stuck. Old form, for the record, never
+    executed to a diff -- EXPLAIN and the rewrite's own correctness
+    (NOT IN -> NOT EXISTS, both text-book equivalent given NOT NULL) are
+    the proof, not a side-by-side run of the pathological query."""
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT count(*) FROM parcel WHERE jurisdiction_id = 'ca_san_jose' "
-            "AND id NOT IN (SELECT parcel_id FROM fact WHERE source_id = 'ca_san_jose.parcels')"
+            "SELECT count(*) FROM parcel p WHERE p.jurisdiction_id = 'ca_san_jose' "
+            "AND NOT EXISTS (SELECT 1 FROM fact f WHERE f.parcel_id = p.id "
+            "AND f.source_id = 'ca_san_jose.parcels')"
         )
         return cur.fetchone()[0]
 
@@ -144,7 +162,37 @@ def verify_zoning_partition(conn):
     return real_source_count, matched, zero_match, ambiguous, total
 
 
+def parse_start_at(argv):
+    """--start-at N, EXPLICIT only -- no default resume behaviour. Absent
+    entirely means the full 1-8 replay (the ordinary case); the flag exists
+    so a recovery can skip already-committed operations WITHOUT deleting
+    them from REPLAY (the list stays the audit record of what the replay
+    is, per the owner's own explicit instruction -- operations before N are
+    still listed, just not re-run).
+
+    Hard to invoke by accident, by construction: requires the literal flag
+    with a value; there is no short form, no environment variable fallback,
+    and the value is validated against REPLAY's own length below before
+    anything runs. A bare `python3 _p55_stage6_replay.py` (no flags) always
+    means "run all eight" -- the single most damaging possible mistake this
+    recovery could make is a silent partial-start reading as a full run, so
+    the banner below prints the skip list LOUDLY, unmissably, before the
+    first subprocess ever launches."""
+    start_at = 1
+    if "--start-at" in argv:
+        idx = argv.index("--start-at")
+        try:
+            start_at = int(argv[idx + 1])
+        except (IndexError, ValueError):
+            raise SystemExit("--start-at requires an integer operation number (1-8), e.g. --start-at 4")
+    if not (1 <= start_at <= len(REPLAY)):
+        raise SystemExit(f"--start-at {start_at} out of range -- REPLAY has {len(REPLAY)} operations (1-{len(REPLAY)})")
+    return start_at
+
+
 def main():
+    start_at = parse_start_at(sys.argv)
+
     print("=" * 78)
     print("REPLACEMENT BAR (prompts/P55-scoped-unblock.md §12.11): parcels exact-"
           "match; zoning/permits structural (partition invariants, historical "
@@ -153,12 +201,25 @@ def main():
     print("=" * 78)
     for i, (kind, job_key, sid, pin, pout, _argv) in enumerate(REPLAY, start=1):
         gate = "EXACT" if kind == "parcels" else "structural (informational counts below)"
-        print(f"  [{i}] {kind:8s} {job_key:22s} rows_in={pin:>7} rows_out={pout:>7}  [{gate}]  {sid}")
+        skip = "  <-- SKIPPED (already committed, per approved recovery)" if i < start_at else ""
+        print(f"  [{i}] {kind:8s} {job_key:22s} rows_in={pin:>7} rows_out={pout:>7}  [{gate}]  {sid}{skip}")
     print()
+    if start_at > 1:
+        print("!" * 78)
+        print(f"!! RESUMING AT OPERATION {start_at} -- operations 1-{start_at - 1} above are")
+        print("!! SKIPPED, not re-run, because they are already committed to this database.")
+        print("!! This is only correct if you are resuming an interrupted replay against")
+        print("!! the SAME database those operations already ran against. If this is a")
+        print("!! fresh database, operations 1-%d were NEVER run and this will produce a" % (start_at - 1))
+        print("!! wrong, incomplete database. STOP now if you are not certain.")
+        print("!" * 78)
+        print()
 
     conn = get_db()
 
     for i, (kind, job_key, sid, predicted_in, predicted_out, argv) in enumerate(REPLAY, start=1):
+        if i < start_at:
+            continue
         print("=" * 78)
         print(f"[{i}/8] RUNNING ({kind}): {' '.join(argv)}")
         print("=" * 78)
