@@ -1,24 +1,31 @@
 #!/usr/bin/env python3
 """P55 Phase 2 Stage 6 replay -- one-off utility (not wired into any make
-target). Executes the 8-operation replay list scripts/_p55_stage6_prep.py
-already generated (prompts/P55-scoped-unblock.md §12.3/§12.9), ONE OPERATION
-AT A TIME, against the REPLACEMENT bar §12.11 sets (§12.6-owner-decided,
-2026-08-23):
+target). Executes the SEVEN-operation replay list against the REPLACEMENT
+bar §12.11 sets (§12.6-owner-decided, 2026-08-23), ONE OPERATION AT A TIME.
+
+CORRECTED 2026-08-23 (§12.12, second Stage 6 recovery): historical operation
+4 (parcels, b98138f0...) is EXCLUDED from replay -- not a code fix, an input
+fix. b98138f0's own historical rows_out=25 was an artifact of migration
+0043 (source_feature_identity) landing AFTER the original 0216d539 wave had
+already ingested -- the tracking table was empty by construction when
+b98138f0 ran historically, not because it was a genuine small delta. In this
+rebuild, 0216d539 correctly populates 225,039 identities before b98138f0
+would run, so replaying it via --phase e's full reconciliation would (does,
+confirmed live) report 225,014 real parcels as falsely "disappeared." All 25
+of b98138f0's own APNs were checked directly against the rebuilt parcel
+table after 0216d539 loads and confirmed already present -- exclusion costs
+zero real parcels. Its SNAPSHOT ROW is still registered by scripts/
+_p55_stage6_prep.py (the fetch genuinely happened; provenance is honest to
+keep) -- only the LOAD is excluded. TARGET_SNAPSHOT_COUNT stays 6.
 
   - PARCELS operations (--phase e): rows_in/rows_out must match the
-    historical job_run row EXACTLY. A mismatch halts. CORRECTED 2026-08-23
-    (§12 Stage 6 recovery): this file's own original justification --
-    "--phase e has no cross-row matching logic for a bug fix to have
-    changed" -- was WRONG. phase_e's own "Phase B reconciliation" has
-    substantial cross-row logic (new/changed/disappeared against ALL
-    previously-tracked source_feature_identity rows for the source), and
-    it is exactly this logic that caught operation 4's real deviation
-    (b98138f0: predicted 25/25, actual rows_in=25 rows_out=0, 225,014
-    parcel_disappeared_from_source exceptions written). The exact-count
-    bar for parcels stays right -- it caught a real problem -- but the
-    REASON given for why it was safe to keep was incorrect; kept exact
-    because a deviation here is diagnosable and rare, not because the code
-    path is simple.
+    historical job_run row EXACTLY. A mismatch halts. This bar's own
+    original justification ("no cross-row matching logic for a bug fix to
+    have changed") was WRONG -- phase_e's own Phase B reconciliation has
+    real cross-row logic (new/changed/disappeared against the full
+    source_feature_identity ledger), and it is exactly that logic which
+    caught b98138f0's own deviation. Kept exact because a parcels mismatch
+    is diagnosable and rare, not because the code path is simple.
 
   - ZONING/PERMITS operations: the historical rows_in/rows_out are PRINTED
     (informational -- §12.10 already explains why they will not match:
@@ -29,11 +36,11 @@ AT A TIME, against the REPLACEMENT bar §12.11 sets (§12.6-owner-decided,
     into classify_zoning_candidates()) -- see verify_zoning_partition() and
     verify_no_contamination() below. A FAILED invariant halts.
 
-  - After all 8 operations: the FINAL fact count must be STRICTLY GREATER
-    than 1,135,140 (§12.11's own binding directional stop condition -- a
-    result at or below contradicts both of §12.10's named mechanisms and
-    halts, is not folded into a delta-explained close-out) and the final
-    snapshot count must be exactly 6 (§12.11's own prediction).
+  - After all seven operations: the FINAL fact count must be STRICTLY
+    GREATER than 1,135,140 (§12.11's own binding directional stop condition
+    -- a result at or below contradicts both of §12.10's named mechanisms
+    and halts, is not folded into a delta-explained close-out) and the
+    final snapshot count must be exactly 6.
 
 No origin fetch anywhere in this file: every operation below is
 `ingest_parcels.py --phase e` or `ingest_zoning_permits.py --phase load`,
@@ -60,7 +67,6 @@ sys.path.insert(0, REPO_ROOT)
 from infra.env import get_db  # noqa: E402
 
 PARCELS_SID_A = "ca_san_jose.parcels:sha256:0216d539a3995ccc88e4b6542ad8aa936fb6078e74ea39402444a96c5b172fe2"
-PARCELS_SID_B = "ca_san_jose.parcels:sha256:b98138f01644b1b58c7161582c8f01ee2107e63eb6ce157737cea280c9655ce0"
 ZONING_SID = "ca_san_jose.zoning_districts:sha256:699ec193384d4894d68d04b91df2f2531c4587e65488de560087be925adf451b"
 ZONING_SID_A = "ca_san_jose.zoning_districts:sha256:eae7823a22e72537d5738d473c6c8289e0e2af78e76be782ea5e432fdd5d04ba"
 PERMITS_SID = "ca_san_jose.building_permits_active:sha256:70bf19c13dadebe65321d0d56efce66ded036f0022be1dcef7972330c7c72640"
@@ -69,33 +75,38 @@ PERMITS_SID_A = "ca_san_jose.building_permits_active:sha256:8f3328b5cb9845228bb6
 TARGET_FACT_COUNT = 1135140
 TARGET_SNAPSHOT_COUNT = 6
 
+# op_num is the ORIGINAL historical operation number (1-8, per prompts/
+# P55-scoped-unblock.md §12.3) -- kept as an explicit label, not re-derived
+# from list position, precisely BECAUSE operation 4 is missing from this
+# list on purpose (§12.12). Renumbering 1-7 would silently discard the
+# traceability back to job_run's own historical numbering; op_num keeps it.
 # kind in {"parcels", "zoning", "permits"}. historical rows_in/rows_out are
-# always the ORIGINAL job_run figures -- reproduced literally from
-# scripts/_p55_stage6_prep.py's own mechanical output, never retyped.
+# always the ORIGINAL job_run figures -- reproduced literally, never retyped.
 REPLAY = [
-    ("parcels", "ingest_parcels_full", PARCELS_SID_A, 225039, 225039,
+    (1, "parcels", "ingest_parcels_full", PARCELS_SID_A, 225039, 225039,
      [sys.executable, "scripts/ingest_parcels.py", "--phase", "e", "--snapshot-id", PARCELS_SID_A]),
-    ("zoning", "ingest_zoning", ZONING_SID_A, 225042, 214892,
+    (2, "zoning", "ingest_zoning", ZONING_SID_A, 225042, 214892,
      [sys.executable, "scripts/ingest_zoning_permits.py", "--source", "zoning", "--phase", "load",
       "--snapshot-id", ZONING_SID_A]),
-    ("permits", "ingest_permits", PERMITS_SID_A, 17499, 8322,
+    (3, "permits", "ingest_permits", PERMITS_SID_A, 17499, 8322,
      [sys.executable, "scripts/ingest_zoning_permits.py", "--source", "permits", "--phase", "load",
       "--snapshot-id", PERMITS_SID_A]),
-    ("parcels", "ingest_parcels_full", PARCELS_SID_B, 25, 25,
-     [sys.executable, "scripts/ingest_parcels.py", "--phase", "e", "--snapshot-id", PARCELS_SID_B]),
-    ("zoning", "ingest_zoning", ZONING_SID, 225088, 522,
+    # op_num 4 (parcels, b98138f0...) EXCLUDED -- §12.12. Snapshot row still
+    # registered by scripts/_p55_stage6_prep.py; the LOAD is what's excluded.
+    (5, "zoning", "ingest_zoning", ZONING_SID, 225088, 522,
      [sys.executable, "scripts/ingest_zoning_permits.py", "--source", "zoning", "--phase", "load",
       "--snapshot-id", ZONING_SID]),
-    ("permits", "ingest_permits", PERMITS_SID, 2, 0,
+    (6, "permits", "ingest_permits", PERMITS_SID, 2, 0,
      [sys.executable, "scripts/ingest_zoning_permits.py", "--source", "permits", "--phase", "load",
       "--snapshot-id", PERMITS_SID]),
-    ("zoning", "ingest_zoning", ZONING_SID, 225088, 443,
+    (7, "zoning", "ingest_zoning", ZONING_SID, 225088, 443,
      [sys.executable, "scripts/ingest_zoning_permits.py", "--source", "zoning", "--phase", "load",
       "--snapshot-id", ZONING_SID]),
-    ("permits", "ingest_permits", PERMITS_SID, 3, 0,
+    (8, "permits", "ingest_permits", PERMITS_SID, 3, 0,
      [sys.executable, "scripts/ingest_zoning_permits.py", "--source", "permits", "--phase", "load",
       "--snapshot-id", PERMITS_SID]),
 ]
+TOTAL_OPS = len(REPLAY)  # 7
 
 
 def latest_job_run_since(conn, job_key, snapshot_id, since_ts):
@@ -177,30 +188,30 @@ def verify_zoning_partition(conn):
 
 
 def parse_start_at(argv):
-    """--start-at N, EXPLICIT only -- no default resume behaviour. Absent
-    entirely means the full 1-8 replay (the ordinary case); the flag exists
-    so a recovery can skip already-committed operations WITHOUT deleting
-    them from REPLAY (the list stays the audit record of what the replay
-    is, per the owner's own explicit instruction -- operations before N are
-    still listed, just not re-run).
+    """--start-at N, EXPLICIT only -- no default resume behaviour. N is the
+    ORIGINAL historical operation number (1-8), matching op_num above, NOT
+    a position in this (now seven-entry) list -- so "--start-at 5" means
+    "skip op_num 1-4" regardless of where op_num 5 sits in REPLAY. Absent
+    entirely means the full replay (the ordinary case).
 
     Hard to invoke by accident, by construction: requires the literal flag
     with a value; there is no short form, no environment variable fallback,
-    and the value is validated against REPLAY's own length below before
+    and the value is validated against the real op_num range below before
     anything runs. A bare `python3 _p55_stage6_replay.py` (no flags) always
-    means "run all eight" -- the single most damaging possible mistake this
-    recovery could make is a silent partial-start reading as a full run, so
-    the banner below prints the skip list LOUDLY, unmissably, before the
-    first subprocess ever launches."""
+    means "run everything in REPLAY" -- the single most damaging possible
+    mistake this recovery could make is a silent partial-start reading as a
+    full run, so the banner below prints the skip list LOUDLY, unmissably,
+    before the first subprocess ever launches."""
     start_at = 1
     if "--start-at" in argv:
         idx = argv.index("--start-at")
         try:
             start_at = int(argv[idx + 1])
         except (IndexError, ValueError):
-            raise SystemExit("--start-at requires an integer operation number (1-8), e.g. --start-at 4")
-    if not (1 <= start_at <= len(REPLAY)):
-        raise SystemExit(f"--start-at {start_at} out of range -- REPLAY has {len(REPLAY)} operations (1-{len(REPLAY)})")
+            raise SystemExit("--start-at requires an integer operation number (1-8), e.g. --start-at 5")
+    max_op_num = max(op_num for op_num, *_ in REPLAY)
+    if not (1 <= start_at <= max_op_num):
+        raise SystemExit(f"--start-at {start_at} out of range -- historical operations run 1-{max_op_num}")
     return start_at
 
 
@@ -211,31 +222,34 @@ def main():
     print("REPLACEMENT BAR (prompts/P55-scoped-unblock.md §12.11): parcels exact-"
           "match; zoning/permits structural (partition invariants, historical "
           "counts informational only); final count > %d (binding); final "
-          "snapshot count == %d" % (TARGET_FACT_COUNT, TARGET_SNAPSHOT_COUNT))
+          "snapshot count == %d. %d operations (op_num 4 EXCLUDED, §12.12)."
+          % (TARGET_FACT_COUNT, TARGET_SNAPSHOT_COUNT, TOTAL_OPS))
     print("=" * 78)
-    for i, (kind, job_key, sid, pin, pout, _argv) in enumerate(REPLAY, start=1):
+    for op_num, kind, job_key, sid, pin, pout, _argv in REPLAY:
         gate = "EXACT" if kind == "parcels" else "structural (informational counts below)"
-        skip = "  <-- SKIPPED (already committed, per approved recovery)" if i < start_at else ""
-        print(f"  [{i}] {kind:8s} {job_key:22s} rows_in={pin:>7} rows_out={pout:>7}  [{gate}]  {sid}{skip}")
+        skip = "  <-- SKIPPED (already committed, per approved recovery)" if op_num < start_at else ""
+        print(f"  [op {op_num}] {kind:8s} {job_key:22s} rows_in={pin:>7} rows_out={pout:>7}  [{gate}]  {sid}{skip}")
     print()
     if start_at > 1:
         print("!" * 78)
-        print(f"!! RESUMING AT OPERATION {start_at} -- operations 1-{start_at - 1} above are")
+        print(f"!! RESUMING AT HISTORICAL OPERATION {start_at} -- operations before it above are")
         print("!! SKIPPED, not re-run, because they are already committed to this database.")
         print("!! This is only correct if you are resuming an interrupted replay against")
         print("!! the SAME database those operations already ran against. If this is a")
-        print("!! fresh database, operations 1-%d were NEVER run and this will produce a" % (start_at - 1))
-        print("!! wrong, incomplete database. STOP now if you are not certain.")
+        print("!! fresh database, the skipped operations were NEVER run and this will")
+        print("!! produce a wrong, incomplete database. STOP now if you are not certain.")
         print("!" * 78)
         print()
 
     conn = get_db()
+    done = 0
 
-    for i, (kind, job_key, sid, predicted_in, predicted_out, argv) in enumerate(REPLAY, start=1):
-        if i < start_at:
+    for op_num, kind, job_key, sid, predicted_in, predicted_out, argv in REPLAY:
+        if op_num < start_at:
             continue
+        done += 1
         print("=" * 78)
-        print(f"[{i}/8] RUNNING ({kind}): {' '.join(argv)}")
+        print(f"[op {op_num}, {done}/{TOTAL_OPS} run] RUNNING ({kind}): {' '.join(argv)}")
         print("=" * 78)
         with conn.cursor() as cur:
             cur.execute("SELECT now()")
@@ -244,14 +258,13 @@ def main():
 
         result = subprocess.run(argv, cwd=REPO_ROOT)
         if result.returncode != 0:
-            print(f"\nSTOP: operation [{i}] exited {result.returncode}. "
-                  f"Not continuing to operation [{i+1}].")
+            print(f"\nSTOP: operation [op {op_num}] exited {result.returncode}. Not continuing.")
             sys.exit(1)
 
         row = latest_job_run_since(conn, job_key, sid, before_ts)
         conn.rollback()
         if row is None:
-            print(f"\nSTOP: operation [{i}] produced no new job_run row for "
+            print(f"\nSTOP: operation [op {op_num}] produced no new job_run row for "
                   f"({job_key!r}, {sid!r}) after {before_ts}. Cannot verify.")
             sys.exit(1)
         _id, status, actual_in, actual_out, started_at = row
@@ -259,18 +272,19 @@ def main():
         print(f"  actual:     rows_in={actual_in} rows_out={actual_out} status={status}")
 
         if status != "succeeded":
-            print(f"\nSTOP: operation [{i}] job_run status={status!r}, not 'succeeded'.")
+            print(f"\nSTOP: operation [op {op_num}] job_run status={status!r}, not 'succeeded'.")
             sys.exit(1)
 
         if kind == "parcels":
             if actual_in == predicted_in and actual_out == predicted_out:
-                print(f"  [{i}/8] EXACT MATCH (parcels keeps the exact-count bar)")
+                print(f"  [op {op_num}] EXACT MATCH (parcels keeps the exact-count bar)")
             else:
-                print(f"\nSTOP: operation [{i}] (parcels) DEVIATED from the historical figure -- "
-                      f"parcels has no cross-row matching logic for a bug fix to have changed "
-                      f"(§12.10), so this is not explained by code evolution. delta "
-                      f"rows_in={actual_in - predicted_in} rows_out={actual_out - predicted_out}. "
-                      f"Diagnose before proceeding.")
+                print(f"\nSTOP: operation [op {op_num}] (parcels) DEVIATED from the historical "
+                      f"figure. delta rows_in={actual_in - predicted_in} "
+                      f"rows_out={actual_out - predicted_out}. Diagnose before proceeding -- "
+                      f"§12.12 already found one real, non-code cause (schema-vs-data ordering) "
+                      f"for exactly this shape; do not assume this is the same one without "
+                      f"checking.")
                 sys.exit(1)
         elif kind == "zoning":
             delta_out = actual_out - predicted_out
@@ -281,7 +295,7 @@ def main():
             print(f"  partition check: real_source_parcels={real_count} matched={matched} "
                   f"zero_match={zero_match} ambiguous={ambiguous} sum={total}")
             if total != real_count:
-                print(f"\nSTOP: operation [{i}] (zoning) partition invariant FAILED: "
+                print(f"\nSTOP: operation [op {op_num}] (zoning) partition invariant FAILED: "
                       f"matched+zero_match+ambiguous={total} != real_source_parcel_count="
                       f"{real_count} (off by {total - real_count}). A parcel fell through, "
                       f"or landed in more than one bucket. This is a structural defect, not "
@@ -289,25 +303,25 @@ def main():
                 sys.exit(1)
             contamination = verify_no_contamination(conn)
             if contamination != 0:
-                print(f"\nSTOP: operation [{i}] (zoning) found {contamination} non-real-source "
-                      f"ca_san_jose parcel(s) -- contamination should be impossible in this "
-                      f"clean rebuild (was make golden run against this database?).")
+                print(f"\nSTOP: operation [op {op_num}] (zoning) found {contamination} "
+                      f"non-real-source ca_san_jose parcel(s) -- contamination should be "
+                      f"impossible in this clean rebuild (was make golden run against it?).")
                 sys.exit(1)
-            print(f"  [{i}/8] STRUCTURAL CHECKS PASS")
+            print(f"  [op {op_num}] STRUCTURAL CHECKS PASS")
         elif kind == "permits":
             delta_out = actual_out - predicted_out
             print(f"  delta vs history: rows_in={actual_in - predicted_in} rows_out={delta_out} "
                   f"(informational -- §12.10)")
             contamination = verify_no_contamination(conn)
             if contamination != 0:
-                print(f"\nSTOP: operation [{i}] (permits) found {contamination} non-real-source "
-                      f"ca_san_jose parcel(s).")
+                print(f"\nSTOP: operation [op {op_num}] (permits) found {contamination} "
+                      f"non-real-source ca_san_jose parcel(s).")
                 sys.exit(1)
-            print(f"  [{i}/8] STRUCTURAL CHECKS PASS")
+            print(f"  [op {op_num}] STRUCTURAL CHECKS PASS")
         print()
 
     print("=" * 78)
-    print("ALL 8 OPERATIONS COMPLETE. FINAL ACCEPTANCE (§12.11).")
+    print(f"ALL {TOTAL_OPS} OPERATIONS COMPLETE (op_num 4 excluded, §12.12). FINAL ACCEPTANCE (§12.11).")
     print("=" * 78)
     with conn.cursor() as cur:
         cur.execute("SELECT count(*) FROM fact")
