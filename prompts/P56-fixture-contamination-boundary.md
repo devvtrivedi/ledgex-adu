@@ -1116,3 +1116,166 @@ this pass. `prompts/README.md` untouched, per instruction.
 > confirmation that the credential's exposure was not merely "reachable by an unusual
 > invocation" but reachable by the three scripts whose entire job is applying irreversible
 > schema changes.
+
+---
+
+## Item B design gate — read-only, `db/tests/invariants.sql` untouched
+
+2026-08-24. Item B (finding #50's namespace) was scoped by the Phase 2 prompt as "reusing the
+`ON CONFLICT` pattern already at `invariants.sql:252`" — implying a small, contained addition.
+**That scoping is refuted.** This section is the inventory the owner asked for instead: no
+edits to `invariants.sql`, every claim checked directly, not inferred.
+
+### The 128 `'ca_san_jose'` literals, categorized
+
+```
+(b)/(c) legitimate -- LEAVE, 6 lines:
+  144   INSERT INTO jurisdiction (...) VALUES ('ca_san_jose', ...) -- the REAL jurisdiction
+        row itself (ON CONFLICT DO NOTHING), not a duplicate. Needed for every FK below.
+  155   ('ca_san_jose.test_source', 'ca_san_jose', ...) -- a namespaced test SOURCE,
+        correctly parented under the real jurisdiction (sources naturally belong to real
+        jurisdictions; #50 is about PARCELS, not this).
+  218   ('ca_san_jose.test_source_b', 'ca_san_jose', ...) -- same reasoning.
+  2047  'test.t26_job', 'ca_san_jose', 'ca_san_jose.test_source', ... -- job_run row citing
+        the real jurisdiction + the already-namespaced test source. Same reasoning; not a
+        parcel.
+  2119  -- comment only, describes current (pre-fix) state, not code.
+  2262  'test.t31_job', 'ca_san_jose', 'ca_san_jose.test_source', ... -- same as 2047.
+
+(a) synthetic parcel/fact/exception data tied to this suite's own test parcels -- MUST MOVE
+    if item B proceeds, 122 lines. See the parcel-site breakdown below for why they are not
+    122 independent changes.
+```
+
+### The 7 `INSERT INTO parcel` sites — one canonical, six self-contained
+
+**The true complexity is concentrated in exactly one parcel, not spread evenly across
+seven.** Confirmed by reading each site's own immediate context, not assumed from the INSERT
+alone:
+
+```
+376   THE CANONICAL PARCEL. Created once, `INSERT INTO test_state VALUES ('parcel_id',
+      v_parcel_id::text)` at line 381 stores its id for reuse. Read back via
+      `SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id'` --
+      counted directly, not estimated: 86 separate DO blocks (T2 through past T88,
+      essentially the whole file from line 398 to line 5224). Every one of those 86 that
+      also writes a fact/parcel_exception/property_file row citing 'ca_san_jose' as ITS OWN
+      jurisdiction_id literal (most of them) is a dependent change, not an independent one --
+      moving line 376 alone, without every dependent literal, produces 86 broken test blocks,
+      not one.
+
+1234  T4's own second parcel -- confirmed self-contained BY THE FILE'S OWN COMMENT two lines
+      above it: "scoped to this test only, never stored in test_state, so nothing else can
+      accidentally pick it up." Zero downstream dependents. T4 ALSO reads the canonical
+      parcel via test_state for a different assertion in the same block -- that half is
+      already covered by the 86-count above, not double-scoped here.
+
+1296  T5's own second parcel (`v_other_parcel_id`), self-contained to T5's own block by the
+      same "second, different parcel" pattern. T5 ALSO reads the canonical parcel at its own
+      top (already counted in the 86).
+
+3156  T55's own parcel, local variable `v_parcel_id` SHADOWING the canonical one's usual name
+      but never reading test_state -- confirmed by reading the DECLARE block, which has no
+      test_state SELECT anywhere in T55. Fully self-contained, single test.
+
+3186  T56's first of two parcels (`v_parcel_id_1`), self-contained -- T56 never touches
+3191  test_state either. T56's second parcel (`v_parcel_id_2`), same block, same scope.
+
+3877  T68's own second parcel (`v_parcel_b`), self-contained to T68's block by the same
+      pattern as T4/T5. T68 ALSO reads the canonical parcel (as `v_parcel_a`, a local alias
+      for the same test_state lookup -- already counted in the 86).
+```
+
+**So the real shape of item B, if it proceeds, is: one high-blast-radius change (the
+canonical parcel plus its 86 dependent test blocks' own literals) and five to six genuinely
+small, independent, low-risk changes (T4/T5/T55/T56×2/T68's own scoped parcels, one to three
+lines each).** Not 128 independent edits, and not the "twenty lines from where it's missing"
+size the original scoping assumed either.
+
+### The composite FK, confirmed to apply identically to `fact`, not only `parcel_exception`
+
+`fact_parcel_jurisdiction_fk FOREIGN KEY (parcel_id, jurisdiction_id) REFERENCES parcel(id,
+jurisdiction_id)` — read directly from the live schema, the identical shape to
+`parcel_exception_parcel_jurisdiction_fk` design §5 already named. This means every one of
+the 86 dependent test blocks' own `fact` INSERTs (not only the smaller number that also
+insert a `parcel_exception`) breaks the moment the canonical parcel's own `jurisdiction_id`
+changes, unless that same block's own literal changes with it. The two constraints are not
+independent risks; they are the same risk, appearing on two tables.
+
+### T29/T30 — confirmed, do NOT need to change
+
+Both are negative controls that deliberately construct a jurisdiction *mismatch* to prove the
+relevant composite FK rejects it — T29 against `property_file_parcel_jurisdiction_fk`
+(~line 2172), T30 against `parcel_exception_parcel_jurisdiction_fk` (~line 2191, read in
+full). Both use the literal `'test_other_jurisdiction'` as their own deliberate wrong value,
+**never** `'ca_san_jose'` — confirmed by direct read, neither appears in the 128-line grep
+above. Since `'test_other_jurisdiction'` is already a third, independent jurisdiction, T29/T30
+continue testing exactly what they test today regardless of what the canonical parcel's own
+(correct-case) jurisdiction becomes, **provided the new namespace chosen for it is not
+itself `'test_other_jurisdiction'`.** Zero change needed to either test.
+
+### The licence failure, re-diagnosed: a P55-era design gap, not a forgotten literal
+
+The actual constraint, from the real error (`/tmp/t2_p5_real.log`, captured during item A's
+own T2 run): `psycopg2.errors.ForeignKeyViolation: insert or update on table "fact" violates
+foreign key constraint "fact_snapshot_licence_fk"` — `DETAIL: Key (snapshot_id,
+licence_id)=(ca_san_jose.building_permits_active:sha256:70bf19c1..., cc0) is not present in
+table "snapshot"`. Confirmed against `db/migrations/0022_remaining_composite_fks.sql:89-90`:
+`FOREIGN KEY (snapshot_id, licence_id) REFERENCES snapshot (id, licence_observed_id)`. **This
+is not a missing-row failure** — both `'cc0'` and `'cc0_api_2026_08'` exist as real `licence`
+rows (both setup scripts register all four ids; `db/seeds/day4_sources.sql` has all four
+too). It is a composite mismatch: the heredoc's own subquery
+(`SELECT id FROM snapshot WHERE source_id = 'ca_san_jose.building_permits_active' ORDER BY
+fetched_at DESC LIMIT 1`) selects the latest permits snapshot, which `_p5_setup.py`
+registered with `licence_observed_id='cc0_api_2026_08'` — but the same INSERT's own literal
+`licence_id` value is `'cc0'`, and the FK requires the pair to match exactly.
+
+**`scripts/_phaseb_setup.py:65-68` (and `_p5_setup.py`'s identical comment) confirm P55
+already considered this exact code path**, in these words: *"the OLD rows stay for this
+script's own hand-written reconciliation-test INSERT further down (literal 'cc_by_4_0')."*
+P55 deliberately kept the old `licence` rows specifically so this heredoc's hardcoded literal
+would satisfy `fact_licence_id_fkey` (licence exists). **That mitigation was necessary but
+not sufficient against `fact_snapshot_licence_fk`**, which was never in view: keeping the old
+licence *row* alive does nothing for a composite FK checking the literal against the
+*specific snapshot's own registered licence*, which is the new id regardless of which old
+rows still exist. Both runners carry the identical gap (`run_p5_acceptance.sh:165` /
+`run_phaseb_acceptance.sh:161`). **Restated per the owner's own correction: this is a P55
+finding — an incomplete mitigation, reasoned through and documented at the time — not a
+literal nobody updated.** Not fixed in this pass; the correct fix is "match the licence of
+whichever snapshot the subquery actually selects" (read `snapshot.licence_observed_id`
+directly rather than hardcoding either id), not "rename the literal" (which would only trade
+one hardcoded mismatch for another the next time a licence id changes).
+
+### CI has not run either acceptance suite since P49 — confirmed, not assumed
+
+`.github/workflows/db.yml:3-5`: `on: push: / pull_request:` — no `schedule:`, no
+`workflow_dispatch:`, confirmed by reading the whole file for either keyword (zero hits
+beyond the trigger block itself). `git branch -r`: remote branches stop at
+`origin/p49-real-database-audit`; every `p50`–`p56` ref in this repository is local-only
+(`git log --all --source` labels them `refs/heads/...`, never `refs/remotes/origin/...`).
+**Both facts together mean `db.yml`'s `p5-acceptance` and `phaseb-acceptance` jobs — and
+every other job in this workflow — have not executed via CI since P49, across the entirety of
+P50 through this session's own P56 Phase 2 work**, including P55's own licence-id rename that
+introduced the mismatch the previous section describes. This directly explains why that gap
+was never caught: not a review failure, but a CI job that has been silently unexercised since
+before the bug was introduced. **Proposed as its own finding, not written to
+`prompts/README.md`:**
+
+> **#56** | `.github/workflows/db.yml` triggers only on `push`/`pull_request`, and no branch
+> past `p49-real-database-audit` has ever been pushed to `origin` in this repository's
+> history. Every job in this workflow -- `schema`, `p5-acceptance`, `phaseb-acceptance` --
+> has therefore not executed via CI since P49, across the entirety of P50 through P56. The
+> "gate baseline" this whole arc has repeatedly cited as green (db-test 123, golden 0
+> failures, etc.) has only ever been verified by local invocation, never by the actual CI
+> pipeline, for six packages' worth of work. Found live, P56 Phase 2, while re-diagnosing why
+> a real licence-id mismatch (this document's own P55-finding entry, immediately above) was
+> never caught. **Not fixed here** -- scoped to a future pass: either push to a branch CI
+> actually watches, or add `workflow_dispatch:` so these jobs can be run deliberately without
+> requiring a push, whichever the owner prefers.
+
+### What this design gate does not resolve
+
+It does not decide whether item B should proceed at all, on what timeline, or with what
+namespace name for the canonical parcel. It does not touch `invariants.sql`. It does not fix
+the licence mismatch or wire up CI. All three are the owner's own next decisions, presented
+here with real numbers rather than pushed through on the original prompt's smaller estimate.
