@@ -130,18 +130,34 @@ SELECT licence_id, channel, true, 'test fixture: unrestricted on channels, isola
   CROSS JOIN unnest(ARRAY['free_snapshot', 'paid_property_file', 'api', 'bulk_export']::output_channel[]) AS channel
 ON CONFLICT (licence_id, channel) DO NOTHING;
 
--- tier omitted -- defaults to 'blocked' (0002's own column default). No test
--- here reads jurisdiction.tier, and this row shares its id with
--- db/seeds/day4_sources.sql's jurisdiction row: both use ON CONFLICT (id) DO
--- NOTHING, so whichever seed runs first against a shared database silently
--- wins the value. Explicitly stamping 'tier_1' here would risk defeating
--- day4_sources.sql's own fix (tier is unassessable with zero facts in the
--- database) depending on run order. Letting both agree on the column
--- default removes that risk instead of relying on run order to hide it.
+-- Two rows. tier omitted on both -- defaults to 'blocked' (0002's own column
+-- default). No test here reads jurisdiction.tier (verified directly, P56
+-- Phase 2 item B: grep for geometry_tier_enabled/\btier\b/supported against
+-- this file's own DO blocks found no read of any of the three off a
+-- parcel's own jurisdiction row).
+--
+-- 'ca_san_jose': kept, unchanged, still the FK parent of every fact-bearing
+-- fixture this suite left behind before this pass and still shares its id
+-- with db/seeds/day4_sources.sql's own jurisdiction row -- both use
+-- ON CONFLICT (id) DO NOTHING, so whichever seed runs first against a
+-- shared database silently wins the value, and stamping a real tier here
+-- would risk defeating day4_sources.sql's own fix depending on run order.
+-- This row no longer receives any NEW fixture data (P56 Phase 2, finding
+-- #50) -- it stays only for FK/historical reasons, not because this suite
+-- still writes under it.
+--
+-- 'test_ca_san_jose': NEW (P56 Phase 2, finding #50) -- this is where every
+-- parcel/fact/property_file/parcel_exception/job_run/rule fixture this
+-- suite creates now lives. Shares its id with nothing in day4_sources.sql,
+-- so it owns this row outright and the run-order hazard above does not
+-- apply to it at all -- tier is omitted here purely for behaviour parity
+-- with the real row (§4.1), a deliberate choice, not an inherited
+-- necessity.
 INSERT INTO jurisdiction (
   id, display_name, kind, state_code, pack_version, supported
 ) VALUES
-  ('ca_san_jose', 'City of San José', 'city', 'CA', 'v1.0', true)
+  ('ca_san_jose', 'City of San José', 'city', 'CA', 'v1.0', true),
+  ('test_ca_san_jose', 'Test Jurisdiction (twin of ca_san_jose)', 'city', 'CA', 'v1.0', true)
 ON CONFLICT (id) DO NOTHING;
 
 -- active = false, no url_verified_at: nothing in this suite needs the
@@ -152,7 +168,7 @@ INSERT INTO source (
   id, jurisdiction_id, display_name, steward, method, phase_status,
   phase_status_reason, endpoint_url, licence_id, active
 ) VALUES
-  ('ca_san_jose.test_source', 'ca_san_jose', 'Test Source', 'City of San José',
+  ('test_ca_san_jose.test_source', 'test_ca_san_jose', 'Test Source', 'City of San José',
    'direct', 'active', 'Test source for invariant testing',
    'https://example.com/api', 'test.cc0', false)
 ON CONFLICT (id) DO NOTHING;
@@ -161,7 +177,7 @@ INSERT INTO snapshot (
   id, source_id, object_uri, content_hash, media_type, byte_size,
   request, http_status, fetched_at, licence_observed_id
 ) VALUES
-  ('ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', 'ca_san_jose.test_source', 's3://bucket/test',
+  ('test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', 'test_ca_san_jose.test_source', 's3://bucket/test',
    '65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', 'application/json', 100,
    '{"url":"https://example.com","params":{}}'::jsonb,
    200, now(), 'test.cc0')
@@ -176,16 +192,16 @@ INSERT INTO snapshot (
   id, source_id, object_uri, content_hash, media_type, byte_size,
   request, http_status, fetched_at, licence_observed_id
 ) VALUES
-  ('ca_san_jose.test_source:sha256:cff19b2a105a07f128fe53e3bef1b5fd2c0820dccfc0f65f94fd767418751fcb', 'ca_san_jose.test_source', 's3://bucket/test-noncommercial',
+  ('test_ca_san_jose.test_source:sha256:cff19b2a105a07f128fe53e3bef1b5fd2c0820dccfc0f65f94fd767418751fcb', 'test_ca_san_jose.test_source', 's3://bucket/test-noncommercial',
    'cff19b2a105a07f128fe53e3bef1b5fd2c0820dccfc0f65f94fd767418751fcb', 'application/json', 100,
    '{"url":"https://example.com","params":{}}'::jsonb, 200, now(), 'test.noncommercial_only'),
-  ('ca_san_jose.test_source:sha256:bef91ddbcb9895f41aa49c95501153f3d1ad4f5dc2c6f532fe488693c7e49664', 'ca_san_jose.test_source', 's3://bucket/test-no-resale',
+  ('test_ca_san_jose.test_source:sha256:bef91ddbcb9895f41aa49c95501153f3d1ad4f5dc2c6f532fe488693c7e49664', 'test_ca_san_jose.test_source', 's3://bucket/test-no-resale',
    'bef91ddbcb9895f41aa49c95501153f3d1ad4f5dc2c6f532fe488693c7e49664', 'application/json', 100,
    '{"url":"https://example.com","params":{}}'::jsonb, 200, now(), 'test.no_resale_only'),
-  ('ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', 'ca_san_jose.test_source', 's3://bucket/test-unknown-commercial',
+  ('test_ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', 'test_ca_san_jose.test_source', 's3://bucket/test-unknown-commercial',
    '46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', 'application/json', 100,
    '{"url":"https://example.com","params":{}}'::jsonb, 200, now(), 'test.unknown_commercial'),
-  ('ca_san_jose.test_source:sha256:af9a79c43ff57207f122898e73ab04eb8178f6d05ad9e9a0287566337fc68fe3', 'ca_san_jose.test_source', 's3://bucket/test-attribution-required',
+  ('test_ca_san_jose.test_source:sha256:af9a79c43ff57207f122898e73ab04eb8178f6d05ad9e9a0287566337fc68fe3', 'test_ca_san_jose.test_source', 's3://bucket/test-attribution-required',
    'af9a79c43ff57207f122898e73ab04eb8178f6d05ad9e9a0287566337fc68fe3', 'application/json', 100,
    '{"url":"https://example.com","params":{}}'::jsonb, 200, now(), 'test.attribution_required')
 ON CONFLICT (id) DO NOTHING;
@@ -199,7 +215,7 @@ INSERT INTO snapshot (
   id, source_id, object_uri, content_hash, media_type, byte_size,
   request, http_status, fetched_at, licence_observed_id
 ) VALUES
-  ('ca_san_jose.test_source:sha256:6807ac29ca72075c1cc37bbdb1ed367c967981c0c74c969d045ab5e5664f7774', 'ca_san_jose.test_source', 's3://bucket/test-cc-by',
+  ('test_ca_san_jose.test_source:sha256:6807ac29ca72075c1cc37bbdb1ed367c967981c0c74c969d045ab5e5664f7774', 'test_ca_san_jose.test_source', 's3://bucket/test-cc-by',
    '6807ac29ca72075c1cc37bbdb1ed367c967981c0c74c969d045ab5e5664f7774', 'application/json', 100,
    '{"url":"https://example.com","params":{}}'::jsonb,
    200, now(), 'test.cc_by_4_0')
@@ -215,7 +231,7 @@ INSERT INTO source (
   id, jurisdiction_id, display_name, steward, method, phase_status,
   phase_status_reason, endpoint_url, licence_id, active
 ) VALUES
-  ('ca_san_jose.test_source_b', 'ca_san_jose', 'Test Source B', 'City of San José',
+  ('test_ca_san_jose.test_source_b', 'test_ca_san_jose', 'Test Source B', 'City of San José',
    'bulk', 'active', 'Second test source for provenance-integrity tests',
    'https://example.com/api-b', 'test.cc0', false)
 ON CONFLICT (id) DO NOTHING;
@@ -224,7 +240,7 @@ INSERT INTO snapshot (
   id, source_id, object_uri, content_hash, media_type, byte_size,
   request, http_status, fetched_at, licence_observed_id
 ) VALUES
-  ('ca_san_jose.test_source_b:sha256:2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d', 'ca_san_jose.test_source_b', 's3://bucket/test-b',
+  ('test_ca_san_jose.test_source_b:sha256:2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d', 'test_ca_san_jose.test_source_b', 's3://bucket/test-b',
    '2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d', 'application/json', 100,
    '{"url":"https://example.com/b","params":{}}'::jsonb,
    200, now(), 'test.cc0')
@@ -238,7 +254,7 @@ INSERT INTO snapshot (
   id, source_id, object_uri, content_hash, media_type, byte_size,
   request, http_status, fetched_at, licence_observed_id
 ) VALUES
-  ('ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', 'ca_san_jose.test_source', 's3://bucket/test-throwaway',
+  ('test_ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', 'test_ca_san_jose.test_source', 's3://bucket/test-throwaway',
    '5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', 'application/json', 100,
    '{"url":"https://example.com/throwaway","params":{}}'::jsonb,
    200, now(), 'test.cc0')
@@ -248,7 +264,8 @@ ON CONFLICT (id) DO NOTHING;
 -- 0022's fact_source_jurisdiction_fk, property_file_parcel_jurisdiction_fk
 -- and parcel_exception_parcel_jurisdiction_fk all need a genuinely
 -- different jurisdiction to disagree with, not just a different id string
--- that happens to share ca_san_jose's own jurisdiction_id.
+-- that happens to share this suite's own canonical parcel's jurisdiction_id
+-- (test_ca_san_jose since P56 Phase 2, finding #50 -- ca_san_jose before it).
 INSERT INTO jurisdiction (
   id, display_name, kind, state_code, pack_version, supported
 ) VALUES
@@ -367,6 +384,15 @@ CREATE TEMP TABLE known_gaps (name text PRIMARY KEY, note text);
 -- so a skip is never mistaken for either a pass or a permanent gap.
 CREATE TEMP TABLE test_skipped (name text PRIMARY KEY, note text);
 
+-- P56 Phase 2 (item B, finding #50 T106/T107): this run's own start time,
+-- recorded before a single fixture row exists, so T106 can scope its own
+-- assertion to rows THIS run created rather than asserting over the whole
+-- table (which can never pass -- permanent TEST-%% residue from every prior
+-- run of this file, on every database it has ever touched, 0017/I4).
+-- clock_timestamp(), not now(): now() is transaction-start, and this seed
+-- block's own INSERTs commit as the transaction ends, not before it starts.
+INSERT INTO test_state VALUES ('run_started_at', clock_timestamp()::text);
+
 DO $$
 DECLARE
     v_parcel_id uuid;
@@ -374,7 +400,7 @@ BEGIN
     -- Fresh uuid PK + fresh apn: this row can never collide with a parcel
     -- left behind by a previous run.
     INSERT INTO parcel (jurisdiction_id, apn, situs_address)
-    VALUES ('ca_san_jose', 'TEST-' || gen_random_uuid()::text,
+    VALUES ('test_ca_san_jose', 'TEST-' || gen_random_uuid()::text,
             '123 Test St, San Jose, CA 95110')
     RETURNING id INTO v_parcel_id;
 
@@ -403,8 +429,8 @@ BEGIN
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'test.i3_field', '"value"'::jsonb, 'direct',
-            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+            v_parcel_id, 'test_ca_san_jose', 'test.i3_field', '"value"'::jsonb, 'direct',
+            'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
             NULL, 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL I3: null licence_id was accepted';
@@ -434,8 +460,8 @@ BEGIN
             method_version, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'test.i2a_field', '"derived_value"'::jsonb, 'derived',
-            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',  -- both set: violates I2
+            v_parcel_id, 'test_ca_san_jose', 'test.i2a_field', '"derived_value"'::jsonb, 'derived',
+            'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',  -- both set: violates I2
             'v1.0', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL I2a: derived fact with source_id and snapshot_id set was accepted';
@@ -470,8 +496,8 @@ BEGIN
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'test.i2b_field', '"value"'::jsonb, 'direct',
-            'ca_san_jose.test_source', NULL,  -- missing snapshot_id
+            v_parcel_id, 'test_ca_san_jose', 'test.i2b_field', '"value"'::jsonb, 'direct',
+            'test_ca_san_jose.test_source', NULL,  -- missing snapshot_id
             now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL I2b: direct fact with no snapshot_id was accepted';
@@ -506,8 +532,8 @@ BEGIN
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'test.i13_field', '"value"'::jsonb, 'portal',  -- invalid
-            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+            v_parcel_id, 'test_ca_san_jose', 'test.i13_field', '"value"'::jsonb, 'portal',  -- invalid
+            'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
             'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL I13: method=portal was accepted';
@@ -544,8 +570,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.i4a_field', '"original_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.i4a_field', '"original_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
@@ -653,8 +679,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.i5a_field', '"input_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:6807ac29ca72075c1cc37bbdb1ed367c967981c0c74c969d045ab5e5664f7774', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.i5a_field', '"input_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:6807ac29ca72075c1cc37bbdb1ed367c967981c0c74c969d045ab5e5664f7774', now(), 'https://example.com',
         'test.cc_by_4_0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input_fact_id;
 
@@ -664,7 +690,7 @@ BEGIN
         parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.i5a_field', '"derived"'::jsonb, 'derived',
+        v_parcel_id, 'test_ca_san_jose', 'test.i5a_field', '"derived"'::jsonb, 'derived',
         'v1.0', 'test.cc0',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
@@ -714,8 +740,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.i5b_field', '"input_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.i5b_field', '"input_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input_fact_id;
 
@@ -725,7 +751,7 @@ BEGIN
         parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.i5b_field', '"derived_stricter"'::jsonb, 'derived',
+        v_parcel_id, 'test_ca_san_jose', 'test.i5b_field', '"derived_stricter"'::jsonb, 'derived',
         'v1.0', 'test.cc_by_4_0',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
@@ -764,7 +790,7 @@ BEGIN
         parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.i5c_field', '"ungrounded_derived"'::jsonb, 'derived',
+        v_parcel_id, 'test_ca_san_jose', 'test.i5c_field', '"ungrounded_derived"'::jsonb, 'derived',
         'v1.0', 'test.cc0',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
@@ -792,7 +818,7 @@ BEGIN
         source_text_uri, params, pack_version, authored_by, reviewed_by,
         review_mode, reviewed_at
     ) VALUES (
-        v_rule_id, 'ca_san_jose', 'test.i18a.rule.' || v_rule_id, 1, CURRENT_DATE,
+        v_rule_id, 'test_ca_san_jose', 'test.i18a.rule.' || v_rule_id, 1, CURRENT_DATE,
         'Test citation', 'https://example.com/rule-source', '{}'::jsonb, 'v1.0',
         'author_a', 'reviewer_b', 'independent', now()
     );
@@ -826,7 +852,7 @@ BEGIN
         source_text_uri, params, pack_version, authored_by, reviewed_by,
         review_mode, reviewed_at
     ) VALUES (
-        v_rule_id, 'ca_san_jose', 'test.i18b.rule.' || v_rule_id, 1, CURRENT_DATE,
+        v_rule_id, 'test_ca_san_jose', 'test.i18b.rule.' || v_rule_id, 1, CURRENT_DATE,
         'Test citation', 'https://example.com/rule-source', '{"threshold": 1}'::jsonb, 'v1.0',
         'author_a', 'reviewer_b', 'independent', now()
     );
@@ -860,7 +886,7 @@ BEGIN
         source_text_uri, params, pack_version, authored_by, reviewed_by,
         review_mode, reviewed_at
     ) VALUES (
-        v_rule_id, 'ca_san_jose', 'test.i18c.rule.' || v_rule_id, 1, CURRENT_DATE,
+        v_rule_id, 'test_ca_san_jose', 'test.i18c.rule.' || v_rule_id, 1, CURRENT_DATE,
         'Test citation', 'https://example.com/rule-source', '{}'::jsonb, 'v1.0',
         'author_a', 'reviewer_b', 'independent', now()
     );
@@ -894,7 +920,7 @@ BEGIN
         source_text_uri, params, pack_version, authored_by, reviewed_by,
         review_mode, reviewed_at
     ) VALUES (
-        v_rule_id, 'ca_san_jose', 'test.i18d.rule.' || v_rule_id, 1, CURRENT_DATE,
+        v_rule_id, 'test_ca_san_jose', 'test.i18d.rule.' || v_rule_id, 1, CURRENT_DATE,
         'Test citation', 'https://example.com/rule-source', '{}'::jsonb, 'v1.0',
         'author_a', 'reviewer_b', 'independent', now()
     );
@@ -954,7 +980,7 @@ BEGIN
             parcel_id, jurisdiction_id, type, severity, detector_key,
             detector_version, detail, outcome, resolved_at, resolved_by
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'staleness', 'warning', 'test_detector',
+            v_parcel_id, 'test_ca_san_jose', 'staleness', 'warning', 'test_detector',
             'v1', '{}'::jsonb, 'open', now(), 'test_operator'
         );
         RAISE EXCEPTION 'FAIL X1: outcome=open with resolved_at/resolved_by set was accepted';
@@ -988,7 +1014,7 @@ BEGIN
             parcel_id, jurisdiction_id, type, severity, detector_key,
             detector_version, detail, outcome, resolved_at, resolved_by
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'staleness', 'warning', 'test_detector',
+            v_parcel_id, 'test_ca_san_jose', 'staleness', 'warning', 'test_detector',
             'v1', '{}'::jsonb, 'confirmed', now(), NULL
         );
         RAISE EXCEPTION 'FAIL X2: outcome=confirmed with resolved_by NULL was accepted';
@@ -1021,7 +1047,7 @@ BEGIN
         parcel_id, jurisdiction_id, type, severity, detector_key,
         detector_version, detail, outcome, resolved_at, resolved_by
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'staleness', 'warning', 'test_detector',
+        v_parcel_id, 'test_ca_san_jose', 'staleness', 'warning', 'test_detector',
         'v1', '{}'::jsonb, 'unresolved', now(), 'test_operator'
     ) RETURNING id INTO v_exception_id;
 
@@ -1114,8 +1140,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t1_field', '"delete_me"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t1_field', '"delete_me"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
@@ -1154,9 +1180,9 @@ BEGIN
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'test.t2_field', '"value"'::jsonb, 'direct',
-            'ca_san_jose.test_source',      -- source A
-            'ca_san_jose.test_source_b:sha256:2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d',               -- source B's snapshot
+            v_parcel_id, 'test_ca_san_jose', 'test.t2_field', '"value"'::jsonb, 'direct',
+            'test_ca_san_jose.test_source',      -- source A
+            'test_ca_san_jose.test_source_b:sha256:2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d',               -- source B's snapshot
             now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL T2: fact citing source A with source B''s snapshot was accepted';
@@ -1194,8 +1220,8 @@ BEGIN
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'test.t3_field', '"value"'::jsonb, 'bulk',
-            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+            v_parcel_id, 'test_ca_san_jose', 'test.t3_field', '"value"'::jsonb, 'bulk',
+            'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
             now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL T3: fact method mismatched with its source''s declared method was accepted';
@@ -1232,7 +1258,7 @@ BEGIN
     -- A second, different parcel -- scoped to this test only, never stored
     -- in test_state, so nothing else can accidentally pick it up.
     INSERT INTO parcel (jurisdiction_id, apn, situs_address)
-    VALUES ('ca_san_jose', 'TEST-T4-' || gen_random_uuid()::text,
+    VALUES ('test_ca_san_jose', 'TEST-T4-' || gen_random_uuid()::text,
             '456 Other Parcel St, San Jose, CA 95110')
     RETURNING id INTO v_other_parcel_id;
 
@@ -1241,7 +1267,7 @@ BEGIN
         ruleset_version, composer_version, geometry_tier_used, payload,
         payload_hash, compose_ms
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+        v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
         'v1.0', 'v1.0', false, '{}'::jsonb, 'testhash_t4', 100
     ) RETURNING id INTO v_property_file_id;
 
@@ -1251,8 +1277,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_other_parcel_id, 'ca_san_jose', 'test.t4_field', '"other_parcel_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        v_other_parcel_id, 'test_ca_san_jose', 'test.t4_field', '"other_parcel_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
         now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_other_fact_id;
 
@@ -1294,7 +1320,7 @@ BEGIN
     SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
 
     INSERT INTO parcel (jurisdiction_id, apn, situs_address)
-    VALUES ('ca_san_jose', 'TEST-T5-' || gen_random_uuid()::text,
+    VALUES ('test_ca_san_jose', 'TEST-T5-' || gen_random_uuid()::text,
             '789 Other Parcel Ave, San Jose, CA 95110')
     RETURNING id INTO v_other_parcel_id;
 
@@ -1302,7 +1328,7 @@ BEGIN
         parcel_id, jurisdiction_id, type, severity, detector_key,
         detector_version, detail, outcome
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'staleness', 'warning', 'test_detector',
+        v_parcel_id, 'test_ca_san_jose', 'staleness', 'warning', 'test_detector',
         'v1', '{}'::jsonb, 'open'
     ) RETURNING id INTO v_exception_id;
 
@@ -1312,8 +1338,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_other_parcel_id, 'ca_san_jose', 'test.t5_field', '"other_parcel_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        v_other_parcel_id, 'test_ca_san_jose', 'test.t5_field', '"other_parcel_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
         now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_other_fact_id;
 
@@ -1354,8 +1380,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t6_field', '"future_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t6_field', '"future_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now() + interval '1 day', 'v1.0'
     );
 
@@ -1366,8 +1392,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t6b_field', '"present_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t6b_field', '"present_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now() - interval '1 day', 'v1.0'
     );
 
@@ -1442,7 +1468,7 @@ BEGIN
         INSERT INTO support_request (
             jurisdiction_id, category, caused_correction, correcting_fact_id
         ) VALUES (
-            'ca_san_jose', 'other', false, v_fact_id
+            'test_ca_san_jose', 'other', false, v_fact_id
         );
         RAISE EXCEPTION 'FAIL T8: caused_correction=false with correcting_fact_id set was accepted';
     EXCEPTION
@@ -1558,7 +1584,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, payload,
             payload_hash, compose_ms
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
             'v1.0', 'v1.0', false, '{}'::jsonb, 'testhash_t12', -1
         );
         RAISE EXCEPTION 'FAIL T12: property_file with negative compose_ms was accepted';
@@ -1594,7 +1620,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, payload,
             payload_hash, compose_ms, source_calls
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
             'v1.0', 'v1.0', false, '{}'::jsonb, 'testhash_t13', 100, -1
         );
         RAISE EXCEPTION 'FAIL T13: property_file with negative source_calls was accepted';
@@ -1630,7 +1656,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, payload,
             payload_hash, compose_ms, compute_cost_micros
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
             'v1.0', 'v1.0', false, '{}'::jsonb, 'testhash_t14', 100, -1
         );
         RAISE EXCEPTION 'FAIL T14: property_file with negative compute_cost_micros was accepted';
@@ -1666,7 +1692,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, payload,
             payload_hash, compose_ms, storage_cost_micros
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
             'v1.0', 'v1.0', false, '{}'::jsonb, 'testhash_t15', 100, -1
         );
         RAISE EXCEPTION 'FAIL T15: property_file with negative storage_cost_micros was accepted';
@@ -1701,7 +1727,7 @@ BEGIN
             parcel_id, jurisdiction_id, type, severity, detector_key,
             detector_version, detail, detected_at, outcome, resolved_at, resolved_by
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'staleness', 'warning', 'test_detector',
+            v_parcel_id, 'test_ca_san_jose', 'staleness', 'warning', 'test_detector',
             'v1', '{}'::jsonb, now(), 'confirmed', now() - interval '1 hour', 'test_operator'
         );
         RAISE EXCEPTION 'FAIL T16: parcel_exception resolved before detected was accepted';
@@ -1742,8 +1768,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t17_field', '"value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t17_field', '"value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
@@ -1753,7 +1779,7 @@ BEGIN
     UPDATE fact SET superseded_at = now() WHERE id = v_fact_id;
 
     BEGIN
-        UPDATE source SET method = 'bulk' WHERE id = 'ca_san_jose.test_source';
+        UPDATE source SET method = 'bulk' WHERE id = 'test_ca_san_jose.test_source';
         RAISE EXCEPTION 'FAIL T17: source.method UPDATE succeeded after superseding its only referencing fact';
     EXCEPTION
         WHEN foreign_key_violation THEN
@@ -1779,7 +1805,7 @@ DO $$
 BEGIN
     BEGIN
         UPDATE snapshot SET media_type = 'text/csv'
-         WHERE id = 'ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37';
+         WHERE id = 'test_ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37';
         RAISE EXCEPTION 'FAIL T18: UPDATE snapshot was accepted';
     EXCEPTION
         WHEN raise_exception THEN
@@ -1804,7 +1830,7 @@ DO $$
 BEGIN
     BEGIN
         DELETE FROM snapshot
-         WHERE id = 'ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37';
+         WHERE id = 'test_ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37';
         RAISE EXCEPTION 'FAIL T19: DELETE FROM snapshot was accepted';
     EXCEPTION
         WHEN raise_exception THEN
@@ -1833,7 +1859,7 @@ BEGIN
             id, source_id, object_uri, content_hash, media_type, byte_size,
             request, http_status, fetched_at, licence_observed_id
         ) VALUES (
-            'ca_san_jose.test_source:sha256:NOTVALIDHEX', 'ca_san_jose.test_source',
+            'test_ca_san_jose.test_source:sha256:NOTVALIDHEX', 'test_ca_san_jose.test_source',
             's3://bucket/test-t20', 'NOTVALIDHEX', 'application/json', 100,
             '{"url":"https://example.com/t20","params":{}}'::jsonb,
             200, now(), 'test.cc0'
@@ -1867,7 +1893,7 @@ BEGIN
             id, source_id, object_uri, content_hash, media_type, byte_size,
             request, http_status, fetched_at, licence_observed_id
         ) VALUES (
-            'some-other-id-entirely', 'ca_san_jose.test_source',
+            'some-other-id-entirely', 'test_ca_san_jose.test_source',
             's3://bucket/test-t21', '781a0daece9ba3e9da7e6f0e94a2d0a9a7afa04c994d2f854188c25e5cc9f3b2',
             'application/json', 100,
             '{"url":"https://example.com/t21","params":{}}'::jsonb,
@@ -1902,8 +1928,8 @@ BEGIN
             id, source_id, object_uri, content_hash, media_type, byte_size,
             request, http_status, fetched_at, licence_observed_id
         ) VALUES (
-            'ca_san_jose.test_source:sha256:781a0daece9ba3e9da7e6f0e94a2d0a9a7afa04c994d2f854188c25e5cc9f3b2',
-            'ca_san_jose.test_source', '   ',
+            'test_ca_san_jose.test_source:sha256:781a0daece9ba3e9da7e6f0e94a2d0a9a7afa04c994d2f854188c25e5cc9f3b2',
+            'test_ca_san_jose.test_source', '   ',
             '781a0daece9ba3e9da7e6f0e94a2d0a9a7afa04c994d2f854188c25e5cc9f3b2',
             'application/json', 100,
             '{"url":"https://example.com/t22","params":{}}'::jsonb,
@@ -1938,8 +1964,8 @@ BEGIN
             id, source_id, object_uri, content_hash, media_type, byte_size,
             request, http_status, fetched_at, licence_observed_id
         ) VALUES (
-            'ca_san_jose.test_source:sha256:781a0daece9ba3e9da7e6f0e94a2d0a9a7afa04c994d2f854188c25e5cc9f3b2',
-            'ca_san_jose.test_source', 's3://bucket/test-t23',
+            'test_ca_san_jose.test_source:sha256:781a0daece9ba3e9da7e6f0e94a2d0a9a7afa04c994d2f854188c25e5cc9f3b2',
+            'test_ca_san_jose.test_source', 's3://bucket/test-t23',
             '781a0daece9ba3e9da7e6f0e94a2d0a9a7afa04c994d2f854188c25e5cc9f3b2',
             '  ', 100,
             '{"url":"https://example.com/t23","params":{}}'::jsonb,
@@ -1977,7 +2003,7 @@ BEGIN
             effective_from, pack_version
         ) VALUES (
             v_parcel_id, NULL, 'test.t24_field', '"value"'::jsonb, 'direct',
-            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+            'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
             now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL T24: null jurisdiction_id was accepted';
@@ -2012,8 +2038,8 @@ BEGIN
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'test.t25_field', '"value"'::jsonb, 'direct',
-            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+            v_parcel_id, 'test_ca_san_jose', 'test.t25_field', '"value"'::jsonb, 'direct',
+            'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
             now(), 'https://example.com', 'test.cc_by_4_0', 'high', 'rule_1', now(), 'v1.0'
         );
         RAISE EXCEPTION 'FAIL T25: fact licence mismatched with its snapshot''s observed licence was accepted';
@@ -2044,8 +2070,8 @@ BEGIN
     BEGIN
         INSERT INTO job_run (job_key, jurisdiction_id, source_id, status, started_at, finished_at, snapshot_id)
         VALUES (
-            'test.t26_job', 'ca_san_jose', 'ca_san_jose.test_source', 'succeeded', now(), now(),
-            'ca_san_jose.test_source_b:sha256:2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d'
+            'test.t26_job', 'test_ca_san_jose', 'test_ca_san_jose.test_source', 'succeeded', now(), now(),
+            'test_ca_san_jose.test_source_b:sha256:2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d'
         );
         RAISE EXCEPTION 'FAIL T26: job_run citing source A with source B''s snapshot was accepted';
     EXCEPTION
@@ -2116,15 +2142,17 @@ BEGIN
     SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
 
     BEGIN
-        -- jurisdiction_id='ca_san_jose' correctly matches v_parcel_id's own
+        -- jurisdiction_id='test_ca_san_jose' correctly matches v_parcel_id's own
         -- jurisdiction (satisfying fact_parcel_jurisdiction_fk), but
-        -- source_id belongs to test_other_jurisdiction, not ca_san_jose.
+        -- source_id belongs to test_other_jurisdiction, not test_ca_san_jose --
+        -- this is the OTHER composite FK (fact_source_jurisdiction_fk) this
+        -- test exists to probe, and it is the one expected to reject this row.
         INSERT INTO fact (
             parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'test.t28_field', '"value"'::jsonb, 'direct',
+            v_parcel_id, 'test_ca_san_jose', 'test.t28_field', '"value"'::jsonb, 'direct',
             'test_other_jurisdiction.test_source',
             'test_other_jurisdiction.test_source:sha256:ea9ca0e4800afb999739746f473257ee491bc425f267ef6046b4a016d234184a',
             now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
@@ -2259,8 +2287,8 @@ DECLARE
 BEGIN
     INSERT INTO job_run (job_key, jurisdiction_id, source_id, status, started_at, finished_at, snapshot_id)
     VALUES (
-        'test.t31_job', 'ca_san_jose', 'ca_san_jose.test_source', 'succeeded', now(), now(),
-        'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28'
+        'test.t31_job', 'test_ca_san_jose', 'test_ca_san_jose.test_source', 'succeeded', now(), now(),
+        'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28'
     ) RETURNING id INTO v_job_run_id;
 
     RAISE NOTICE 'PASS T31: job_run citing its own source''s own snapshot accepted (id=%)', v_job_run_id;
@@ -2286,8 +2314,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t32_field', '"value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        v_parcel_id, 'test_ca_san_jose', 'test.t32_field', '"value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
         now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
@@ -2316,8 +2344,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t33_field', '"value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:6807ac29ca72075c1cc37bbdb1ed367c967981c0c74c969d045ab5e5664f7774',
+        v_parcel_id, 'test_ca_san_jose', 'test.t33_field', '"value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:6807ac29ca72075c1cc37bbdb1ed367c967981c0c74c969d045ab5e5664f7774',
         now(), 'https://example.com', 'test.cc_by_4_0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
@@ -2346,7 +2374,7 @@ BEGIN
         ruleset_version, composer_version, geometry_tier_used, payload,
         payload_hash, compose_ms
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+        v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
         'v1.0', 'v1.0', false, '{}'::jsonb, 'testhash_t34', 100
     ) RETURNING id INTO v_property_file_id;
 
@@ -2355,8 +2383,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t34_field', '"value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        v_parcel_id, 'test_ca_san_jose', 'test.t34_field', '"value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
         now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
@@ -2387,8 +2415,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t35_field', '"value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        v_parcel_id, 'test_ca_san_jose', 'test.t35_field', '"value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
         now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
@@ -2418,8 +2446,8 @@ BEGIN
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version, supersedes_fact_id
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'test.t36_field', '"value"'::jsonb, 'direct',
-            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+            v_parcel_id, 'test_ca_san_jose', 'test.t36_field', '"value"'::jsonb, 'direct',
+            'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
             now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0', v_target_id
         );
         RAISE EXCEPTION 'FAIL T36: supersedes_fact_id set with supersession_reason NULL was accepted';
@@ -2455,8 +2483,8 @@ BEGIN
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version, supersession_reason
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'test.t37_field', '"value"'::jsonb, 'direct',
-            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+            v_parcel_id, 'test_ca_san_jose', 'test.t37_field', '"value"'::jsonb, 'direct',
+            'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
             now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0', 'world_change'
         );
         RAISE EXCEPTION 'FAIL T37: supersession_reason set with supersedes_fact_id NULL was accepted';
@@ -2492,8 +2520,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t38_field', '"value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        v_parcel_id, 'test_ca_san_jose', 'test.t38_field', '"value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
         now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
@@ -2521,8 +2549,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t39_field', '"original_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        v_parcel_id, 'test_ca_san_jose', 'test.t39_field', '"original_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
         now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_original_id;
 
@@ -2534,8 +2562,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version, supersedes_fact_id, supersession_reason
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t39_field', '"corrected_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        v_parcel_id, 'test_ca_san_jose', 'test.t39_field', '"corrected_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
         now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0',
         v_original_id, 'source_correction'
     ) RETURNING id INTO v_superseding_id;
@@ -2565,8 +2593,8 @@ BEGIN
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version, supersedes_fact_id, supersession_reason
         ) VALUES (
-            v_new_id, v_parcel_id, 'ca_san_jose', 'test.t40_field', '"value"'::jsonb, 'direct',
-            'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+            v_new_id, v_parcel_id, 'test_ca_san_jose', 'test.t40_field', '"value"'::jsonb, 'direct',
+            'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
             now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0',
             v_new_id, 'world_change'
         );
@@ -2682,8 +2710,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t44_field', '"value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        v_parcel_id, 'test_ca_san_jose', 'test.t44_field', '"value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
         now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
@@ -2711,8 +2739,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version, source_asserted_as_of
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t45_field', '"value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        v_parcel_id, 'test_ca_san_jose', 'test.t45_field', '"value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
         now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0',
         now() + interval '30 days'
     ) RETURNING id INTO v_fact_id;
@@ -2749,8 +2777,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t46_field_a', '"input1_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:cff19b2a105a07f128fe53e3bef1b5fd2c0820dccfc0f65f94fd767418751fcb', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t46_field_a', '"input1_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:cff19b2a105a07f128fe53e3bef1b5fd2c0820dccfc0f65f94fd767418751fcb', now(), 'https://example.com',
         'test.noncommercial_only', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input1_fact_id;
 
@@ -2760,8 +2788,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t46_field_b', '"input2_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:bef91ddbcb9895f41aa49c95501153f3d1ad4f5dc2c6f532fe488693c7e49664', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t46_field_b', '"input2_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:bef91ddbcb9895f41aa49c95501153f3d1ad4f5dc2c6f532fe488693c7e49664', now(), 'https://example.com',
         'test.no_resale_only', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input2_fact_id;
 
@@ -2771,7 +2799,7 @@ BEGIN
         parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t46_field', '"derived"'::jsonb, 'derived',
+        v_parcel_id, 'test_ca_san_jose', 'test.t46_field', '"derived"'::jsonb, 'derived',
         'v1.0', 'test.wrongly_noncommercial_derived',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
@@ -2816,8 +2844,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t47_field_a', '"input1_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:cff19b2a105a07f128fe53e3bef1b5fd2c0820dccfc0f65f94fd767418751fcb', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t47_field_a', '"input1_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:cff19b2a105a07f128fe53e3bef1b5fd2c0820dccfc0f65f94fd767418751fcb', now(), 'https://example.com',
         'test.noncommercial_only', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input1_fact_id;
 
@@ -2826,8 +2854,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t47_field_b', '"input2_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:bef91ddbcb9895f41aa49c95501153f3d1ad4f5dc2c6f532fe488693c7e49664', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t47_field_b', '"input2_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:bef91ddbcb9895f41aa49c95501153f3d1ad4f5dc2c6f532fe488693c7e49664', now(), 'https://example.com',
         'test.no_resale_only', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input2_fact_id;
 
@@ -2837,7 +2865,7 @@ BEGIN
         parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t47_field', '"derived"'::jsonb, 'derived',
+        v_parcel_id, 'test_ca_san_jose', 'test.t47_field', '"derived"'::jsonb, 'derived',
         'v1.0', 'test.correctly_restricted',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
@@ -2872,8 +2900,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t48_field', '"input_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t48_field', '"input_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', now(), 'https://example.com',
         'test.unknown_commercial', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input_fact_id;
 
@@ -2881,7 +2909,7 @@ BEGIN
         parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t48_field', '"derived"'::jsonb, 'derived',
+        v_parcel_id, 'test_ca_san_jose', 'test.t48_field', '"derived"'::jsonb, 'derived',
         'v1.0', 'test.claims_commercial_allowed',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
@@ -2924,8 +2952,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t49_field', '"input_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t49_field', '"input_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', now(), 'https://example.com',
         'test.unknown_commercial', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input_fact_id;
 
@@ -2933,7 +2961,7 @@ BEGIN
         parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t49_field', '"derived"'::jsonb, 'derived',
+        v_parcel_id, 'test_ca_san_jose', 'test.t49_field', '"derived"'::jsonb, 'derived',
         'v1.0', 'test.claims_commercial_unknown',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
@@ -2967,8 +2995,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t50_field', '"input_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:af9a79c43ff57207f122898e73ab04eb8178f6d05ad9e9a0287566337fc68fe3', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t50_field', '"input_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:af9a79c43ff57207f122898e73ab04eb8178f6d05ad9e9a0287566337fc68fe3', now(), 'https://example.com',
         'test.attribution_required', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input_fact_id;
 
@@ -2976,7 +3004,7 @@ BEGIN
         parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t50_field', '"derived"'::jsonb, 'derived',
+        v_parcel_id, 'test_ca_san_jose', 'test.t50_field', '"derived"'::jsonb, 'derived',
         'v1.0', 'test.no_attribution',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
@@ -3019,8 +3047,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t51_field', '"input_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:af9a79c43ff57207f122898e73ab04eb8178f6d05ad9e9a0287566337fc68fe3', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t51_field', '"input_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:af9a79c43ff57207f122898e73ab04eb8178f6d05ad9e9a0287566337fc68fe3', now(), 'https://example.com',
         'test.attribution_required', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input_fact_id;
 
@@ -3028,7 +3056,7 @@ BEGIN
         parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t51_field', '"derived"'::jsonb, 'derived',
+        v_parcel_id, 'test_ca_san_jose', 'test.t51_field', '"derived"'::jsonb, 'derived',
         'v1.0', 'test.attribution_carried',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
@@ -3154,7 +3182,7 @@ DECLARE
     v_parcel_id uuid;
 BEGIN
     INSERT INTO parcel (jurisdiction_id, apn, geom)
-    VALUES ('ca_san_jose', NULL, ST_Multi(ST_SetSRID(ST_GeomFromText(
+    VALUES ('test_ca_san_jose', NULL, ST_Multi(ST_SetSRID(ST_GeomFromText(
         'POLYGON((-121.9 37.3, -121.9 37.31, -121.89 37.31, -121.89 37.3, -121.9 37.3))'), 4326)))
     RETURNING id INTO v_parcel_id;
 
@@ -3184,12 +3212,12 @@ DECLARE
     v_parcel_id_2 uuid;
 BEGIN
     INSERT INTO parcel (jurisdiction_id, apn, geom)
-    VALUES ('ca_san_jose', v_shared_apn, ST_Multi(ST_SetSRID(ST_GeomFromText(
+    VALUES ('test_ca_san_jose', v_shared_apn, ST_Multi(ST_SetSRID(ST_GeomFromText(
         'POLYGON((-121.9 37.3, -121.9 37.31, -121.89 37.31, -121.89 37.3, -121.9 37.3))'), 4326)))
     RETURNING id INTO v_parcel_id_1;
 
     INSERT INTO parcel (jurisdiction_id, apn, geom)
-    VALUES ('ca_san_jose', v_shared_apn, ST_Multi(ST_SetSRID(ST_GeomFromText(
+    VALUES ('test_ca_san_jose', v_shared_apn, ST_Multi(ST_SetSRID(ST_GeomFromText(
         'POLYGON((-121.5 37.5, -121.5 37.51, -121.49 37.51, -121.49 37.5, -121.5 37.5))'), 4326)))
     RETURNING id INTO v_parcel_id_2;
 
@@ -3260,8 +3288,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, recorded_at, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t58_field', '"value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        v_parcel_id, 'test_ca_san_jose', 'test.t58_field', '"value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
         '2019-01-01'::timestamptz, 'https://example.com', 'test.cc0', 'high', 'rule_1',
         '2019-01-01'::timestamptz, '2025-01-01'::timestamptz, 'v1.0'
     ) RETURNING id INTO v_fact_id;
@@ -3361,7 +3389,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, refusals,
             payload, payload_hash, compose_ms
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
             'v1.0', 'v1.0', false,
             '[{"code": "MADE_UP_CODE", "stage": "L8", "message": "not a real code", "detail": {}}]'::jsonb,
             '{}'::jsonb, 'testhash_t60', 1
@@ -3400,7 +3428,7 @@ BEGIN
         ruleset_version, composer_version, geometry_tier_used, refusals,
         payload, payload_hash, compose_ms
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
         'v1.0', 'v1.0', false,
         '[{"code": "RIGHTS_BLOCKED", "stage": "L8", "message": "test", "detail": {}}]'::jsonb,
         '{}'::jsonb, 'testhash_t61', 1
@@ -3471,8 +3499,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t62_field', '"input_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t62_field', '"input_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', now(), 'https://example.com',
         'test.unknown_commercial', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input_fact_id;
 
@@ -3480,7 +3508,7 @@ BEGIN
         parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t62_field', '"derived"'::jsonb, 'derived',
+        v_parcel_id, 'test_ca_san_jose', 'test.t62_field', '"derived"'::jsonb, 'derived',
         'v1.0', 'test.claims_commercial_allowed',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
@@ -3543,8 +3571,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t63_field', '"real_value"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t63_field', '"real_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', now(), 'https://example.com',
         'test.unknown_commercial', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_id;
 
@@ -3608,8 +3636,8 @@ BEGIN
         confidence_rule_id, conflict, method_version, ruleset_version,
         pack_version, source_asserted_as_of
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t64_field', '"initial"'::jsonb, 'unit_a', 'verbatim_a',
-        'ca_san_jose.test_source', 'https://example.com', 'layer_a', 'ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', 'direct',
+        v_parcel_id, 'test_ca_san_jose', 'test.t64_field', '"initial"'::jsonb, 'unit_a', 'verbatim_a',
+        'test_ca_san_jose.test_source', 'https://example.com', 'layer_a', 'test_ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', 'direct',
         now(), now(), 'daily',
         now(), NULL, 'test.unknown_commercial', 'high',
         'rule_1', 'agree', 'v1', 'v1',
@@ -3696,7 +3724,7 @@ BEGIN
         source_text_uri, params, pack_version, authored_by, reviewed_by,
         review_mode, reviewed_at
     ) VALUES (
-        v_rule_id, 'ca_san_jose', 'test.t65.rule.' || v_rule_id, 1, CURRENT_DATE,
+        v_rule_id, 'test_ca_san_jose', 'test.t65.rule.' || v_rule_id, 1, CURRENT_DATE,
         'Test citation', 'https://example.com/rule-source', '{}'::jsonb, 'v1.0',
         'author_a', 'reviewer_b', 'independent', now()
     );
@@ -3874,15 +3902,15 @@ DECLARE
     v_fact_a_id uuid;
 BEGIN
     SELECT value::uuid INTO v_parcel_a FROM test_state WHERE key = 'parcel_id';
-    INSERT INTO parcel (id, jurisdiction_id, apn) VALUES (v_parcel_b, 'ca_san_jose', 'test-t68-' || v_parcel_b::text);
+    INSERT INTO parcel (id, jurisdiction_id, apn) VALUES (v_parcel_b, 'test_ca_san_jose', 'test-t68-' || v_parcel_b::text);
 
     INSERT INTO fact (
         parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_a, 'ca_san_jose', 'test.t68_field', '"original"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', now(), 'https://example.com',
+        v_parcel_a, 'test_ca_san_jose', 'test.t68_field', '"original"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_fact_a_id;
 
@@ -3894,7 +3922,7 @@ BEGIN
             confidence, confidence_rule_id, effective_from, pack_version,
             supersedes_fact_id, supersession_reason
         ) VALUES (
-            v_parcel_b, 'ca_san_jose', 'test.t68_field', '"unrelated"'::jsonb, 'derived',
+            v_parcel_b, 'test_ca_san_jose', 'test.t68_field', '"unrelated"'::jsonb, 'derived',
             'v1', 'test.cc0', 'high', 'rule_1', now(), 'v1.0',
             v_fact_a_id, 'world_change'
         );
@@ -3938,8 +3966,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t69_field', '"still_live"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t69_field', '"still_live"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_target_id;
 
@@ -3953,7 +3981,7 @@ BEGIN
             confidence, confidence_rule_id, effective_from, pack_version,
             supersedes_fact_id, supersession_reason
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'test.t69_field', '"claimed_successor"'::jsonb, 'derived',
+            v_parcel_id, 'test_ca_san_jose', 'test.t69_field', '"claimed_successor"'::jsonb, 'derived',
             'v1', 'test.cc0', 'high', 'rule_1', now(), 'v1.0',
             v_target_id, 'world_change'
         );
@@ -3994,8 +4022,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t70_field', '"original"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t70_field', '"original"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:5a18494e33506d3d5c610d6e65e699b4f500767fd0c95f9ed40f64bd88987f37', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_target_id;
 
@@ -4006,7 +4034,7 @@ BEGIN
         confidence, confidence_rule_id, effective_from, pack_version,
         supersedes_fact_id, supersession_reason
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t70_field', '"corrected"'::jsonb, 'derived',
+        v_parcel_id, 'test_ca_san_jose', 'test.t70_field', '"corrected"'::jsonb, 'derived',
         'v1', 'test.cc0', 'high', 'rule_1', now(), 'v1.0',
         v_target_id, 'source_correction'
     ) RETURNING id INTO v_successor_id;
@@ -4042,8 +4070,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t71_field', '"original"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t71_field', '"original"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_target_id;
 
@@ -4058,8 +4086,8 @@ BEGIN
             retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
             effective_from, pack_version, supersedes_fact_id, supersession_reason
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'test.t71_field', '"claimed_successor"'::jsonb, 'bulk',
-            'ca_san_jose.test_source_b', 'ca_san_jose.test_source_b:sha256:2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d', now(), 'https://example.com/b',
+            v_parcel_id, 'test_ca_san_jose', 'test.t71_field', '"claimed_successor"'::jsonb, 'bulk',
+            'test_ca_san_jose.test_source_b', 'test_ca_san_jose.test_source_b:sha256:2892e288adb59f59419b9351ed48cbb14e45d0556547da33f3543e5e85b71c8d', now(), 'https://example.com/b',
             'test.cc0', 'high', 'rule_1', now(), 'v1.0',
             v_target_id, 'unknown'
         );
@@ -4099,8 +4127,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t72_field', '"original"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t72_field', '"original"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_target_id;
 
@@ -4111,8 +4139,8 @@ BEGIN
         retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
         effective_from, pack_version, supersedes_fact_id, supersession_reason
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'test.t72_field', '"corrected"'::jsonb, 'direct',
-        'ca_san_jose.test_source', 'ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
+        v_parcel_id, 'test_ca_san_jose', 'test.t72_field', '"corrected"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28', now(), 'https://example.com',
         'test.cc0', 'high', 'rule_1', now(), 'v1.0',
         v_target_id, 'unknown'
     ) RETURNING id INTO v_successor_id;
@@ -4148,11 +4176,11 @@ BEGIN
     SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
 
     INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
-    VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t73_detector', '1.0', '{"reason":"t73_probe"}'::jsonb);
+    VALUES (v_parcel_id, 'test_ca_san_jose', 'coverage_gap', 'info', 'test_t73_detector', '1.0', '{"reason":"t73_probe"}'::jsonb);
 
     BEGIN
         INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
-        VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t73_detector', '1.0', '{"reason":"t73_probe"}'::jsonb);
+        VALUES (v_parcel_id, 'test_ca_san_jose', 'coverage_gap', 'info', 'test_t73_detector', '1.0', '{"reason":"t73_probe"}'::jsonb);
         RAISE EXCEPTION 'FAIL T73: duplicate open exception was accepted';
     EXCEPTION
         WHEN unique_violation THEN
@@ -4181,7 +4209,7 @@ BEGIN
     SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
 
     INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
-    VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t73_detector', '1.0', '{"reason":"t74_different_reason"}'::jsonb);
+    VALUES (v_parcel_id, 'test_ca_san_jose', 'coverage_gap', 'info', 'test_t73_detector', '1.0', '{"reason":"t74_different_reason"}'::jsonb);
 
     RAISE NOTICE 'PASS T74: second open exception with a different reason accepted';
     INSERT INTO test_pass VALUES ('T74');
@@ -4205,7 +4233,7 @@ BEGIN
 
     BEGIN
         INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, reopened_from_id)
-        VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t75_detector', '1.0', '{"reason":"t75_probe"}'::jsonb, gen_random_uuid());
+        VALUES (v_parcel_id, 'test_ca_san_jose', 'coverage_gap', 'info', 'test_t75_detector', '1.0', '{"reason":"t75_probe"}'::jsonb, gen_random_uuid());
         RAISE EXCEPTION 'FAIL T75: reopened_from_id pointing at a nonexistent row was accepted';
     EXCEPTION
         WHEN foreign_key_violation THEN
@@ -4235,7 +4263,7 @@ BEGIN
     SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
 
     INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
-    VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t76_detector', '1.0', '{"reason":"t76_original"}'::jsonb)
+    VALUES (v_parcel_id, 'test_ca_san_jose', 'coverage_gap', 'info', 'test_t76_detector', '1.0', '{"reason":"t76_original"}'::jsonb)
     RETURNING id INTO v_target_id;
 
     UPDATE parcel_exception
@@ -4243,7 +4271,7 @@ BEGIN
      WHERE id = v_target_id;
 
     INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, reopened_from_id)
-    VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t76_detector', '1.0', '{"reason":"t76_original"}'::jsonb, v_target_id);
+    VALUES (v_parcel_id, 'test_ca_san_jose', 'coverage_gap', 'info', 'test_t76_detector', '1.0', '{"reason":"t76_original"}'::jsonb, v_target_id);
 
     RAISE NOTICE 'PASS T76: reopened_from_id % (real prior row) accepted', v_target_id;
     INSERT INTO test_pass VALUES ('T76');
@@ -4267,7 +4295,7 @@ BEGIN
     SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
 
     INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, outcome, resolved_at, resolved_by)
-    VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t77_detector', '1.0', '{"reason":"t77_probe"}'::jsonb,
+    VALUES (v_parcel_id, 'test_ca_san_jose', 'coverage_gap', 'info', 'test_t77_detector', '1.0', '{"reason":"t77_probe"}'::jsonb,
             'condition_cleared', clock_timestamp(), 'test_t77_detector');
 
     RAISE NOTICE 'PASS T77: condition_cleared with resolved_at/resolved_by accepted';
@@ -4291,7 +4319,7 @@ BEGIN
 
     BEGIN
         INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, outcome)
-        VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t78_detector', '1.0', '{"reason":"t78_probe"}'::jsonb,
+        VALUES (v_parcel_id, 'test_ca_san_jose', 'coverage_gap', 'info', 'test_t78_detector', '1.0', '{"reason":"t78_probe"}'::jsonb,
                 'condition_cleared');
         RAISE EXCEPTION 'FAIL T78: condition_cleared with no resolved_at/resolved_by was accepted';
     EXCEPTION
@@ -4329,7 +4357,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, refusals, payload,
             payload_hash, compose_ms
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
             'v1.0', 'v1.0', false, '[{}]'::jsonb, '{}'::jsonb, 'testhash_t79', 100
         );
         RAISE EXCEPTION 'FAIL T79: refusals element with no code key was accepted';
@@ -4368,7 +4396,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, refusals, payload,
             payload_hash, compose_ms
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
             'v1.0', 'v1.0', false, '[{"code": null}]'::jsonb, '{}'::jsonb, 'testhash_t80', 100
         );
         RAISE EXCEPTION 'FAIL T80: refusals element with code: null was accepted';
@@ -4406,7 +4434,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, refusals, payload,
             payload_hash, compose_ms
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
             'v1.0', 'v1.0', false, '["not-an-object"]'::jsonb, '{}'::jsonb, 'testhash_t81', 100
         );
         RAISE EXCEPTION 'FAIL T81: non-object refusals element was accepted';
@@ -4447,7 +4475,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, refusals, payload,
             payload_hash, compose_ms
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'composed', now(), 'v1.0',
             'v1.0', 'v1.0', false, '{}'::jsonb, '{}'::jsonb, 'testhash_t82', 100
         );
         RAISE EXCEPTION 'FAIL T82: non-array refusals was accepted';
@@ -4482,7 +4510,7 @@ BEGIN
         ruleset_version, composer_version, geometry_tier_used, refusals, payload,
         payload_hash, compose_ms
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
         'v1.0', 'v1.0', false,
         '[{"code": "RIGHTS_BLOCKED", "stage": "L8", "message": "test"}]'::jsonb,
         '{}'::jsonb, 'testhash_t83', 100
@@ -4514,12 +4542,12 @@ BEGIN
     SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
 
     INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
-    VALUES (v_parcel_id, 'ca_san_jose', 'record_to_ground', 'info', 'test_t84_detector', '1.0',
+    VALUES (v_parcel_id, 'test_ca_san_jose', 'record_to_ground', 'info', 'test_t84_detector', '1.0',
             '{"zoning_source_reason":"t84_probe","zoning_value_assigned":"R-1","note":"no reason key"}'::jsonb);
 
     BEGIN
         INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
-        VALUES (v_parcel_id, 'ca_san_jose', 'record_to_ground', 'info', 'test_t84_detector', '1.0',
+        VALUES (v_parcel_id, 'test_ca_san_jose', 'record_to_ground', 'info', 'test_t84_detector', '1.0',
                 '{"zoning_source_reason":"t84_probe_again","zoning_value_assigned":"R-2","note":"still no reason key"}'::jsonb);
         RAISE EXCEPTION 'FAIL T84: duplicate no-reason-key exception was accepted';
     EXCEPTION
@@ -4550,7 +4578,7 @@ BEGIN
     SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
 
     INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail)
-    VALUES (v_parcel_id, 'ca_san_jose', 'record_to_ground', 'info', 'test_t85_other_detector', '1.0',
+    VALUES (v_parcel_id, 'test_ca_san_jose', 'record_to_ground', 'info', 'test_t85_other_detector', '1.0',
             '{"zoning_source_reason":"t85_probe","zoning_value_assigned":"R-1","note":"different detector"}'::jsonb);
 
     RAISE NOTICE 'PASS T85: different detector_key with the same no-reason shape accepted';
@@ -4576,7 +4604,7 @@ BEGIN
     SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
 
     INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, outcome, resolved_at, resolved_by, resolution_notes)
-    VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t86_detector', '1.0', '{"reason":"t86_probe"}'::jsonb,
+    VALUES (v_parcel_id, 'test_ca_san_jose', 'coverage_gap', 'info', 'test_t86_detector', '1.0', '{"reason":"t86_probe"}'::jsonb,
             'version_retired', clock_timestamp(), 'system:detector_version_retired', 'detector_version 1.0 retired');
 
     RAISE NOTICE 'PASS T86: version_retired with resolved_at/resolved_by accepted';
@@ -4600,7 +4628,7 @@ BEGIN
 
     BEGIN
         INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, outcome)
-        VALUES (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t87_detector', '1.0', '{"reason":"t87_probe"}'::jsonb,
+        VALUES (v_parcel_id, 'test_ca_san_jose', 'coverage_gap', 'info', 'test_t87_detector', '1.0', '{"reason":"t87_probe"}'::jsonb,
                 'version_retired');
         RAISE EXCEPTION 'FAIL T87: version_retired with no resolved_at/resolved_by was accepted';
     EXCEPTION
@@ -4639,9 +4667,9 @@ BEGIN
 
     INSERT INTO parcel_exception (parcel_id, jurisdiction_id, type, severity, detector_key, detector_version, detail, outcome)
     VALUES
-        (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t88_detector', '1.0', '{"reason":"t88_a"}'::jsonb, 'open'),
-        (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t88_detector', '1.0', '{"reason":"t88_b"}'::jsonb, 'open'),
-        (v_parcel_id, 'ca_san_jose', 'coverage_gap', 'info', 'test_t88_detector', '2.0', '{"reason":"t88_c"}'::jsonb, 'open');
+        (v_parcel_id, 'test_ca_san_jose', 'coverage_gap', 'info', 'test_t88_detector', '1.0', '{"reason":"t88_a"}'::jsonb, 'open'),
+        (v_parcel_id, 'test_ca_san_jose', 'coverage_gap', 'info', 'test_t88_detector', '1.0', '{"reason":"t88_b"}'::jsonb, 'open'),
+        (v_parcel_id, 'test_ca_san_jose', 'coverage_gap', 'info', 'test_t88_detector', '2.0', '{"reason":"t88_c"}'::jsonb, 'open');
 
     UPDATE parcel_exception
        SET outcome = 'version_retired',
@@ -4778,7 +4806,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, refusals,
             payload, payload_hash, compose_ms, election
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
             'v1.0', 'v1.0', false,
             '[{"code": "RIGHTS_BLOCKED", "stage": "L8", "message": "test"}]'::jsonb,
             '{}'::jsonb, 'testhash_t92', 1, 'bogus'
@@ -4822,7 +4850,7 @@ BEGIN
         ruleset_version, composer_version, geometry_tier_used, refusals,
         payload, payload_hash, compose_ms, election
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
         'v1.0', 'v1.0', false,
         '[{"code": "RIGHTS_BLOCKED", "stage": "L8", "message": "test"}]'::jsonb,
         '{}'::jsonb, 'testhash_t93', 1, NULL
@@ -4851,7 +4879,7 @@ BEGIN
         ruleset_version, composer_version, geometry_tier_used, refusals,
         payload, payload_hash, compose_ms, election
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
         'v1.0', 'v1.0', false,
         '[{"code": "RIGHTS_BLOCKED", "stage": "L8", "message": "test"}]'::jsonb,
         '{}'::jsonb, 'testhash_t94', 1, 'city'
@@ -4882,7 +4910,7 @@ BEGIN
         ruleset_version, composer_version, geometry_tier_used, refusals,
         payload, payload_hash, compose_ms, election
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
         'v1.0', 'v1.0', false,
         '[{"code": "RIGHTS_BLOCKED", "stage": "L8", "message": "test"}]'::jsonb,
         '{}'::jsonb, 'testhash_t95', 1, 'state'
@@ -4911,7 +4939,7 @@ BEGIN
         ruleset_version, composer_version, geometry_tier_used, refusals,
         payload, payload_hash, compose_ms, election
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
         'v1.0', 'v1.0', false,
         '[{"code": "ELECTION_REQUIRED", "stage": "L5", "message": "test"}]'::jsonb,
         '{}'::jsonb, 'testhash_t96', 1, NULL
@@ -4940,7 +4968,7 @@ BEGIN
         ruleset_version, composer_version, geometry_tier_used, refusals,
         payload, payload_hash, compose_ms, election
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
         'v1.0', 'v1.0', false,
         '[{"code": "ELECTION_NOT_SUPPORTED", "stage": "L5", "message": "test"}]'::jsonb,
         '{}'::jsonb, 'testhash_t97', 1, 'state'
@@ -4984,7 +5012,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, refusals,
             payload, payload_hash, compose_ms, election
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
             'v1.0', 'v1.0', false,
             '[{"code": "STILL_NOT_A_REAL_CODE_T98", "stage": "L5", "message": "test"}]'::jsonb,
             '{}'::jsonb, 'testhash_t98', 1, NULL
@@ -5026,7 +5054,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, refusals,
             payload, payload_hash, compose_ms, election
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
             'v1.0', 'v1.0', false,
             '[{"code": "ELECTION_REQUIRED", "stage": "L5", "message": "test"}]'::jsonb,
             '{}'::jsonb, 'testhash_t99', 1, 'city'
@@ -5066,7 +5094,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, refusals,
             payload, payload_hash, compose_ms, election
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
             'v1.0', 'v1.0', false,
             '[{"code": "ELECTION_NOT_SUPPORTED", "stage": "L5", "message": "test"}]'::jsonb,
             '{}'::jsonb, 'testhash_t100', 1, NULL
@@ -5104,7 +5132,7 @@ BEGIN
         ruleset_version, composer_version, geometry_tier_used, refusals,
         payload, payload_hash, compose_ms, election
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
         'v1.0', 'v1.0', false,
         '[{"code": "ELECTION_REQUIRED", "stage": "L5", "message": "test"}]'::jsonb,
         '{}'::jsonb, 'testhash_t101', 1, NULL
@@ -5133,7 +5161,7 @@ BEGIN
         ruleset_version, composer_version, geometry_tier_used, refusals,
         payload, payload_hash, compose_ms, election
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
         'v1.0', 'v1.0', false,
         '[{"code": "ELECTION_NOT_SUPPORTED", "stage": "L5", "message": "test"}]'::jsonb,
         '{}'::jsonb, 'testhash_t102', 1, 'state'
@@ -5166,7 +5194,7 @@ BEGIN
         ruleset_version, composer_version, geometry_tier_used, refusals,
         payload, payload_hash, compose_ms, election
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
         'v1.0', 'v1.0', false,
         '[{"code": "PARCEL_REFERENCE_UNKNOWN", "stage": "L0", "message": "test"}]'::jsonb,
         '{}'::jsonb, 'testhash_t103', 1, NULL
@@ -5195,7 +5223,7 @@ BEGIN
         ruleset_version, composer_version, geometry_tier_used, refusals,
         payload, payload_hash, compose_ms, election
     ) VALUES (
-        v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+        v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
         'v1.0', 'v1.0', false,
         '[{"code": "PARCEL_NO_FACTS", "stage": "L8", "message": "test"}]'::jsonb,
         '{}'::jsonb, 'testhash_t104', 1, NULL
@@ -5229,7 +5257,7 @@ BEGIN
             ruleset_version, composer_version, geometry_tier_used, refusals,
             payload, payload_hash, compose_ms, election
         ) VALUES (
-            v_parcel_id, 'ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
+            v_parcel_id, 'test_ca_san_jose', 'free_snapshot', 'refused', now(), 'v1.0',
             'v1.0', 'v1.0', false,
             '[{"code": "STILL_NOT_A_REAL_CODE_T105", "stage": "L0", "message": "test"}]'::jsonb,
             '{}'::jsonb, 'testhash_t105', 1, NULL
@@ -5245,6 +5273,105 @@ BEGIN
                 RAISE EXCEPTION 'FAIL T105: check_violation on unexpected constraint %', v_constraint;
             END IF;
     END;
+END $$;
+
+-- ============================================================================
+-- TEST T106: no parcel row created BY THIS RUN carries
+-- jurisdiction_id='ca_san_jose' (P56 Phase 2, finding #50). Scoped by
+-- first_seen_at >= this run's own start (recorded above, before any
+-- fixture existed) rather than asserted over the whole table -- a
+-- whole-table assertion can never pass: every prior run of this file, on
+-- every database it has ever touched, left permanent TEST-%-apn parcels
+-- under the real jurisdiction (fact-bearing, 0017/I4, cannot be removed).
+--
+-- Sufficient for fact, property_file AND parcel_exception too, with no
+-- separate test for any of them: each carries its own composite FK forcing
+-- its jurisdiction_id to equal its parcel's (fact_parcel_jurisdiction_fk,
+-- property_file_parcel_jurisdiction_fk,
+-- parcel_exception_parcel_jurisdiction_fk -- 0022:107-121). If no
+-- run-scoped parcel is under ca_san_jose, no run-scoped row in those three
+-- tables can be either -- the database enforces it, so this test only
+-- needs to check the one table the other three all point back to.
+-- ============================================================================
+
+\echo '### TEST T106: no parcel created this run carries jurisdiction_id=ca_san_jose (should succeed)'
+
+DO $$
+DECLARE
+    v_run_started_at timestamptz;
+    v_bad_count       int;
+BEGIN
+    SELECT value::timestamptz INTO v_run_started_at FROM test_state WHERE key = 'run_started_at';
+
+    SELECT count(*) INTO v_bad_count FROM parcel
+     WHERE first_seen_at >= v_run_started_at
+       AND jurisdiction_id = 'ca_san_jose';
+
+    IF v_bad_count > 0 THEN
+        RAISE EXCEPTION 'FAIL T106: % parcel row(s) created this run still carry jurisdiction_id=ca_san_jose', v_bad_count;
+    END IF;
+
+    RAISE NOTICE 'PASS T106: no parcel created this run carries jurisdiction_id=ca_san_jose';
+    INSERT INTO test_pass VALUES ('T106');
+END $$;
+
+-- ============================================================================
+-- TEST T107: no job_run or rule row created BY THIS RUN carries
+-- jurisdiction_id='ca_san_jose' either (P56 Phase 2, finding #50). Neither
+-- table has a composite FK tying it to a parcel, so T106 does not cover
+-- them -- checked directly here instead.
+--
+-- CORRECTED before this test ever shipped, recorded here rather than
+-- silently fixed: the first draft scoped this by job_key/rule_key LIKE
+-- 'test.%' alone, no timing filter, reasoning that the namespace prefix
+-- already identifies this suite's own rows. Run once against a database
+-- with real prior-run residue (rule is immutable, 0013 -- every previous
+-- run's own test.*.rule.* rows are permanent and can never be cleaned):
+-- it found 45 pre-existing rule rows and failed on THEM, not on anything
+-- this run created, and would fail identically forever after, on every
+-- future run, on any database this suite has ever touched -- the exact
+-- "test that can never pass" trap T106's own header warns against, in a
+-- second table. Fixed by scoping both checks to this run's own
+-- first_seen_at-equivalent instead: job_run.started_at (DEFAULT now()) and
+-- rule.reviewed_at (verified set to now() at INSERT time by all five rule
+-- fixtures -- I18a/b/c/d and T65 -- not a fixed literal), both
+-- >= run_started_at. The namespace filter stays, narrowing to this suite's
+-- own rows specifically rather than any row that merely happens to be
+-- recent.
+--
+-- support_request (the third non-parcel table finding #50 named) is
+-- deliberately NOT checked here: its own T8 fixture is a negative control
+-- whose INSERT always raises check_violation and is caught before it
+-- commits (confirmed by direct read of T8) -- no row from it, or from any
+-- other support_request test in this file, is ever left behind to check.
+-- ============================================================================
+
+\echo '### TEST T107: no job_run or rule row created this run carries jurisdiction_id=ca_san_jose (should succeed)'
+
+DO $$
+DECLARE
+    v_run_started_at timestamptz;
+    v_bad_job_runs    int;
+    v_bad_rules       int;
+BEGIN
+    SELECT value::timestamptz INTO v_run_started_at FROM test_state WHERE key = 'run_started_at';
+
+    SELECT count(*) INTO v_bad_job_runs FROM job_run
+     WHERE job_key LIKE 'test.%'
+       AND started_at >= v_run_started_at
+       AND jurisdiction_id = 'ca_san_jose';
+
+    SELECT count(*) INTO v_bad_rules FROM rule
+     WHERE rule_key LIKE 'test.%'
+       AND reviewed_at >= v_run_started_at
+       AND jurisdiction_id = 'ca_san_jose';
+
+    IF v_bad_job_runs > 0 OR v_bad_rules > 0 THEN
+        RAISE EXCEPTION 'FAIL T107: % job_run row(s) and % rule row(s) created this run still carry jurisdiction_id=ca_san_jose', v_bad_job_runs, v_bad_rules;
+    END IF;
+
+    RAISE NOTICE 'PASS T107: no job_run or rule row created this run carries jurisdiction_id=ca_san_jose';
+    INSERT INTO test_pass VALUES ('T107');
 END $$;
 
 -- ============================================================================
@@ -5328,13 +5455,17 @@ END $$;
 -- PARCEL_NO_FACTS (a real, reachable shape); T105 still rejects a
 -- genuinely unknown code after this widening, its own fresh literal
 -- (T98's lesson, repeated).
+-- Raised 122 -> 124 by P56 Phase 2 (finding #50): T106 no parcel created
+-- this run carries jurisdiction_id='ca_san_jose'; T107 the same for
+-- job_run/rule rows created this run, which T106's own composite-FK
+-- argument does not reach.
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 122 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 122 passing tests, got %', v_pass_count;
+    IF v_pass_count < 124 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 124 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

@@ -1279,3 +1279,208 @@ It does not decide whether item B should proceed at all, on what timeline, or wi
 namespace name for the canonical parcel. It does not touch `invariants.sql`. It does not fix
 the licence mismatch or wire up CI. All three are the owner's own next decisions, presented
 here with real numbers rather than pushed through on the original prompt's smaller estimate.
+
+---
+
+## Item B close-out — implemented
+
+2026-08-24. Namespace `test_ca_san_jose`, owner-decided. `db/tests/invariants.sql` moved
+onto it; nothing else touched.
+
+### 1. §0's refutation test — Outcome (a), verbatim
+
+Run first against `ledgex_schema_check` — the wrong database (never had `make db-test` run
+against it post-P55-rebuild): `facts_citing_the_old_source = 0`, `UPDATE 0` (the source row
+doesn't even exist there). Re-run against `ledgex_test`, confirmed to genuinely carry
+residue first (`SELECT count(*) FROM parcel WHERE apn LIKE 'TEST-%'` → 21;
+`source.jurisdiction_id` for `ca_san_jose.test_source` → `ca_san_jose`):
+
+```
+BEGIN
+ facts_citing_the_old_source
+------------------------------
+                          252
+(1 row)
+
+ERROR:  update or delete on table "source" violates foreign key constraint "fact_source_jurisdiction_fk" on table "fact"
+DETAIL:  Key (id, jurisdiction_id)=(ca_san_jose.test_source, ca_san_jose) is still referenced from table "fact".
+ROLLBACK
+```
+
+Outcome (a). Claim held. Proceeded.
+
+### 2. §2's re-verification greps — all confirmed, no disagreement
+
+Every count and constraint citation in the prompt's §2 checked against the working
+checkout before any edit: 128 bare literals, 205 any-form, 87 `test_state` parcel reads (86
+`v_parcel_id` + 1 `v_parcel_a`), 7 `parcel` sites, 20 `parcel_exception` statements, 124
+`TEST` headers, `fact_source_jurisdiction_fk` at 0022:111-112 exactly as quoted,
+`snapshot_id_format` at 0021:98-99, zero triggers on `source`, zero `jurisdiction_id`
+references in `teardown.sql`. Nothing disagreed.
+
+### 3. T106/T107 — RED, then a self-inflicted bug caught before it shipped, then GREEN
+
+**RED, captured before any literal changed**, `run_started_at` and both new tests added
+first, exactly per §6's sequence:
+
+```
+### TEST T106: no parcel created this run carries jurisdiction_id=ca_san_jose (should succeed)
+ERROR:  FAIL T106: 6 parcel row(s) created this run still carry jurisdiction_id=ca_san_jose
+```
+
+T107 needs its own isolated capture (`ON_ERROR_STOP` halts the whole script at T106's own
+failure, before T107 ever runs) — T106 temporarily neutralized (`IF false THEN`), reverted
+immediately after capturing:
+
+```
+### TEST T107: no job_run or rule row from this suite carries jurisdiction_id=ca_san_jose (should succeed)
+ERROR:  FAIL T107: 1 job_run row(s) and 45 rule row(s) from this suite still carry jurisdiction_id=ca_san_jose
+```
+
+**That "45 rule row(s)" figure is itself a finding, caught before this test ever shipped,
+not after.** T107's own first draft scoped by `rule_key LIKE 'test.%'` alone, no timing
+filter, reasoning that the namespace prefix already identifies this suite's own rows. `rule`
+is immutable (0013) — every prior run's own `test.*.rule.*` rows, on any database this suite
+has ever touched, are permanent. The first draft's own 45-row failure was almost entirely
+*prior-run residue*, not anything the run being tested had created — the exact "test that can
+never pass" trap T106's own header warns against, reproduced in a second table by the test
+built to prevent it. Fixed before commit: re-verified `job_run.started_at` and
+`rule.reviewed_at` are both set to `now()` at INSERT time by every one of the five rule
+fixtures (I18a/b/c/d, T65), then re-scoped both checks to `>= run_started_at`, matching
+T106's own pattern. Re-captured cleanly on the corrected version, real contamination from
+that one run only: `1 job_run row(s) and 5 rule row(s)` (5, not 45 — matching the file's own
+5 rule-creation sites exactly).
+
+**A second self-inflicted bug, caught the same way, before commit.** The mechanical
+substitution (§6.5) is a blind, global `'ca_san_jose'` → `'test_ca_san_jose'` replace — and it
+correctly does not distinguish "a fixture literal" from "a verification literal," because it
+cannot tell them apart. T106 and T107's own check conditions (`AND jurisdiction_id =
+'ca_san_jose'` — the value they exist to prove is now ABSENT) are themselves quoted
+`'ca_san_jose'` literals, and the substitution flipped them to check for
+`'test_ca_san_jose'` instead — inverting both tests' own logic (T106 began accidentally
+verifying the *new* jurisdiction is used, not that the *old* one is absent). Not caught by
+review; caught because the full post-substitution `make db-test` run still failed, on the
+same "6 parcel row(s)" figure as before the fix — a number that should have been impossible
+after a correct fix, and was investigated rather than re-run past. Traced directly: `grep -n
+"AND jurisdiction_id = 'test_ca_san_jose'"` found the two check conditions (T106's own, and
+both of T107's). Reverted by hand to `'ca_san_jose'` in exactly those three places, plus the
+matching comment prose the same substitution had also (harmlessly, but confusingly) flipped.
+**Recorded here because it is the same class of finding this whole document exists to
+surface: a mechanical fix applied without checking that "mechanical" and "correct" are the
+same thing everywhere it touched.**
+
+**GREEN, on a genuinely fresh database** (`p56_itemb_final_check`, migrations-only, never
+touched by any of the above debugging):
+
+```
+### TEST T106: no parcel created this run carries jurisdiction_id=ca_san_jose (should succeed)
+NOTICE:  PASS T106: no parcel created this run carries jurisdiction_id=ca_san_jose
+### TEST T107: no job_run or rule row created this run carries jurisdiction_id=ca_san_jose (should succeed)
+NOTICE:  PASS T107: no job_run or rule row created this run carries jurisdiction_id=ca_san_jose
+
+INVARIANT TESTS COMPLETE -- 124 tests recorded PASS in test_pass
+```
+
+exit 0. **124, not 123 or 122** — floor raised 122 → 124 in the same commit, accounting for
+exactly T106 and T107, both named in the summary's own progression comment.
+
+### 4. The enumerated remaining `ca_san_jose` occurrences — every one justified by name
+
+```
+139   comment describing the kept real jurisdiction row (see 159)
+159   ('ca_san_jose', 'City of San José', ...) -- the REAL row, kept, FK parent of every
+      fact-bearing fixture this suite left behind before this pass
+267   comment, rewritten to name both jurisdictions explicitly (test_other_jurisdiction's
+      own "needs a genuinely different jurisdiction" argument)
+1087  \echo test name for S1, describing the REAL production sources S1 checks
+1092-1094  the three real production source ids S1 checks against day4_sources.sql
+1216  comment describing ca_san_jose.test_source's pre-move method -- historical, S1-adjacent
+4051-4052  comment citing the real historical P4 bug (real production source ids), motivating
+      context for T71, not this suite's own fixture data
+5279-5372  T106/T107's own comments and check conditions -- CORRECTLY still say
+      'ca_san_jose', because that is the value both tests exist to prove is absent
+5458  the floor-bump comment, correctly describing what T106 checks for
+```
+
+Zero unjustified occurrences. Every dotted `'ca_san_jose.test_source...'` id moved (`grep -c
+"'ca_san_jose\.test_source"` → 0); the three dotted occurrences that remain
+(`ca_san_jose.parcels`/`.zoning_districts`/`.building_permits_active`, all inside S1) are the
+real production source ids, never this suite's own fixtures.
+
+### 5. T27/T29/T30 — confirmed PASS, by name, unmodified
+
+```
+PASS T27: parcel/jurisdiction mismatch rejected by fact_parcel_jurisdiction_fk
+PASS T29: parcel/jurisdiction mismatch rejected by property_file_parcel_jurisdiction_fk
+PASS T30: parcel/jurisdiction mismatch rejected by parcel_exception_parcel_jurisdiction_fk
+```
+
+None required editing. All three continue to construct their own deliberate mismatch against
+`'test_other_jurisdiction'`, independent of what the canonical parcel's own correct-case
+jurisdiction is named.
+
+### 6. §7.1 -- jurisdiction-column behaviour, checked
+
+`grep -n "geometry_tier_enabled|\btier\b|supported" db/tests/invariants.sql` (case adjusted
+for an actual regex): every hit is either this pass's own new comment prose, or
+`property_file.geometry_tier_used` (a different column on a different table, hardcoded
+`false` in every INSERT) or the `supported` column NAME in an INSERT's own column list. No
+test anywhere in the file reads `jurisdiction.tier`, `jurisdiction.geometry_tier_enabled`, or
+`jurisdiction.supported` off a parcel's own jurisdiction. Risk clear.
+
+### 7. §7.4 -- double-run teardown, confirmed identical
+
+`make db-test` run twice in direct succession against the same database
+(`p56_itemb_final_check`): both runs `124 tests recorded PASS`, exit 0, and both runs'
+`teardown.sql` output byte-identical (`exception_evidence 0`, `property_file_fact 1`,
+`parcel_exception 13`, `property_file 13`, `source_feature_identity 0`, `job_run 2`, `parcel
+(zero-fact only) 3`). Teardown reaches the moved rows correctly; no jurisdiction-scoping
+change was needed in `teardown.sql` itself (it never referenced `jurisdiction_id` at all,
+confirmed in §2).
+
+### 8. `rule` and `support_request` -- moved by judgment, stated explicitly
+
+Per §4.4: no FK forced either move. `rule`'s own five fixture rows and `support_request`'s
+own single (never-persisting) literal were moved because leaving them under the real
+jurisdiction while everything else moved would make "why these specifically" a permanent,
+unanswered question, and because they are the same family as #50 even without a parcel
+involved. This was a judgment call, not a constraint-driven necessity, and is recorded as
+one rather than implied.
+
+### 9. Full gate baseline
+
+```
+make db-test (fresh db, x2)   124 PASS both runs, exit 0 (was 122; +2 for T106/T107)
+make golden                    PASSED, 0 failures, exit 0
+make conformance                PASSED, 0 failures, exit 0
+make check-boundary              5/5 kept, qa_check PASS, exit 0
+make migrate-verify              MATCH, 56/56, exit 0
+make test                        61 passed, 107 skipped, exit 0
+make viewer-test                  all assertions PASS, exit 0
+make smoke-real                    PASS -- 14/15, 1 correctly SKIPPED, exit 0
+.claude/hooks/test_guard_destructive.py   38/38, exit 0
+```
+
+Nothing edited to pass. No guard weakened or routed around.
+
+### 10. Whether §2's four corrections held, and one the design gate never anticipated
+
+All four of the design gate's own re-verified claims (§2.1-§2.4) held exactly as stated when
+re-checked in this pass -- the fourth composite FK, the 87th `test_state` reader, the
+128-literal table breakdown, and the 127 dotted occurrences all matched on direct re-grep
+before any edit. **The genuine refutation this pass surfaced was not in the design gate --
+it was in this pass's own first-draft implementation of T107 and, separately, in the blind
+substitution's own effect on T106/T107's freshly-written check conditions**, both described
+in full in §3 above, both caught by insisting on a real, fresh-database GREEN run rather than
+trusting that "the substitution ran without error" meant "the substitution did the right
+thing everywhere." Both are now part of the permanent record in the test file's own
+comments, not silently fixed and forgotten.
+
+### What this closes, and what it does not
+
+Finding #50 is closed for every FUTURE run of `db/tests/invariants.sql`, against any
+database, starting with this commit. It closes nothing about the past: `ledgex_schema_check`,
+`ledgex_test`, and every other database this suite has ever touched keep their own permanent
+`ca_san_jose`-jurisdictioned residue (fact-bearing, 0017/I4, unreachable by any migration).
+D4's own triage pass remains the only route to that, and remains out of scope here, exactly
+as the prompt required.
