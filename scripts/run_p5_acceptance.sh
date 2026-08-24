@@ -26,6 +26,23 @@ cd "$(dirname "$0")/.."
 # PATH after `pip install -r scripts/requirements.txt`).
 PYTHON="${PYTHON:-.venv-ingest/bin/python3}"
 
+# P56 Phase 2 (B3, prompts/P56-fixture-contamination-boundary.md sec 3): same
+# reasoning as ACCEPTANCE_OBJECT_STORE_BUCKET -> OBJECT_STORE_BUCKET below --
+# NOT a "${DATABASE_URL:-...}" fallback. .env unconditionally exports the
+# real DATABASE_URL (a live remote database, README finding #43), and a
+# developer who sourced .env for other work would have it already set before
+# this script runs, silently defeating a same-named fallback -- finding #53's
+# own mechanism, in miniature, for the database instead of the bucket. This
+# suite is also NOT SAFE TO RERUN against a populated database (see this
+# file's own header), so unlike GOLDEN_DATABASE_URL it has NO DEFAULT either
+# -- a default would be correct once and silently wrong every run after.
+# Reads its own P5_DATABASE_URL and exports DATABASE_URL FROM it (what
+# _p5_setup.py and every function under test actually read), so every child
+# process below -- including the inline heredocs -- inherits the correct
+# target without being edited individually.
+DATABASE_URL="$("$PYTHON" scripts/_acceptance_db_preflight.py P5_DATABASE_URL)"
+export DATABASE_URL
+
 export OBJECT_STORE_URL="${OBJECT_STORE_URL:-http://localhost:19000}"
 export OBJECT_STORE_ACCESS_KEY="${OBJECT_STORE_ACCESS_KEY:-scratchkey}"
 export OBJECT_STORE_SECRET_KEY="${OBJECT_STORE_SECRET_KEY:-scratchsecret}"

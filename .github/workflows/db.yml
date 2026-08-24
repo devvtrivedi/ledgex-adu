@@ -477,8 +477,16 @@ jobs:
       # data, ON CONFLICT DO NOTHING) -- no db/seeds/day4_sources.sql step
       # needed here, same as it needs none locally against a fresh
       # migrations-only database.
+      #
+      # P56 Phase 2 (B3): the runner now reads its own P5_DATABASE_URL, never
+      # DATABASE_URL, and has no default (unlike GOLDEN_DATABASE_URL -- this
+      # suite is NOT SAFE TO RERUN against a populated database). Same shape
+      # the `make golden` step above uses for GOLDEN_DATABASE_URL: this job's
+      # own DATABASE_URL (ledgex_ci_p5, already created and migrated above)
+      # passed through under the new name, on the command line, job-level
+      # env: block left in place because `make schema` above still needs it.
       - name: P5 acceptance suite (zoning + permits reconciliation)
-        run: bash scripts/run_p5_acceptance.sh
+        run: P5_DATABASE_URL="$DATABASE_URL" bash scripts/run_p5_acceptance.sh
 
   # P13: scripts/run_phaseb_acceptance.sh/check_phaseb_acceptance.py (Phase B
   # reconciliation -- new/changed/disappeared/reappeared, cross-source
@@ -592,5 +600,9 @@ jobs:
       # rows, own minimal licence/jurisdiction/source/field_definition
       # reference data, ON CONFLICT DO NOTHING) -- no
       # db/seeds/day4_sources.sql step needed, same as p5-acceptance.
+      #
+      # P56 Phase 2 (B3): same reasoning as p5-acceptance's own step above --
+      # PHASEB_DATABASE_URL, never DATABASE_URL, no default, this job's own
+      # DATABASE_URL (ledgex_ci_phaseb) passed through under the new name.
       - name: Phase B acceptance suite (new/changed/disappeared/reappeared)
-        run: bash scripts/run_phaseb_acceptance.sh
+        run: PHASEB_DATABASE_URL="$DATABASE_URL" bash scripts/run_phaseb_acceptance.sh

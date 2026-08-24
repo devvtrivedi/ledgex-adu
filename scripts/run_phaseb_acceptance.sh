@@ -29,6 +29,18 @@ cd "$(dirname "$0")/.."
 # (P12) and the Makefile's own PYTHON/PSQL/PG_DUMP.
 PYTHON="${PYTHON:-.venv-ingest/bin/python3}"
 
+# P56 Phase 2 (B3, prompts/P56-fixture-contamination-boundary.md sec 3): same
+# reasoning as ACCEPTANCE_OBJECT_STORE_BUCKET -> OBJECT_STORE_BUCKET below --
+# NOT a "${DATABASE_URL:-...}" fallback, and NO DEFAULT (unlike
+# GOLDEN_DATABASE_URL): this suite is NOT SAFE TO RERUN against a populated
+# database (see this file's own header), so a default would be correct once
+# and silently wrong every run after. Reads its own PHASEB_DATABASE_URL and
+# exports DATABASE_URL FROM it, so every child process below -- including the
+# inline heredocs -- inherits the correct target without being edited
+# individually.
+DATABASE_URL="$("$PYTHON" scripts/_acceptance_db_preflight.py PHASEB_DATABASE_URL)"
+export DATABASE_URL
+
 export OBJECT_STORE_URL="${OBJECT_STORE_URL:-http://localhost:19000}"
 export OBJECT_STORE_ACCESS_KEY="${OBJECT_STORE_ACCESS_KEY:-scratchkey}"
 export OBJECT_STORE_SECRET_KEY="${OBJECT_STORE_SECRET_KEY:-scratchsecret}"
