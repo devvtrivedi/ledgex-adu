@@ -37,7 +37,7 @@ import psycopg2
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-from infra.env import env, resolved_host  # noqa: E402
+from infra.env import env, refuse_remote, resolved_host  # noqa: E402
 from migrate import (  # noqa: E402
     LEDGER_MIGRATION_NAME, MIGRATIONS_DIR, all_migrations, apply_one,
     file_sha256, ledger_exists, other_tables_exist, version_of,
@@ -123,6 +123,13 @@ def dump_schema(dbname, exclude_table=None):
 
 
 def main():
+    # P56a: admin_connect() (below) connects to an admin database on
+    # DATABASE_URL's own host directly, bypassing infra.env.get_db()'s
+    # remote-host refusal entirely -- confirmed live. Called once, before
+    # the first connection this script makes (the admin connection, not the
+    # target one -- this is the earliest point).
+    refuse_remote(env("DATABASE_URL"))
+
     target = target_dbname()
     ref = f"{target}{REF_SUFFIX}"
 

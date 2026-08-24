@@ -878,3 +878,217 @@ edits):
 > **Contained, not fixed at the source**, by giving `make golden` its own dedicated
 > `GOLDEN_DATABASE_URL` (P56 containment close-out, same day) — the writer itself is
 > unchanged; only its blast radius going forward is now bounded to `ledgex_golden`.
+
+---
+
+## Close-out — P56a: the migration toolchain bypassed the remote-db guard
+
+Single-phase, 2026-08-23, same branch. No migration, no seed change, no ingest change, no
+CHECK constraint. Nothing dropped, cleaned, or rotated.
+
+### §2's test, verbatim, before anything else was read further
+
+```
+DATABASE_URL=postgresql://nonexistent.invalid/x make migrate
+  psycopg2.OperationalError: could not translate host name "nonexistent.invalid" to
+  address: nodename nor servname provided, or not known
+  (migrate.py:101, direct psycopg2.connect(env("DATABASE_URL")))
+
+DATABASE_URL=postgresql://nonexistent.invalid/x make migrate-verify
+  psycopg2.OperationalError: could not translate host name "nonexistent.invalid" to
+  address: nodename nor servname provided, or not known
+  (migrate_verify.py:48, same pattern)
+
+DATABASE_URL=postgresql://nonexistent.invalid/x make migrate-baseline
+  psycopg2.OperationalError: could not translate host name "nonexistent.invalid" to
+  address: nodename nor servname provided, or not known
+  (migrate_baseline.py:70, admin_connect("postgres") -- the ADMIN connection fails first,
+  before the target connection is ever attempted)
+```
+
+**Guard absent on all three.** No mention of `LEDGEX_ALLOW_REMOTE_DB` anywhere in any of the
+three outputs. The prompt's central claim holds; §4 proceeds.
+
+### §1's table, corrected
+
+Confirmed accurate for every line checked, with one real omission: **`scripts/migrate_
+baseline.py` (`Makefile:224`, `PG_DUMP=$(PG_DUMP) $(PYTHON) scripts/migrate_baseline.py`)
+was not in either column of the prompt's own table**, despite also lacking `DATABASE_URL`
+passthrough and also bypassing the guard (confirmed by §2's own third result, above). Added
+to the "does not pass it" side and fixed alongside the other two.
+
+**One distinction worth drawing precisely, since the prompt's own table groups six targets
+together under one header and they are not one risk.** `scripts/check_conformance.py`,
+`scripts/check_liveness.py` and `scripts/test_viewer_rights_gate.py` (the other three
+entries in the "DOES NOT" column) all call `infra.env.get_db()` — confirmed by direct read
+of each file's own imports and call site. **They were never unguarded.** Their only gap is
+the same Makefile convenience issue R2 already found for `golden` before 301f312: a bare
+invocation with no shell `DATABASE_URL` set resolves to `.env`'s remote host and is then
+safely refused by `get_db()`'s own pre-existing check — inconvenient, not dangerous. Only
+`migrate.py`, `migrate_verify.py` and `migrate_baseline.py` are genuinely unguarded, because
+all three connect via `env("DATABASE_URL")` (or `admin_connect()`, which re-derives the same
+host) directly, never through `get_db()` at all.
+
+### §3 — the three false claims, corrected
+
+All three quoted claims in `infra/env.py`'s module docstring and `get_db()`'s own refusal
+text were exactly as the prompt quoted them, confirmed by direct read before editing. All
+three corrected in place, with a dated `**Corrected 2026-08-23 (P56a)**` marker rather than
+silently rewritten — `infra/env.py`'s own module docstring now states plainly that "the
+Makefile targets are all safe" was false and stayed false through two separate incidents
+(golden, then the migration toolchain) before either was checked, and that "every real
+caller reaches a database through get_db()" was also false, naming the three scripts that
+don't. `get_db()`'s own refusal text no longer claims "every Makefile target already does"
+pass `DATABASE_URL` explicitly.
+
+### §4 — the fix
+
+**Half A: `infra.env.refuse_remote(database_url)`, extracted from `get_db()`.** Raises the
+identical `SystemExit` `get_db()` already raised, callable without also inheriting
+`get_db()`'s own connection-policy choices (a single connection, `autocommit=False`) that do
+not fit `migrate_verify.py`/`migrate_baseline.py`'s own two-connections-per-run shape
+(target plus a disposable admin/reference database on the same host). `get_db()` itself is
+refactored to call it — one implementation, not two that could drift. Chosen over (a) (fixing
+`migrate.py` alone, leaving the other two on a separate narrower remedy — rejected because it
+would mean two different fixes for what §2 showed is structurally one problem) and (c)
+(putting the check in `env()` itself — rejected for the reason `infra/env.py`'s own docstring
+already argues: `env()` is generic, shared with `OBJECT_STORE_SECRET_KEY` and friends, and
+has no business knowing what "remote" means for a database specifically).
+
+Each of the three scripts now calls `refuse_remote(env("DATABASE_URL"))` **once, at the very
+top of `main()`, before any connection** — including `migrate_baseline.py`'s own `admin_
+connect("postgres")`, which is the first connection that script makes, not the target one.
+This works because `admin_connect()` always re-derives its own host from the same
+`DATABASE_URL` string (confirmed by reading it directly) — it structurally cannot point
+anywhere the single early check didn't already clear.
+
+Per D3: refuses, does not warn. No new override path was added; `LEDGEX_ALLOW_REMOTE_DB=1`
+is the only one, unchanged, and T3 (below) confirms it still works identically on every
+newly-guarded path.
+
+**Half B: `DATABASE_URL="$(DATABASE_URL)"` added explicitly** to `migrate`, `migrate-verify`,
+`migrate-baseline`, and — per the prompt's own instruction that this cover "every recipe in
+§1's right-hand column," not only the three Half-A scripts — `conformance`, `liveness`, and
+`viewer-test` too, matching what `db-test`/`test`/`golden` already do. **Chosen over a
+blanket `export DATABASE_URL`** at the top of the Makefile, per the prompt's own instruction
+to weigh it honestly: a blanket export changes every target's environment at once, including
+ones nobody audited for this pass, where the per-recipe form only touches the seven targets
+actually confirmed to need it.
+
+**Stated plainly, per instruction, what Half B does not fix**: it closes the "no shell
+variable set, so `.env`'s remote host wins" path. It does nothing about a developer's shell
+already having `DATABASE_URL` pointed at a local-but-wrong database — `?=` and an explicit
+`DATABASE_URL="$(DATABASE_URL)"` both take the environment's value when one is set, and
+nothing in Half B changes that. That is the exact mechanism that contaminated `ledgex_
+schema_check` in Stage 7 (`DATABASE_URL` was correctly local, just pointed at the wrong
+database for that specific run), and its remedy is B3 (per-target dedicated databases, e.g.
+`GOLDEN_DATABASE_URL`), not this.
+
+### §5 — RED first, R1-R3
+
+**R1**: the three verbatim outputs above, captured before any fix existed.
+
+**R2**: not re-derived from scratch — cross-referenced against the P56 containment close-out
+(this same document, above), which already ran this exact check with zero shell exports and
+found `env("DATABASE_URL")` resolves to `.env`'s own live remote Supabase host for any
+caller using `env()`/`get_db()`, migration scripts included (identical mechanism, confirmed
+by reading `env()`'s own six lines, unchanged by this pass). Not re-run a third time in this
+session for the same result.
+
+**R3**: §2's own test, re-run after the fix — see T-below.
+
+### §6 — Acceptance
+
+**T1 — every gate green, matching the 301f312 baseline exactly, nothing edited to pass:**
+
+```
+make db-test        123 PASS (matches baseline), exit 0
+make golden          PASSED, 0 failures, exit 0
+make conformance     PASSED, 0 failures, exit 0
+make check-boundary  5/5 kept, qa_check PASS, exit 0
+make test            61 passed, 107 skipped, exit 0
+make viewer-test      all assertions PASS, exit 0
+make smoke-real       PASS -- 14/15, 1 correctly SKIPPED, exit 0
+.claude/hooks/test_guard_destructive.py   38/38, exit 0
+```
+
+**T2 — `make migrate-verify` against the real local `ledgex_schema_check`: `MATCH -- 56
+migration(s) verified`, exit 0.** The target the prompt itself flagged as most likely to
+break under Half A (the admin/reference-database connection) worked on the first run. `make
+migrate` against the same database: `up to date -- nothing to apply`, exit 0.
+
+**T3 — `LEDGEX_ALLOW_REMOTE_DB=1` confirmed still works.** Re-ran `make migrate` against the
+same unresolvable host with the override set: passed `refuse_remote()` cleanly and reached
+the identical raw `psycopg2.OperationalError` as before any guard existed — the override
+is not locked out on any newly-guarded path.
+
+**T4 — CI reasoned through, `.github/workflows/db.yml`'s schema job:**
+
+```
+Job-level env: DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ledgex_ci
+              -- set in the job's own YAML `env:` block, which GitHub Actions exports to
+                 EVERY step's shell automatically. This is a DIFFERENT mechanism from the
+                 Makefile's own missing `export`: CI never depended on Make's `?=` default
+                 at all, because DATABASE_URL was already a real shell variable before
+                 `make` ever ran, on every single step, with or without Half B.
+make migrate         -- NOT a step in this workflow. Half A's fix to it does not change CI.
+make migrate-verify   -- IS a step (line 121-122), and already passes
+                         DATABASE_URL="$DATABASE_URL" explicitly, unaffected by Half B
+                         (already correct), gains Half A's guard (harmless -- ledgex_ci is
+                         always local).
+make migrate-baseline -- NOT a step in this workflow. Unaffected.
+make conformance      -- IS a step (line 316-317), already passes DATABASE_URL="$DATABASE_URL"
+                         explicitly. Half B is a no-op here, confirmed by reading the file,
+                         not assumed.
+make liveness          -- NOT in this workflow (its own separate scheduled workflow,
+                         unread this pass -- out of the "db.yml" scope T4 specifies).
+make viewer-test       -- IS a step (line 289-290), already passes DATABASE_URL="$DATABASE_URL"
+                         explicitly. Half B is a no-op here too.
+```
+
+**CI behaviour is unchanged, confirmed by reading the file rather than assumed, for two
+independent reasons stacked on top of each other: the job's own env: block already exported
+DATABASE_URL to every step, and the three steps that touch guarded/newly-guarded scripts
+already passed it explicitly on the command line besides.**
+
+**T5 — nothing edited to pass.** No test file, fixture, or assertion was changed anywhere in
+this pass. `prompts/README.md` untouched, per instruction.
+
+### §7 — out of scope, stated
+
+- **The `.env` credential's rotation is the owner's decision, not made here.** Its urgency is
+  now sharply higher than before this pass: §2's own test proves the migration toolchain --
+  the three scripts that apply DDL directly to whatever `DATABASE_URL` names -- had **zero**
+  guard against reaching that live remote database, for as long as this codebase has existed
+  in its current form. `.env` was not edited. `DATABASE_URL` was not pointed anywhere on the
+  owner's behalf. The live Supabase database was not connected to at any point in this pass
+  -- every command in §2/§5/§6 above used either an unresolvable hostname or an explicit
+  local database.
+- Finding #23 (auditing the Supabase database itself) untouched, still open.
+- No database cleaned, rebuilt, or dropped. The 49 from P56 Phase 1 are unaffected, exactly
+  as D4 requires.
+- `_p5_setup.py`/`_phaseb_setup.py` untouched -- Phase 2's own scope, not this pass's.
+- R6 not designed, not discussed beyond this line, per D5.
+
+### Proposed finding #55 — text only, not written to `prompts/README.md`
+
+> **#55** | `scripts/migrate.py`, `scripts/migrate_verify.py` and `scripts/migrate_baseline.py`
+> -- the only three scripts in this repo that apply DDL directly to a live database -- each
+> connected via `infra.env.env("DATABASE_URL")` (or `migrate_baseline.py`'s own
+> `admin_connect()`, which re-derives the same host) directly, bypassing `infra.env.get_db()`'s
+> own P39/finding-#43 remote-host refusal entirely. `infra/env.py`'s own module docstring
+> claimed "the Makefile targets are all safe -- every one passes DATABASE_URL explicitly" and
+> "every real caller reaches a database through get_db()"; both were false, and stayed false
+> through two separate incidents (`make golden`, P56 containment; the migration toolchain,
+> this finding) before either was checked against the actual recipe text. Found live, P56a,
+> confirmed with a single command against an unresolvable hostname
+> (`DATABASE_URL=postgresql://nonexistent.invalid/x make migrate`), which reached a raw
+> `psycopg2.OperationalError` with no mention of the guard, on all three scripts, before any
+> fix existed. **Fixed at the source, not merely contained**: `infra.env.refuse_remote()`
+> extracted from `get_db()` and called explicitly by all three scripts before their own first
+> connection (P56a close-out, `prompts/P56-fixture-contamination-boundary.md`). The two false
+> safety claims corrected in place, dated, not silently rewritten. Raises the open-hazard
+> urgency of the live `.env` credential (finding #23's own subject) sharply: this is the first
+> confirmation that the credential's exposure was not merely "reachable by an unusual
+> invocation" but reachable by the three scripts whose entire job is applying irreversible
+> schema changes.

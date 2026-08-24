@@ -34,7 +34,7 @@ import psycopg2
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-from infra.env import env, resolved_host  # noqa: E402
+from infra.env import env, refuse_remote, resolved_host  # noqa: E402
 from migrate import LEDGER_MIGRATION_NAME, MIGRATIONS_DIR, apply_one, ledger_exists, version_of  # noqa: E402
 from migrate_baseline import admin_connect, dump_schema, parsed_url, target_dbname  # noqa: E402
 
@@ -42,6 +42,15 @@ REF_SUFFIX = "_migrate_verify_ref"
 
 
 def main():
+    # P56a: connects directly via env("DATABASE_URL") (target) and, through
+    # migrate_baseline's admin_connect()/dump_schema(), to an admin/reference
+    # database on the SAME host -- confirmed live, neither path went through
+    # infra.env.get_db()'s own remote-host refusal. One call here, before the
+    # first connection, covers both: admin_connect() always re-derives its
+    # own host from this same DATABASE_URL, so it cannot point anywhere this
+    # check did not already clear.
+    refuse_remote(env("DATABASE_URL"))
+
     target = target_dbname()
     ref = f"{target}{REF_SUFFIX}"
 

@@ -31,7 +31,7 @@ import psycopg2
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-from infra.env import env  # noqa: E402
+from infra.env import env, refuse_remote  # noqa: E402
 
 MIGRATIONS_DIR = REPO_ROOT / "db" / "migrations"
 LEDGER_MIGRATION_NAME = "0046_schema_migrations_ledger.sql"
@@ -98,6 +98,12 @@ def bootstrap_ledger(conn):
 
 
 def main():
+    # P56a: this script applies DDL directly via env("DATABASE_URL"),
+    # bypassing infra.env.get_db()'s own remote-host refusal entirely --
+    # confirmed live (DATABASE_URL=postgresql://nonexistent.invalid/x make
+    # migrate reached a raw psycopg2.OperationalError, not this refusal).
+    # Called once, before the only connection this script makes.
+    refuse_remote(env("DATABASE_URL"))
     conn = psycopg2.connect(env("DATABASE_URL"))
     conn.autocommit = False
 

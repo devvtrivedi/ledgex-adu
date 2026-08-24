@@ -211,8 +211,20 @@ schema:
 # one recorded whose file changed since (refuses -- migrations are
 # forward-only), and a pre-ledger database with no ledger AND no way to
 # safely guess what already ran (refuses -- see `make migrate-baseline`).
+# P56a: DATABASE_URL passed explicitly, same shape db-test/test/golden
+# already use for their own dedicated variables -- this one is DATABASE_URL
+# itself, not a scoped variable, because migrate.py's whole job is applying
+# DDL to whatever database DATABASE_URL already names. Without this, the
+# Makefile's own local default was never reachable by this recipe at all
+# (no `export` directive exists in this file) -- confirmed live, and closed
+# together with infra.env.refuse_remote() now guarding the actual connection
+# (see infra/env.py's own P56a correction). This closes the "no shell
+# variable set, so .env's remote host wins" path; it does NOT close a
+# shell already pointing DATABASE_URL at a local-but-wrong database, which
+# --DATABASE_URL's own semantics can never distinguish from "the database
+# you meant."
 migrate:
-	$(PYTHON) scripts/migrate.py
+	DATABASE_URL="$(DATABASE_URL)" $(PYTHON) scripts/migrate.py
 
 # P6, one-time only: adopt a pre-ledger database (schema_migrations does not
 # exist, but the database is not empty either -- `make migrate` refuses this
@@ -221,7 +233,7 @@ migrate:
 # ledger if a real schema diff against that reference is byte-identical. See
 # scripts/migrate_baseline.py's own docstring for the full argument.
 migrate-baseline:
-	PG_DUMP=$(PG_DUMP) $(PYTHON) scripts/migrate_baseline.py
+	DATABASE_URL="$(DATABASE_URL)" PG_DUMP=$(PG_DUMP) $(PYTHON) scripts/migrate_baseline.py
 
 # P6: independent check that a database's LIVE schema actually matches what
 # its own schema_migrations ledger claims -- catches a ledger row with no
@@ -230,7 +242,7 @@ migrate-baseline:
 # produce through migrate.py itself; this is for a database touched some
 # other way). See scripts/migrate_verify.py's own docstring.
 migrate-verify:
-	PG_DUMP=$(PG_DUMP) $(PYTHON) scripts/migrate_verify.py
+	DATABASE_URL="$(DATABASE_URL)" PG_DUMP=$(PG_DUMP) $(PYTHON) scripts/migrate_verify.py
 
 # Regenerate db/schema.sql from whatever schema is live at DATABASE_URL and
 # diff it against the committed dump. Run `make schema` against an empty
@@ -339,7 +351,7 @@ db-test:
 # exit code here means ONLY that those real checks passed, not that
 # §1.2's full contract is satisfied.
 conformance:
-	$(PYTHON) scripts/check_conformance.py
+	DATABASE_URL="$(DATABASE_URL)" $(PYTHON) scripts/check_conformance.py
 
 # Spec §6.4 make liveness: "every active source responds with expected
 # fields." P28: real for the pack's three active, ca_san_jose-owned
@@ -355,7 +367,7 @@ conformance:
 # every push on it). Federal sources and non-active sources are named,
 # not silently skipped -- see the script's own summary output.
 liveness:
-	$(PYTHON) scripts/check_liveness.py
+	DATABASE_URL="$(DATABASE_URL)" $(PYTHON) scripts/check_liveness.py
 
 # Spec §1.2 make test: "Unit and integration suites, including review,
 # entitlement, outcome observation, provider slot, edge guard and billing
@@ -421,7 +433,7 @@ golden:
 viewer-test:
 	@echo "VIEWER-TEST: proves the I6 rights gate on api/'s ONE fact-rendering route (GET /v1/parcels/{id}/facts) -- one parcel, one channel ('api'), the internal_test.* licence pair plus one real cc_by_4_0 fixture fact (scripts/seed_internal_test_licences.py, P42). Asserts the blocked fact's value is absent from the real serialized response body, not eyeballed."
 	@echo "VIEWER-TEST: NOT covered -- the other six api/ routes (rights, sources, job-runs, exceptions, property-files, schema), any channel but 'api', any parcel but the one the seed script creates, and whether the HTML viewer itself renders correctly. This proves the gate does not leak on the seeded fixture; it does not prove the viewer is correct."
-	$(PYTHON) scripts/test_viewer_rights_gate.py
+	DATABASE_URL="$(DATABASE_URL)" $(PYTHON) scripts/test_viewer_rights_gate.py
 
 # P50. The one command that answers "is this machine wired up right now, and
 # does a real byte from a real San Jose endpoint still reach a rights-gated
