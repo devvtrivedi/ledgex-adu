@@ -969,11 +969,21 @@ newly-guarded path.
 **Half B: `DATABASE_URL="$(DATABASE_URL)"` added explicitly** to `migrate`, `migrate-verify`,
 `migrate-baseline`, and — per the prompt's own instruction that this cover "every recipe in
 §1's right-hand column," not only the three Half-A scripts — `conformance`, `liveness`, and
-`viewer-test` too, matching what `db-test`/`test`/`golden` already do. **Chosen over a
-blanket `export DATABASE_URL`** at the top of the Makefile, per the prompt's own instruction
-to weigh it honestly: a blanket export changes every target's environment at once, including
-ones nobody audited for this pass, where the per-recipe form only touches the seven targets
-actually confirmed to need it.
+`viewer-test` too. **Corrected 2026-08-24 (P56 Phase 2) — "matching what `db-test`/`test`/
+`golden` already do" was wrong, verified against the real Makefile before writing this
+correction, not asserted.** None of those three pass `DATABASE_URL="$(DATABASE_URL)"`:
+`db-test` (`Makefile:326-328`) runs `psql` against `DB_TEST_DATABASE_URL` and never touches
+`DATABASE_URL` at all; `golden` (`Makefile:415-416`) passes only `GOLDEN_DATABASE_URL`; `test`
+(`Makefile:393-396`) passes `DATABASE_URL="$(TEST_DATABASE_URL)"` — the name bound to a
+*different* variable. Those three are B3-shaped (dedicated per-harness variables), not
+Half-B-shaped (the same name, passed through explicitly) — arguably the stronger pattern, and
+the one P56 Phase 2's own item A extends to the acceptance suites, but not what this
+sentence claimed. A wrong safety comparison inside a close-out is the same failure class as
+finding #55's own two false docstring claims; corrected here rather than left to be
+rediscovered. **Chosen over a blanket `export DATABASE_URL`** at the top of the Makefile, per
+the prompt's own instruction to weigh it honestly: a blanket export changes every target's
+environment at once, including ones nobody audited for this pass, where the per-recipe form
+only touches the seven targets actually confirmed to need it.
 
 **Stated plainly, per instruction, what Half B does not fix**: it closes the "no shell
 variable set, so `.env`'s remote host wins" path. It does nothing about a developer's shell
@@ -983,6 +993,20 @@ nothing in Half B changes that. That is the exact mechanism that contaminated `l
 schema_check` in Stage 7 (`DATABASE_URL` was correctly local, just pointed at the wrong
 database for that specific run), and its remedy is B3 (per-target dedicated databases, e.g.
 `GOLDEN_DATABASE_URL`), not this.
+
+**Corrected 2026-08-24 (P56 Phase 2) — this paragraph also omitted a real change in
+behavior, not just what Half B fails to fix.** Verified directly: `env -i ... make -n migrate`
+(zero shell exports) now dry-runs as `DATABASE_URL="postgresql://localhost/ledgex_schema_
+check" python3 scripts/migrate.py` — the Makefile's own local default. **Before Half B, the
+same no-shell-variable case resolved `.env`'s live remote host** (`env("DATABASE_URL")`'s own
+fallback, unaffected by anything in `migrate:`'s recipe at the time), which Half A's guard
+then refused outright. Half B moved the no-shell-variable default for `make migrate` from
+"remote, hard failure" to "the live local `ledgex_schema_check` rebuild, permitted and
+unguarded by `refuse_remote()` because it is local, not remote" — the exact wrong-local axis
+this section names as unfixed, now also the *default* path for a bare invocation, not only a
+shell-already-pointed-there case. Migrations are forward-only, which makes this low-risk and
+the change may well be intended, but it is a real change to `make migrate`'s own default
+blast radius and was not written down here, which is where a reader would look for it.
 
 ### §5 — RED first, R1-R3
 
