@@ -4,8 +4,22 @@ Captured per owner instruction, before any UPDATE touches these rows. `migrate-v
 was run against every database below before this capture (see P59-LEDGER.md's header) --
 all MATCH at 56 migrations.
 
-S1 query: `SELECT count(*) FROM parcel WHERE geom IS NOT NULL AND centroid IS NOT NULL
-AND NOT ST_Intersects(geom, centroid);`
+S1 query (as originally captured): `SELECT count(*) FROM parcel WHERE geom IS NOT NULL AND
+centroid IS NOT NULL AND NOT ST_Intersects(geom, centroid);`
+
+**Corrected (A-N14, P59C).** The query above uses `NOT ST_Intersects`; the code's own
+predicate (`populate_interior_centroids`'s residual check, and the zoning join's own
+exclusion) uses `NOT ST_Contains`. `ST_Contains` is strictly broader than `ST_Intersects`
+here (a centroid ON the boundary intersects but does not "contain"-satisfy interiority),
+so the counts below (1,213 / 1,057) are **lower bounds** on what a remediation run using
+the code's own predicate will recompute -- not exact targets, and not to be presented as
+either. The code-predicate verification query, for P61 to actually run:
+
+```sql
+SELECT count(*) FROM parcel
+ WHERE geom IS NOT NULL AND centroid IS NOT NULL
+   AND NOT ST_Contains(geom, centroid);
+```
 
 ## Per-database counts
 
@@ -93,7 +107,8 @@ This is a plan, not work performed. Executing it is a separate authorization
    `get_db()`'s connection attempt (`psycopg2.OperationalError: ... database
    "ledgex_does_not_exist_dryrun" does not exist`) -- proving the flags parse and
    dispatch correctly without ever reaching a real database or writing anything.
-5. Expected result: S1 returns 0 on `ledgex_schema_check` afterward, and the 1,057
+5. Expected result: the code-predicate query above (A-N14) returns 0 on
+   `ledgex_schema_check` afterward, and at least the 1,057
    facts in the CSV above each show a non-null `superseded_at` with a real
    successor fact citing the corrected centroid's classification (or, for parcels
    whose correct classification happens to match the old one, no change at all --
