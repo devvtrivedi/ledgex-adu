@@ -105,11 +105,22 @@ pdf: docs
 site: docs
 	$(PYTHON) build/build_website.py
 
+# P59 sweep (pre-review verification, not part of the original C16 fix):
+# build/test_qa_check_refusal_digits.py was added by C16 and proven RED/GREEN
+# once, by hand, at fix time -- but never wired into this Makefile or
+# .github/workflows/db.yml, so nothing would catch a future regression of
+# the digit-blind-regex bug it exists to guard against. Found during the
+# sweep's own wiring check (grep for the filename in Makefile/db.yml came
+# back empty, the same shape as C20's own defect class); wired here rather
+# than only reported, since the fix itself was a two-line addition.
+test-qa-check:
+	$(PYTHON) build/test_qa_check_refusal_digits.py
+
 # Document QA — the drift gate. Fails on missing/duplicated invariants,
 # mangled prose duplicates, a stale (hand-edited) generated file, or
 # website/*.html that no longer matches what `make site` would produce from
 # the current docs.
-qa:
+qa: test-qa-check
 	$(PYTHON) build/qa_check.py
 
 # qa must run before docs is regenerated, not after: if docs runs first, the
