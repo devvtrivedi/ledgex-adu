@@ -600,9 +600,27 @@ def _compose(conn, parcel_id, channel, election=None, as_of=None):
     # -- it is a presence/absence check, wholly independent of any licence's
     # own clearance state, which is the entire point (the gate must hold
     # even if cc0/cc_by_4_0 were fully cleared).
-    if boundary_source_id is not None and not any(
-        field_key == "jurisdiction.incorporated" for _, field_key, _, _ in touched
-    ):
+    # C3 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): the original check below
+    # was presence-only -- `any(field_key == ... for _, field_key, _, _ in
+    # touched)` destructured the VALUE away and never read it, so an
+    # explicit jurisdiction.incorporated=false fact (0056's own designed
+    # meaning: "NOT in this jurisdiction") suppressed the refusal exactly
+    # like true does. Fixed to require the value itself be True, not merely
+    # present -- absence (no such fact at all) and an explicit False both
+    # now refuse, only True satisfies. Source-scoping (requiring the fact
+    # come specifically from boundary_source_id) is NOT implemented here --
+    # see this pass's own report for why: pairing it with the only route
+    # that would make it coherent (flipping ca_san_jose.city_limits off
+    # method='manual') is blocked today by source_endpoint_required's own
+    # CHECK (method='manual' OR endpoint_url IS NOT NULL) without a real,
+    # verified endpoint, which P53-l0-gate.md's own Obstacle 2 already ruled
+    # out fabricating. Recorded as a known, coupled gap, not silently
+    # dropped.
+    incorporated_satisfied = any(
+        field_key == "jurisdiction.incorporated" and value is True
+        for _, field_key, _, value in touched
+    )
+    if boundary_source_id is not None and not incorporated_satisfied:
         refusals.append({
             "code": "LICENCE_UNKNOWN",
             "stage": "L0",

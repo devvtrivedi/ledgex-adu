@@ -237,6 +237,38 @@ def test_positive_companion_jurisdiction_resolvable_does_not_refuse():
     conn.close()
 
 
+def test_explicit_false_value_still_refuses():
+    """C1 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): the pre-fix gate
+    destructured the VALUE away and checked presence only, so an explicit
+    jurisdiction.incorporated=false fact -- 0056's own designed meaning,
+    "NOT in this jurisdiction" -- suppressed the refusal exactly like true
+    does. Same fixture as the positive companion above, but the gate-fact's
+    value is false, not true. LICENCE_UNKNOWN must be PRESENT -- this is the
+    exact regression case: it would incorrectly be ABSENT if the value
+    predicate (`value is True`) were reverted back to a presence-only check."""
+    conn = get_db()
+    suffix = uuid.uuid4().hex[:8]
+    jurisdiction_id, licence_id, source_id = _seed_l0_gate_fixture(conn, suffix, set_boundary_source_id=True)
+    parcel_id = _seed_fact(conn, jurisdiction_id, source_id, licence_id, suffix,
+                            "parcel.apn", f'"TEST-P53-FALSEVAL-{suffix}"')
+    # The gate fact IS present, but its value is false -- a sourced
+    # statement that this parcel is NOT in the jurisdiction.
+    _seed_fact(conn, jurisdiction_id, source_id, licence_id, suffix,
+               "jurisdiction.incorporated", "false", parcel_id=parcel_id)
+
+    result = cpf.compose(conn, parcel_id, "paid_property_file", election="city")
+
+    check("explicit false: Result.is_ok (a row is written, not refused before one could be)",
+          result.is_ok, f"got {result}")
+    if result.is_ok:
+        _, codes = _refusal_codes(conn, result.value)
+        check("explicit false: LICENCE_UNKNOWN PRESENT -- an explicit false must refuse "
+              "exactly like absence does, not be treated as satisfying the gate",
+              "LICENCE_UNKNOWN" in codes, f"got {codes}")
+
+    conn.close()
+
+
 def test_untouched_jurisdiction_never_gates():
     conn = get_db()
     suffix = uuid.uuid4().hex[:8]
@@ -279,6 +311,7 @@ def test_real_ca_san_jose_boundary_source_id_is_set():
 if __name__ == "__main__":
     test_negative_control_jurisdiction_unresolvable_still_refuses()
     test_positive_companion_jurisdiction_resolvable_does_not_refuse()
+    test_explicit_false_value_still_refuses()
     test_untouched_jurisdiction_never_gates()
     test_real_ca_san_jose_boundary_source_id_is_set()
     print(f"\n{len(failures)} failure(s)" if failures else "\nAll assertions passed")
