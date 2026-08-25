@@ -5375,6 +5375,61 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T108: no licence_channel row is allowed=true for a licence with
+-- unknown or prohibited terms (P59, C12, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md
+-- section 5's own closing paragraph). 0033 blocks UPDATE and DELETE on
+-- licence_channel but not INSERT -- a fresh allowed=true row for a licence
+-- whose commercial_use/redistribution/restriction is 'unknown' or
+-- 'prohibited' is schema-legal today, and once inserted it is PERMANENT
+-- (immutable since 0033; the only remedy is the full-rebuild path
+-- CLAUDE.md documents). I6's "unknown rights block" therefore rested
+-- entirely on seed discipline with nothing mechanical checking it -- this
+-- test is exactly that missing mechanical check, the query given verbatim
+-- by the audit. Whole-table, not run-scoped (unlike T106/T107): an
+-- offending row is a real defect regardless of when it was inserted -- with
+-- ONE deliberate carve-out, unlike T106/T107's "only what this run
+-- created" scoping: `licence_id LIKE 'test.%'` is excluded outright, not
+-- just for this run. Confirmed directly against ledgex_test before this
+-- test was written: T51/T59-area fixtures (the I5/fact_licence_validate
+-- dimension tests, licence ids test.noncommercial_only,
+-- test.claims_commercial_allowed and siblings) deliberately create
+-- unknown/prohibited licences with allowed=true licence_channel rows on
+-- EVERY channel -- "isolates the non-channel dimension under test" is
+-- literally their own comment a few hundred lines up -- to test I5's
+-- ATTRIBUTION/RESTRICTION inheritance logic with the channel dimension
+-- held permissive and out of the way. Those are real, permanent
+-- (licence_channel is immutable, 0033) and correct as constructed; a
+-- production-data check that flagged this suite's own fixtures would be
+-- noise on every single run, forever, in every database this file has
+-- ever touched -- exactly the "test that can never pass" trap T106's own
+-- header warns against. C12's actual concern is production/seed data
+-- (day4_sources.sql, scripts/seed_internal_test_licences.py), which never
+-- uses the test.% namespace.
+-- ============================================================================
+
+\echo '### TEST T108: no allowed=true licence_channel row for an unknown/prohibited licence (should succeed)'
+
+DO $$
+DECLARE
+    v_bad_count int;
+BEGIN
+    SELECT count(*) INTO v_bad_count
+      FROM licence_channel lc
+      JOIN licence l ON l.id = lc.licence_id
+     WHERE lc.allowed
+       AND lc.licence_id NOT LIKE 'test.%'
+       AND ('unknown' IN (l.commercial_use, l.redistribution, l.restriction)
+            OR 'prohibited' IN (l.commercial_use, l.redistribution));
+
+    IF v_bad_count > 0 THEN
+        RAISE EXCEPTION 'FAIL T108: % licence_channel row(s) are allowed=true for a licence with unknown/prohibited terms', v_bad_count;
+    END IF;
+
+    RAISE NOTICE 'PASS T108: no allowed=true licence_channel row exists for an unknown/prohibited licence';
+    INSERT INTO test_pass VALUES ('T108');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -5459,13 +5514,18 @@ END $$;
 -- this run carries jurisdiction_id='ca_san_jose'; T107 the same for
 -- job_run/rule rows created this run, which T106's own composite-FK
 -- argument does not reach.
+-- Raised 124 -> 125 by P59 (LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md, C12): T108
+-- no licence_channel row is allowed=true for a licence with unknown or
+-- prohibited terms -- the one-query CI invariant the audit's own C12
+-- refutation handed over, turning I6's unknown-rights-block from a
+-- seed-discipline hope into a checked, push-gated invariant.
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 124 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 124 passing tests, got %', v_pass_count;
+    IF v_pass_count < 125 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 125 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 
