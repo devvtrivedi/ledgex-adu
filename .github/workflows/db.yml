@@ -217,6 +217,10 @@ jobs:
       - name: scripts/test_flag_invalid_geometry.py
         run: python3 scripts/test_flag_invalid_geometry.py
 
+      # P59, C10: Phase D canonicalization/identity/single-transaction fixture.
+      - name: scripts/test_load_parcels_identity.py
+        run: python3 scripts/test_load_parcels_identity.py
+
       # P20: make golden's refused-path fixture (scripts/check_golden.py,
       # tests/golden/ca_san_jose/refused.json) -- same reasoning as the
       # snapshot-race test above, no new job: this is a real database

@@ -377,6 +377,11 @@ test-centroid-interior:
 conformance:
 	DATABASE_URL="$(DATABASE_URL)" $(PYTHON) scripts/check_conformance.py
 
+# C10 (P59): Phase D canonicalization/identity/single-transaction fixture.
+# Needs day4_sources.sql applied (real ca_san_jose.parcels source).
+test-load-parcels-identity:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_load_parcels_identity.py
+
 # C5 (P59): the disappear/reappear/disappear-again flap regression. Needs
 # a real object store (OBJECT_STORE_* -- see .env) and a database with
 # day4_sources.sql applied; run against a scratch database, never a

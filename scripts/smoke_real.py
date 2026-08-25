@@ -672,8 +672,11 @@ def step_ingest(ctx):
     conn.rollback()
     if n >= TARGET_PARCELS:
         return (SKIP, "%d parcels already loaded -- --phase d is not re-run "
-                      "(it is not idempotent: a second load collides on "
-                      "parcel_jurisdiction_id_apn_key). Steps 13-15 run against these rows."
+                      "(it is not idempotent: a second load now REFUSES via "
+                      "load_parcels' own source_feature_identity check -- C10, P59; "
+                      "corrected from an earlier claim citing "
+                      "parcel_jurisdiction_id_apn_key, which 0034 dropped). "
+                      "Steps 13-15 run against these rows."
                 % n)
     if n != 0:
         raise StepFailed(

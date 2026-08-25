@@ -700,15 +700,67 @@ def phase_d1_probe(conn, feat):
         return False
 
 
-def load_parcels(conn, features):
+def load_parcels(conn, features, snapshot_id, retrieved_at):
     """Load parcel rows for real, ST_Multi() applied uniformly -- it is a
     no-op on an already-MultiPolygon geometry, so there is no branching on
-    the source's reported type."""
-    print(f"\n=== PHASE D.2: loading {len(features)} parcel rows (ST_Multi() applied uniformly) ===")
+    the source's reported type.
+
+    C10 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): three fixes over the
+    original version.
+
+    (1) apn is canonicalized (canonicalize_identifier), matching phase E --
+    Phase D used to insert feat["properties"]["APN"] verbatim, the one
+    real divergence from phase E's own canonicalization Phase D never had
+    a reason to skip.
+
+    (2) source_feature_identity rows are written here now, keyed on
+    PARCELID (phase E's own identity key) -- Phase D used to write none at
+    all, so a LATER `--phase e` run on the SAME database found no identity
+    row for these features, classified every one of them as NEW (phase
+    E's own test is exactly "no identity row exists"), and minted a
+    SECOND, duplicate parcel per feature -- legal since 0034 dropped
+    jurisdiction+APN uniqueness. Writing the identity row here closes that
+    gap the same way phase E's own NEW-feature branch does it, not a
+    second, different mechanism.
+
+    (3) REFUSES (raises, no parcel written) if a source_feature_identity
+    row already exists for a feature's PARCELID -- this is exactly the
+    "phase D re-run" collision the (now-corrected, see phase_d's own
+    comment) belief in parcel_jurisdiction_id_apn_key used to describe.
+    That constraint was dropped by 0034; nothing else in this schema would
+    stop a second load_parcels call from silently duplicate-minting.
+    Refusing loudly here, rather than writing a second, real
+    accidental-collision code path (a "resolve the collision" mechanism
+    Phase D -- a small demonstration/probe tool, per its own module
+    comment, not the production bulk loader -- has no design for), is the
+    acceptance-offered choice: pick one and say why. Phase E remains the
+    only path that legitimately re-processes an already-identified
+    feature (its own reconcile, changed/reappeared branches)."""
+    print(f"\n=== PHASE D.2: loading {len(features)} parcel rows (ST_Multi() applied uniformly, canonicalized APN) ===")
     parcel_ids = {}  # apn -> parcel.id
     with conn.cursor() as cur:
         for feat in features:
-            apn = feat["properties"]["APN"]
+            apn_raw = feat["properties"]["APN"]
+            apn = canonicalize_identifier(apn_raw)
+            source_feature_id = feat["properties"]["PARCELID"]
+
+            cur.execute(
+                "SELECT 1 FROM source_feature_identity WHERE source_id = %s AND source_feature_id = %s",
+                (SOURCE_ID, source_feature_id),
+            )
+            if cur.fetchone() is not None:
+                raise RuntimeError(
+                    f"load_parcels: source_feature_identity already exists for "
+                    f"source_id={SOURCE_ID!r}, source_feature_id={source_feature_id!r} "
+                    f"(apn={apn!r}) -- this looks like a re-run of Phase D against a "
+                    f"database that already loaded this feature. Phase D is a small "
+                    f"demonstration/probe tool, not the production bulk loader (that is "
+                    f"Phase E, whose own reconcile logic handles a re-observed feature "
+                    f"correctly) -- refusing rather than minting a duplicate parcel "
+                    f"(0034 dropped the jurisdiction+APN uniqueness constraint that used "
+                    f"to make this impossible)."
+                )
+
             cur.execute(
                 """
                 INSERT INTO parcel (jurisdiction_id, apn, geom)
@@ -717,9 +769,25 @@ def load_parcels(conn, features):
                 """,
                 (JURISDICTION_ID, apn, geojson_geom_param(feat)),
             )
-            parcel_ids[apn] = cur.fetchone()[0]
-    conn.commit()
-    print(f"  loaded {len(parcel_ids)} parcels")
+            pid = cur.fetchone()[0]
+            parcel_ids[apn] = pid
+
+            cur.execute(
+                """
+                INSERT INTO source_feature_identity (
+                    source_id, source_feature_id, parcel_id,
+                    first_seen_snapshot_id, first_seen_at,
+                    last_seen_snapshot_id, last_seen_at
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                """,
+                (SOURCE_ID, source_feature_id, pid, snapshot_id, retrieved_at, snapshot_id, retrieved_at),
+            )
+    # C10: NOT committed here -- see phase_d's own call site. Parcels,
+    # their identity rows and their facts (load_facts, next) now land in
+    # ONE transaction; a load_facts failure no longer strands committed,
+    # fact-less parcels (I2's spirit, and 0017 forbids removing them once
+    # committed).
+    print(f"  loaded {len(parcel_ids)} parcels (not yet committed)")
     return parcel_ids
 
 
@@ -734,7 +802,10 @@ def load_facts(conn, features, parcel_ids, source_id_row, snapshot_id, retrieved
     with conn.cursor() as cur:
         for feat in features:
             props = feat["properties"]
-            apn = props["APN"]
+            # C10: canonicalized, matching load_parcels' own key (and
+            # phase E) -- the raw APN is no longer what parcel_ids is
+            # keyed on.
+            apn = canonicalize_identifier(props["APN"])
             pid = parcel_ids[apn]
 
             cur.execute(
@@ -782,8 +853,10 @@ def load_facts(conn, features, parcel_ids, source_id_row, snapshot_id, retrieved
                 ),
             )
             inserted += 1
-    conn.commit()
-    print(f"  inserted {inserted} fact rows ({len(features)} parcels x 2 fields)")
+    # C10: NOT committed here either -- see load_parcels' own docstring.
+    # phase_d does the single commit for parcels+identity+facts together,
+    # right after this call returns.
+    print(f"  inserted {inserted} fact rows ({len(features)} parcels x 2 fields), not yet committed")
     return inserted
 
 
@@ -858,8 +931,13 @@ def phase_d(snapshot_id):
     print(f"using verified snapshot: {snapshot_id}")
 
     # 21 candidates: 20 for the real load, 1 held out for the D.1 probe so
-    # that an unexpected probe success can't collide (parcel_jurisdiction_id_apn_key)
-    # with the same APN being inserted again during the real load.
+    # that an unexpected probe success can't collide with the same APN
+    # being inserted again during the real load. CORRECTED (C10, P59):
+    # this used to cite parcel_jurisdiction_id_apn_key as the collision
+    # protection -- 0034 dropped that constraint; load_parcels' own
+    # source_feature_identity check-and-refuse (see its docstring) is
+    # the real protection now, and it would refuse loudly rather than
+    # collide silently either way.
     candidates, skipped_blank, skipped_duplicate = select_parcels(path, n=21)
     probe_feat = next(f for f in candidates if f["geometry"]["type"] == "Polygon")
     selected = [f for f in candidates if f is not probe_feat][:20]
@@ -870,10 +948,24 @@ def phase_d(snapshot_id):
 
     phase_d1_probe(conn, probe_feat)
 
-    parcel_ids = load_parcels(conn, selected)
+    # C10: parcels, their source_feature_identity rows and their facts land
+    # in ONE transaction -- committed together here, explicitly, rather
+    # than relying only on refresh_current_fact's own internal commit()
+    # (which would still merge them correctly, but implicitly). A
+    # load_facts failure now rolls back the parcels load_parcels just
+    # wrote too, instead of stranding committed, fact-less parcels 0017
+    # would then forbid ever removing.
+    parcel_ids = load_parcels(conn, selected, snapshot_id, retrieved_at)
     load_facts(conn, selected, parcel_ids, SOURCE_ID, snapshot_id, retrieved_at)
+    conn.commit()
+    print("  committed: parcels + source_feature_identity + facts together")
+
     refresh_current_fact(conn)
-    sample_apn = selected[0]["properties"]["APN"]
+    # C10: parcel.apn is now stored canonicalized (load_parcels' own fix) --
+    # query with the same canonical form, not the raw source value, or a
+    # feature whose raw APN needed canonicalizing (leading apostrophe/
+    # whitespace) would look up nothing.
+    sample_apn = canonicalize_identifier(selected[0]["properties"]["APN"])
     query_one_parcel(conn, sample_apn)
 
     conn.close()
