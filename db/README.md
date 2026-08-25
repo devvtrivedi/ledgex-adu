@@ -306,25 +306,24 @@ observation/job shape; overloading `fact.retrieved_at` would make one fact
 claim it was retrieved from a snapshot at a time different from the snapshot's
 own immutable fetch time.
 
-## `job_run` has no metrics slot, and stretching `schema_drift` for one is a stopgap
+## `job_run.metrics` (0051) replaced the `schema_drift`-stretching stopgap
 
-Every non-trivial ingest so far has wanted a second number beyond
-`rows_in`/`rows_out` (total attempted vs. total succeeded, one axis) to
-describe *why* the gap between them exists: Phase E's blank/placeholder
-split, zoning's zero-match/multi-match split, permits' blank/not-found/
-ambiguous split (the last one persisted in `job_run.schema_drift`, by
-`ingest_zoning_permits.py`'s `load_permits`, with an explicit comment at
-that call site — `schema_drift`'s declared purpose, per 0012, is "fields
-expected but missing," a source dropping an expected *column*, not a
-per-row match-outcome distribution; using it for the latter is a real
-semantic reach, done because the alternative (`job_run.error`, a text
-column with no shape contract, used on a `status='succeeded'` row) is
-worse, not because it's a good fit).
+D5 (P59): this section used to say `job_run` "has no metrics slot" and
+argue for adding one. 0051 added `job_run.metrics jsonb`, and every writer
+that used to reach for `schema_drift` for this purpose has migrated to it
+— `ingest_zoning_permits.py`'s `load_permits`/`load_zoning`, `check_golden.py`,
+`flag_invalid_geometry.py` and others all persist their own per-run
+breakdown there now (blank/not-found/ambiguous splits, exception counts,
+diff summaries), not in `schema_drift`.
 
-The honest fix is a general `metrics jsonb` column on `job_run` — every one
-of these breakdowns would sit there uniformly instead of each new ingest
-arguing its way into a column named for something else. Not added: it's a
-schema change, and every ingest pass so far has run under a no-schema-
-changes rule. Recorded here so the next one doesn't have to rediscover the
-need from scratch, or add a fourth thing to `schema_drift` that has even
-less to do with schema drift than the third did.
+Kept here for history, not as a live gap: every non-trivial ingest wanted
+a second number beyond `rows_in`/`rows_out` (total attempted vs. total
+succeeded, one axis) to describe *why* the gap between them exists — Phase
+E's blank/placeholder split, zoning's zero-match/multi-match split,
+permits' blank/not-found/ambiguous split (the last one originally
+persisted in `job_run.schema_drift`, a real semantic reach: `schema_drift`'s
+declared purpose, per 0012, is "fields expected but missing," a source
+dropping an expected *column*, not a per-row match-outcome distribution).
+`metrics jsonb` is the general home all of these now sit in uniformly,
+instead of each ingest arguing its way into a column named for something
+else.
