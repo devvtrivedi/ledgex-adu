@@ -377,6 +377,13 @@ test-centroid-interior:
 conformance:
 	DATABASE_URL="$(DATABASE_URL)" $(PYTHON) scripts/check_conformance.py
 
+# C19 (P59): Phase E same_as_previous fast path must actually verify
+# identity presence, not just non-blank PARCELID. Needs day4_sources.sql
+# applied plus a reachable object store (real MinIO-backed snapshot, same
+# requirement as test-parcel-flap above).
+test-reconcile-identity-verified:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_c19_reconcile_identity_verified.py
+
 # C10 (P59): Phase D canonicalization/identity/single-transaction fixture.
 # Needs day4_sources.sql applied (real ca_san_jose.parcels source).
 test-load-parcels-identity:

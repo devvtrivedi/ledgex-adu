@@ -1201,6 +1201,19 @@ def phase_e(snapshot_id):
             # diff. This is the ONLY case that still skips the Phase B
             # reconciliation pass below; any genuine snapshot change goes
             # through it.
+            #
+            # C19 (P59): this loop used to check only is_blank(pid_raw) --
+            # identity_by_feature_id (queried above) was built and never
+            # read, so the comment's claim ("verifying identity presence")
+            # was not actually being checked; a feature with a real,
+            # non-blank PARCELID but no matching active identity row would
+            # silently pass. Now checked directly: every feature's PARCELID
+            # must resolve to an active source_feature_identity row, since
+            # same_as_previous means this exact content already went
+            # through a successful reconciliation that would have written
+            # one. Only one direction needs checking -- byte-identical
+            # content already guarantees the reverse (an identity row with
+            # no matching feature here) can't happen.
             with open(path, "rb") as f:
                 for feat in ijson.items(f, "features.item"):
                     rows_in += 1
@@ -1208,6 +1221,16 @@ def phase_e(snapshot_id):
                     pid_raw = props.get("PARCELID")
                     if is_blank(pid_raw):
                         raise RuntimeError(f"feature {rows_in} has blank PARCELID; cannot reconcile identity")
+                    source_feature_id = str(pid_raw)
+                    if source_feature_id not in identity_by_feature_id:
+                        raise RuntimeError(
+                            f"feature {rows_in} (PARCELID {source_feature_id!r}) has no active "
+                            f"source_feature_identity row, but same_as_previous claims this "
+                            f"snapshot is byte-identical to the last successfully-reconciled one -- "
+                            f"every feature in a successfully-reconciled snapshot must already have "
+                            f"one. Refusing rather than silently skipping the identity verification "
+                            f"this fast path exists to perform."
+                        )
                     if rows_in % 25000 == 0:
                         print(f"  ...verified unchanged identity for {rows_in:,} features")
             t_parse_end = time.monotonic()

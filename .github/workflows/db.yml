@@ -221,6 +221,12 @@ jobs:
       - name: scripts/test_load_parcels_identity.py
         run: python3 scripts/test_load_parcels_identity.py
 
+      # P59, C19: Phase E same_as_previous fast path must actually verify
+      # identity presence (identity_by_feature_id was built but never
+      # read). Same after-seed, real-MinIO placement as C10 above.
+      - name: scripts/test_c19_reconcile_identity_verified.py
+        run: python3 scripts/test_c19_reconcile_identity_verified.py
+
       # P20: make golden's refused-path fixture (scripts/check_golden.py,
       # tests/golden/ca_san_jose/refused.json) -- same reasoning as the
       # snapshot-race test above, no new job: this is a real database
