@@ -195,6 +195,12 @@ def test_insert_exceptions_refuses_an_exception_with_an_unwritten_field_set(db_c
     conn = db_conn
     parcel_id = _fresh_parcel(conn)
     pe = ParcelException(**_exception_kwargs(parcel_id, "test.p24_unwritten", "1.0"))
+    # C24.3 (P59, annex): same deliberate use as
+    # test_fact_adoption_hazard.py's identical pattern -- ParcelException
+    # is frozen, model_copy is the only way to produce a modified copy,
+    # and it does not rerun model_validators. Proves insert_exceptions()'s
+    # own _check_no_unwritten_fields is real defense-in-depth, not
+    # redundant with ParcelException's own validation.
     pe = pe.model_copy(update={"ruleset_version": "v2"})
     with pytest.raises(ValueError, match="ruleset_version.*does not write that column"):
         with conn.cursor() as cur:

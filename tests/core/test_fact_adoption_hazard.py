@@ -260,6 +260,16 @@ def test_insert_facts_refuses_a_fact_with_an_unwritten_field_set(db_conn):
     conn, snapshot_id = db_conn
     parcel_id = _fresh_parcel(conn)
     f = Fact(**_fact_kwargs(parcel_id, snapshot_id, "test.p22_unwritten_rule", "v4.0.0-unwritten"))
+    # C24.3 (P59, annex): model_copy(update=...) is used deliberately, not
+    # incidentally -- Fact is frozen (model_config = ConfigDict(frozen=True)),
+    # so it is the only way to produce a modified copy at all, and Pydantic
+    # documents that model_copy does NOT rerun model_validators (unlike a
+    # fresh Fact(...) construction). That is the point here: this proves
+    # insert_facts()'s own _check_no_unwritten_fields is a real, independent
+    # defense, not one Fact's own validators already made redundant --
+    # verified no production code path anywhere uses model_copy (grepped);
+    # this pattern exists only in this test file and its ParcelException
+    # counterpart, both for the same reason.
     f = f.model_copy(update={"method_version": "v2"})
     with conn.cursor() as cur:
         with pytest.raises(ValueError, match="method_version.*does not write that column"):
