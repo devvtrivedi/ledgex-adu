@@ -178,6 +178,32 @@ def refuse_remote(database_url):
 def get_db():
     database_url = env("DATABASE_URL")
     refuse_remote(database_url)
-    conn = psycopg2.connect(database_url)
+    # C7 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): rule.effective_from/
+    # effective_to are `date` columns (0009); core.rules.select_effective_rule
+    # compares them to a `timestamptz` as_of. Postgres promotes a date to a
+    # timestamptz at SESSION-LOCAL midnight -- with no pinned session
+    # timezone, the same rule row and the same as_of instant can be
+    # effective under one machine's default TimeZone and not effective
+    # under another's (reproduced empirically: UTC vs America/Los_Angeles
+    # disagree by up to 26 hours on the same comparison). Pinned here, per
+    # C7's own acceptance criterion ("pin the session timezone at
+    # connection time in ONE place, infra.env.get_db") --
+    # scripts/compose_property_file.py's real runtime path imports and
+    # uses get_db() for exactly this. NOT the only psycopg2.connect() call
+    # site in this repo (grepped: check_golden.py, smoke_real.py,
+    # migrate.py/migrate_verify.py/migrate_baseline.py and others each
+    # open their own connection directly, a pre-existing pattern this fix
+    # does not change) -- those are golden/migration/smoke infrastructure,
+    # not the rule-effectivity comparison path C7 is about; out of this
+    # fix's scope, not silently assumed unaffected. Pinned via the
+    # connection's own startup `options`, NOT a `SET TIME ZONE` statement
+    # after connecting: a SET is transactional and would be silently
+    # undone by any caller's later conn.rollback() (a real, common path in
+    # this codebase's own exception handlers), leaving the pin
+    # inconsistently in effect depending on what happened earlier in the
+    # same connection's lifetime. The `options` startup parameter is not
+    # part of any transaction and holds for the connection's entire
+    # session regardless of later commits/rollbacks.
+    conn = psycopg2.connect(database_url, options="-c timezone=UTC")
     conn.autocommit = False
     return conn
