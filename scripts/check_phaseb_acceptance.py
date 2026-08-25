@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Assertions for the Phase B A->B->A acceptance run, checked at the two
-points the acceptance test actually specifies: immediately after B, and
-immediately after the second A. Call with "after-b" or "after-a2".
+"""Assertions for the Phase B A->B->A acceptance run, checked at three
+points: immediately after B, immediately after the second A, and after
+the source-scope conflict step. Call with "after-b", "after-a2", or
+"after-source-scope" (C21.2, P59: docstring previously named only the
+first two; an unrecognized argument now exits 1 rather than silently
+running after-a2's assertions).
 
 Exit 0 = every assertion for that checkpoint passed. Exit 1 = at least one
 failed (details printed).
@@ -415,8 +418,17 @@ def check_after_source_scope(conn):
           f"got {foreign}")
 
 
+CHECKPOINTS = ("after-b", "after-a2", "after-source-scope")
+
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else "after-a2"
+    # C21.2 (P59): an unrecognized checkpoint argument used to fall through
+    # this if/elif chain's bare `else` and silently run after-a2's
+    # assertions instead -- a typo'd checkpoint name would run the WRONG
+    # assertion set with no indication anything was off.
+    if mode not in CHECKPOINTS:
+        print(f"[FAIL] unrecognized checkpoint {mode!r} -- expected one of {CHECKPOINTS}")
+        sys.exit(1)
     conn = get_db()
     if mode == "after-b":
         check_after_b(conn)
