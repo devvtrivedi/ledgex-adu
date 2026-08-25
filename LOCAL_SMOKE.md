@@ -129,7 +129,7 @@ Fifteen steps, each printing PASS / FAIL / SKIP, then one overall verdict.
 | 10 | **independent SHA-256** | The stored object is re-downloaded and re-hashed *here*, and checked against `snapshot.content_hash`, `snapshot.byte_size` **and** the content-addressed key. Step 9's own claim that it verified the upload is not the proof. |
 | 11–12 | 20-parcel ingest | `--phase d` bound to the immutable parcels snapshot. Skipped with a note when parcels are already loaded — `--phase d` is not idempotent. |
 | 13–14 | query one back | Once in SQL, once over HTTP. Step 14 is also the only thing that proves the viewer process is bound to the same database this run wrote to. |
-| 15 | **I6 rights gate** | Every fact those parcels carry cites `cc_by_4_0`, whose `licence_channel` rows are all `allowed=false` (0030). The response must list them under `omitted_for_rights`, must not put them under `facts`, and their **values must be absent from the response bytes** — not merely from a parsed dict. |
+| 15 | **I6 rights gate** | D1 (P59): both-outcomes proof since P55 Phase 2 Stage 4, not refusal-only. A deterministic, self-seeded blocked fact must land under `omitted_for_rights`, never under `facts`, with its **value absent from the response bytes** — not merely from a parsed dict; a fact whose licence is NOT blocked must land under `facts`, with its value present. Neither side may SKIP (the old refusal-only version skipped silently if the loaded parcel carried no `cc_by_4_0` fact — closed, see this repo's own §11 argument against a silent-skip shape). |
 
 ### What a PASS does not mean
 
