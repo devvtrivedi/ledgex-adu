@@ -364,6 +364,15 @@ test-centroid-interior:
 conformance:
 	DATABASE_URL="$(DATABASE_URL)" $(PYTHON) scripts/check_conformance.py
 
+# C5 (P59): the disappear/reappear/disappear-again flap regression. Needs
+# a real object store (OBJECT_STORE_* -- see .env) and a database with
+# day4_sources.sql applied; run against a scratch database, never a
+# database carrying real bulk parcels data (phase_e reconciles the WHOLE
+# parcel table under SOURCE_ID every run -- see the script's own
+# docstring).
+test-parcel-flap:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_parcel_flap_invariant.py
+
 # C4 (P59): scripts/flag_invalid_geometry.py was wired into no Makefile
 # target and no CI workflow -- the 28 known-invalid parcels on the real
 # database were discovered once, by hand, and never re-detected since. Runs

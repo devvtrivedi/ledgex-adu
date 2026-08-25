@@ -640,3 +640,14 @@ jobs:
       # DATABASE_URL (ledgex_ci_phaseb) passed through under the new name.
       - name: Phase B acceptance suite (new/changed/disappeared/reappeared)
         run: PHASEB_DATABASE_URL="$DATABASE_URL" bash scripts/run_phaseb_acceptance.sh
+
+      # P59, C5: the disappear/reappear/disappear-again flap regression.
+      # Runs in THIS job, after the Phase B suite above (not a new job) --
+      # reuses the same live MinIO, the same already-seeded reference rows
+      # (ca_san_jose.parcels source, its licence) run_phaseb_acceptance.sh's
+      # own setup already wrote, and the same fresh-per-push database. Its
+      # own synthetic TEST-C5- APN never collides with the Phase B suite's
+      # own fixtures, and it runs strictly after that suite's own
+      # assertions have already completed.
+      - name: scripts/test_parcel_flap_invariant.py (C5 flap regression)
+        run: python3 scripts/test_parcel_flap_invariant.py

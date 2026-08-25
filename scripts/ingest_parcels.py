@@ -1080,6 +1080,7 @@ def phase_e(snapshot_id):
     identity_retirements = []               # (source_id, source_feature_id, retired_snapshot_id, retired_at, retirement_reason)
     identity_touch_updates = []             # (source_id, source_feature_id, last_seen_snapshot_id, last_seen_at, was_reappearing)
     apn_resolved_parcel_ids = []            # P13: parcels whose APN just became resolvable -- close their open parcel_apn_unresolvable exception
+    reappeared_parcel_ids = []              # C5 (P59): parcels un-retired this run -- close their open parcel_disappeared_from_source exception
     changed_count = 0
     changed_field_counts = {"parcel.apn": 0, "parcel.geometry": 0}
     new_count = 0
@@ -1329,6 +1330,7 @@ def phase_e(snapshot_id):
                 ))
                 if sfi_retired_at is not None:
                     reappeared_count += 1
+                    reappeared_parcel_ids.append(parcel_id)
 
                 # psycopg2 hands back jsonb columns already decoded to a
                 # Python value (apn_current_value is a plain str, not a
@@ -1471,12 +1473,43 @@ def phase_e(snapshot_id):
                         live_facts_by_parcel.setdefault(pid, []).append(
                             {"field_key": field_key, "source_id": source_id})
 
+                    # C5 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): first
+                    # disappearance opened this exception with NO existing-
+                    # open dedup guard at all. A parcel that disappears,
+                    # reappears, then disappears again (a real flap, not a
+                    # hypothetical -- the phase-B acceptance suite's own
+                    # A->B->A sequence produces exactly this shape) hits
+                    # this branch a second time while its first exception
+                    # is STILL open (nothing ever closed it -- see the
+                    # reappearance-closure fix below), and the bare INSERT
+                    # in core.exceptions.insert_exceptions violates 0045/
+                    # 0049's partial unique index on open exceptions --
+                    # UniqueViolation, rolling back the ENTIRE single-
+                    # transaction reconcile (all 225k parcels' updates) and
+                    # failing the job_run, on every retry, until a human
+                    # closes the row by hand. Dedup here, consistent with
+                    # 0045/0049's own partial unique index shape (parcel_id,
+                    # detector_key, detector_version, COALESCE(detail->>
+                    # 'reason', '')) -- NOT a broadened index (this repo's
+                    # own CLAUDE.md/CONVENTIONS position: never change a
+                    # constraint to make something pass).
+                    cur.execute("""
+                        SELECT parcel_id FROM parcel_exception
+                        WHERE parcel_id = ANY(%s::uuid[])
+                          AND detector_key = %s AND detector_version = %s
+                          AND outcome = 'open'
+                    """, (disappeared_parcel_ids, DETECTOR_KEY_PARCEL_DISAPPEARED, DETECTOR_VERSION_PARCEL_DISAPPEARED))
+                    existing_open_disappeared = {r[0] for r in cur.fetchall()}
+
                 for source_feature_id, parcel_id in disappeared_rows:
                     identity_retirements.append((
                         SOURCE_ID, source_feature_id, snapshot_id, reconcile_at,
                         "parcel_absent_from_bulk_parcels_snapshot",
                     ))
                     disappeared_count += 1
+
+                    if parcel_id in existing_open_disappeared:
+                        continue
 
                     exception_rows.append(ParcelException(
                         parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID, type="record_to_ground", severity="warning",
@@ -1569,6 +1602,20 @@ def phase_e(snapshot_id):
                     cur, DETECTOR_KEY_APN_UNRESOLVABLE, DETECTOR_VERSION_APN_UNRESOLVABLE, apn_resolved_parcel_ids
                 )
                 print(f"  parcel_apn_unresolvable exceptions closed (condition_cleared): {apn_closed_count:,}")
+
+            # C5 (P59): the other half of the dedup guard above -- a
+            # reappeared parcel's open parcel_disappeared_from_source
+            # exception is closed here, using the SAME helper the APN
+            # detector just used two lines up, not a second hand-rolled
+            # closure. Without this, the dedup guard alone would leave a
+            # reappeared-then-disappeared-again parcel's FIRST exception
+            # open forever (skipped by the guard, never replaced), silently
+            # under-reporting a second, real disappearance.
+            if reappeared_parcel_ids:
+                disappeared_closed_count = close_exceptions_for_parcels(
+                    cur, DETECTOR_KEY_PARCEL_DISAPPEARED, DETECTOR_VERSION_PARCEL_DISAPPEARED, reappeared_parcel_ids
+                )
+                print(f"  parcel_disappeared_from_source exceptions closed (condition_cleared): {disappeared_closed_count:,}")
 
             if exception_rows:
                 insert_exceptions(cur, exception_rows)
