@@ -579,9 +579,13 @@ viewer-test:
 # `make viewer-test`. It runs none of those and does not stand in for them,
 # it never runs --phase e, and it never triggers
 # scripts/seed_internal_test_licences.py (a permanent licence write, gated
-# by SEED_INTERNAL_TEST_LICENCES=1 for exactly that reason) -- so the gate
-# check at step 15 proves refusal on real cc_by_4_0 data, never permission.
-# `make viewer-test` remains the both-outcomes proof.
+# by SEED_INTERNAL_TEST_LICENCES=1 for exactly that reason). D2 (P59):
+# step 15 has been a both-outcomes proof (refusal AND permission, via its
+# own deterministic self-seeded blocked fact) since P55 Phase 2 Stage 4 --
+# not refusal-only. `make viewer-test` proves the same gate on a
+# DIFFERENT route (GET /v1/parcels/{id}/facts, one internal_test.* fixture
+# pair) -- the two are complementary coverage, not "the other half" of a
+# refusal-only step 15.
 SMOKE_DATABASE_URL ?= postgresql://localhost/ledgex_smoke
 SMOKE_PYTHON       ?= $(PYTHON)
 smoke-real:
