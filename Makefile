@@ -459,13 +459,21 @@ test-parcel-flap:
 
 # C4 (P59): scripts/flag_invalid_geometry.py was wired into no Makefile
 # target and no CI workflow -- the 28 known-invalid parcels on the real
-# database were discovered once, by hand, and never re-detected since. Runs
-# both detectors (parcel geometry + zoning-source geometry); local use only
-# needs $(DATABASE_URL). See db.yml's own step for the CI variant, which
-# skips the zoning-source half (its own scratch-file dependency, unrelated
-# to this target).
+# database were discovered once, by hand, and never re-detected since.
+#
+# A-N1 (P59C): this target used to run with neither --snapshot-id nor
+# --skip-zoning-source, which C17 made a guaranteed exit 2 (--snapshot-id
+# became mandatory for the zoning-source half unless explicitly skipped --
+# no more silent fallback to a mutable scratch path). Fixed by matching
+# db.yml's own CI shape: --skip-zoning-source, every time. Local use of this
+# target therefore covers ONLY flag_parcel_geometry (the live `parcel`
+# table) -- flag_zoning_source_geometry (the zoning-source-geometry
+# detector) needs a real ca_san_jose.zoning_districts snapshot id, which no
+# fresh local database has and which this target cannot safely default (see
+# C17's own reasoning: no guessed/latest fallback). Run it by hand with
+# --snapshot-id <id> for that second detector when you have one.
 flag-invalid-geometry:
-	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/flag_invalid_geometry.py
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/flag_invalid_geometry.py --skip-zoning-source
 
 # C4 (P59): regression fixture -- a self-intersecting polygon proves the
 # detector fires and the closure path (added this pass) actually closes.
