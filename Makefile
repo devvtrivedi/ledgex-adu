@@ -154,6 +154,7 @@ all: qa pdf
 check-boundary:
 	@command -v $(LINT_IMPORTS) >/dev/null 2>&1 || { echo "$(LINT_IMPORTS) not found — pip install -r scripts/requirements.txt"; exit 1; }
 	$(LINT_IMPORTS)
+	$(PYTHON) build/test_check_jurisdiction_names_accents.py
 	$(PYTHON) build/check_jurisdiction_names.py
 	$(PYTHON) build/qa_check.py
 

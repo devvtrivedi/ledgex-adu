@@ -47,6 +47,7 @@ them (I1).
 import pathlib
 import re
 import sys
+import unicodedata
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CORE_DIR = ROOT / "core"
@@ -88,6 +89,33 @@ WORD_SEQUENCES = [
     ("site", "addr"),
     ("situs", "address"),
 ]
+
+
+def _strip_diacritics(s):
+    """A-N6 (P59C): the pattern builder's literal ASCII words ("jose") never
+    matched an accented "José" -- the accent is a genuinely different
+    character (U+00E9 vs 'e'), not a case difference IGNORECASE can fold,
+    and the trailing \\b boundary compounded it (a \\b right after plain
+    'e' asserts nothing useful once the actual next character is 'é').
+    Rather than hand-list an accented variant per word (which only ever
+    covers the specific accents someone thought to add), NFKD-decompose
+    each character to base-letter + combining marks and drop every
+    combining mark (Unicode category Mn) before matching -- "José" becomes
+    "Jose" the same way "jose" already is, so the EXISTING ASCII-only
+    WORD_SEQUENCES entries catch it with no separate accented entry
+    needed, and any future accented name (not just this one) is covered
+    the same way. Applied to the whole line before matching, not per-word,
+    since NFKD decomposition can change a string's length (one accented
+    character can become base + combining mark, two characters) -- a
+    failure's reported token and its GRANDFATHERED key both come from the
+    stripped line (a real match still names the actual forbidden word, in
+    its unaccented ASCII form, and the file/line number pinpoint the
+    accented source unambiguously -- reporting the exact accented glyph is
+    not needed for a human to find and fix the violation)."""
+    return "".join(
+        c for c in unicodedata.normalize("NFKD", s)
+        if unicodedata.category(c) != "Mn"
+    )
 
 
 def _pattern_for(words):
@@ -182,8 +210,12 @@ def check():
         relpath = str(path.relative_to(ROOT))
         text = path.read_text(encoding="utf-8")
         for lineno, line in enumerate(text.splitlines(), start=1):
+            # A-N6: match against the diacritic-stripped line (see
+            # _strip_diacritics' own docstring) -- "San José" and "San Jose"
+            # both reach the same ASCII-only WORD_SEQUENCES patterns below.
+            search_line = _strip_diacritics(line)
             for seq, pattern in COMPILED:
-                m = pattern.search(line)
+                m = pattern.search(search_line)
                 if m:
                     key = (relpath, lineno, m.group(0).lower())
                     if key in GRANDFATHERED:
