@@ -508,20 +508,30 @@ test:
 	@echo "TEST: NOT covered (SPEC.md sec 1.2's own list, none of core/'s or commerce/'s remaining scope exists yet): review, entitlement, outcome observation, provider slot, edge guard, billing independence."
 	DATABASE_URL="$(TEST_DATABASE_URL)" $(PYTHON) -m pytest tests/core/ -v
 
+# D7 (P59): corrected -- was quoting an already-stale spec row, omitted
+# the third fixture, and repeated D6's own two miscounts (see
+# scripts/check_golden.py's own module docstring, which had the same two
+# errors and was fixed alongside this).
+#
 # Spec §1.2 make golden: "Normalized composed, partial, refused and
 # geometry-disabled Base Core fixtures." P20 made refused real; P25 makes
 # geometry-disabled real too, via scripts/check_golden.py and
 # tests/golden/ca_san_jose/{refused,geometry_disabled}.json -- composed
 # and partial are still not (would mean fabricating a licence clearance
-# STANDING-BLOCKER.md says does not exist). All three real fixtures now
-# carry THREE refusals each (RIGHTS_BLOCKED, GEOMETRY_TIER_DISABLED and,
-# since P53, LICENCE_UNKNOWN -- the L0/LD-1 jurisdiction gate given a real
-# runtime representation, prompts/P53-l0-gate.md) -- P25's own report
-# settles why refusals accumulate across stages rather than
-# short-circuiting. This target's own exit code tracks ONLY those two
-# checks' own correctness (0 = both passed, 1 = either failed) -- it does
-# NOT mean "all four classes covered." scripts/check_golden.py prints the
-# two missing classes explicitly on every single run, pass or fail -- see
+# STANDING-BLOCKER.md says does not exist for the paid_property_file
+# channel these two fixtures compose on). P34 added a THIRD fixture,
+# election_required (README finding #35) -- checked alongside the other
+# two, not a fifth taxonomy member (see the script's own docstring).
+# refused/geometry-disabled carry THREE refusals each (RIGHTS_BLOCKED,
+# GEOMETRY_TIER_DISABLED and, since P53, LICENCE_UNKNOWN -- the L0/LD-1
+# jurisdiction gate given a real runtime representation,
+# prompts/P53-l0-gate.md); election_required carries FOUR (those three
+# plus its own ELECTION_REQUIRED) -- P25's own report settles why
+# refusals accumulate across stages rather than short-circuiting. This
+# target's own exit code tracks ONLY those three fixtures' own
+# correctness (0 = all three passed, 1 = any failed) -- it does NOT mean
+# "all four §1.2 classes covered." scripts/check_golden.py prints the two
+# missing classes explicitly on every single run, pass or fail -- see
 # that script's own module docstring for the full argument against
 # either silently inflating this to "done" or silently keeping it at
 # an uninformative permanent exit 1.
