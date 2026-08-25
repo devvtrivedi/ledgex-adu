@@ -40,14 +40,19 @@ real state, but the moment rights ever clear, "refused" and
 with a per-conclusion refusal is not a refused file) -- separating them
 now avoids a bigger fixture-file split later.
 
-P53: all three real fixtures now carry THREE refusals, not two --
-LICENCE_UNKNOWN (the L0/LD-1 jurisdiction gate, prompts/P53-l0-gate.md,
+P53: LICENCE_UNKNOWN (the L0/LD-1 jurisdiction gate, prompts/P53-l0-gate.md,
 design D-C) joins RIGHTS_BLOCKED and GEOMETRY_TIER_DISABLED on every single
 composition today, for the identical reason those two already do: no
 jurisdiction.incorporated fact is ever seeded for these fixtures' parcels,
 and ca_san_jose now declares jurisdiction.boundary_source_id (0056). This
 pass clears nothing -- the fixtures were always morally entitled to this
 refusal; it simply had no runtime representation to trigger it before now.
+D6 (P59): the refused and geometry-disabled fixtures carry THREE refusals
+each after this (RIGHTS_BLOCKED, GEOMETRY_TIER_DISABLED, LICENCE_UNKNOWN)
+-- election_required carries FOUR (those three plus its own
+ELECTION_REQUIRED, see the P34 note below), not three; this docstring
+previously claimed "all three real fixtures now carry THREE refusals,"
+which the code itself has never asserted for election_required.
 
 THE COVERAGE TRAP, decided, not defaulted (P20; still true at 2/4, P25).
 Exiting 0 unconditionally once ANY fixture class passes would be
@@ -144,7 +149,8 @@ Usage:
   fixture update" sec 1.2's own pass condition names. Never run --bless as
   part of `make golden` itself; it is a human, deliberate action.
 
-Exit code 0 = both checks passed. Exit code 1 = either failed.
+Exit code 0 = all three checks (refused, geometry-disabled,
+election_required) passed. Exit code 1 = any failed.
 """
 import argparse
 import datetime
