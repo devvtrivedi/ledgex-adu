@@ -87,9 +87,10 @@ jobs:
       # P6 follow-up: scripts/migrate_verify.py (Python + psycopg2) needs to
       # run right after `make schema` below, to check the database that
       # target just built against its own ledger. This job had no Python
-      # step before this pass -- `make schema`/`make schema-dump` are pure
-      # psql/pg_dump and still are; this step exists for migrate_verify.py
-      # alone.
+      # step before this pass -- `make schema`/`make schema-dump` were pure
+      # psql/pg_dump; P59 (C9) added a small Python locality preflight
+      # (infra.env.refuse_remote()) to both targets, so this step now also
+      # covers that, not migrate_verify.py alone.
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'

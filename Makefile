@@ -182,7 +182,19 @@ check-boundary:
 # wraps each file in its own transaction, which it does, deliberately, as of
 # this pass.
 LEDGER_MIGRATION := 0046_schema_migrations_ledger.sql
+# C9 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): make schema and make
+# schema-dump ran raw psql/pg_dump against $(DATABASE_URL) with NO locality
+# guard at all -- P56a's refuse_remote() closed this exact hole for the
+# migrate toolchain (register #55) but never reached these two recipes,
+# which never touch Python. Both now preflight through infra.env's own
+# refuse_remote() -- REUSED, not a second hand-rolled host check (register
+# #44 is the standing record of what that costs; C23 separately notes the
+# reused guard is itself incomplete relative to full libpq semantics --
+# accepted here, inherited, not re-litigated by this fix). DATABASE_URL
+# travels via the environment, not interpolated into the -c string, so a
+# value containing shell-special characters can never break the quoting.
 schema:
+	@DATABASE_URL="$(DATABASE_URL)" $(PYTHON) -c "import os, sys; sys.path.insert(0, '.'); from infra.env import refuse_remote; refuse_remote(os.environ['DATABASE_URL'])"
 	@command -v $(PSQL) >/dev/null 2>&1 || { echo "$(PSQL) not found — install PostgreSQL 16 client tools"; exit 1; }
 	@command -v shasum >/dev/null 2>&1 || { echo "shasum not found"; exit 1; }
 	@echo "applying $(MIGRATIONS_DIR)/$(LEDGER_MIGRATION) (bootstrapped first -- see this target's own comment)"
@@ -250,6 +262,7 @@ migrate-verify:
 # Spec §1.2 make schema-dump: "No diff; missing or stale generated DDL
 # fails."
 schema-dump:
+	@DATABASE_URL="$(DATABASE_URL)" $(PYTHON) -c "import os, sys; sys.path.insert(0, '.'); from infra.env import refuse_remote; refuse_remote(os.environ['DATABASE_URL'])"
 	@command -v $(PG_DUMP) >/dev/null 2>&1 || { echo "$(PG_DUMP) not found — install PostgreSQL 16 client tools"; exit 1; }
 	@command -v $(PSQL) >/dev/null 2>&1 || { echo "$(PSQL) not found — install PostgreSQL 16 client tools"; exit 1; }
 	@# postgis/postgis:16-3.4 is a floating tag: it can rebuild on a new 16.x
