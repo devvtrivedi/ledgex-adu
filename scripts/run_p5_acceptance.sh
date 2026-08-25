@@ -83,8 +83,12 @@ FIXTURES="db/fixtures/p5"
 PHASEB_FIXTURES="db/fixtures/phaseb"
 
 echo "############################ SETUP (self-contained) ############################"
-read -r PARCELS_SID ZONING_A_SID ZONING_B_SID PERMITS_A_SID PERMITS_B_SID <<< \
-    "$($PYTHON scripts/_p5_setup.py "$FIXTURES" "$PHASEB_FIXTURES")"
+# C22 (P59): same fix as run_phaseb_acceptance.sh -- `read ... <<< "$(cmd)"`
+# does not propagate cmd's exit status under set -e; a crashing
+# _p5_setup.py would previously go unnoticed, silently continuing with
+# empty/wrong SID variables. Capture to a plain variable first.
+setup_output="$($PYTHON scripts/_p5_setup.py "$FIXTURES" "$PHASEB_FIXTURES")"
+read -r PARCELS_SID ZONING_A_SID ZONING_B_SID PERMITS_A_SID PERMITS_B_SID <<< "$setup_output"
 
 # ingest_zoning_permits.py's phase_zoning_load/phase_permits_load read from
 # its own hardcoded SCRATCHPAD constant -- copy fixtures there under the

@@ -80,7 +80,16 @@ PYEOF
 FIXTURES="db/fixtures/phaseb"
 
 echo "############################ SETUP (self-contained) ############################"
-read -r A_SID B_SID ZONING_SID PERMITS_SID <<< "$($PYTHON scripts/_phaseb_setup.py "$FIXTURES")"
+# C22 (P59): `read ... <<< "$(cmd)"` does NOT propagate cmd's exit status
+# under `set -e` -- the exit status of the whole statement is read's own,
+# which succeeds even on empty/partial input. A crashing _phaseb_setup.py
+# would previously go unnoticed here, silently continuing with empty/
+# wrong SID variables instead of aborting (reproduced in isolation: `set
+# -euo pipefail; read -r A B <<< "$(false; echo x)"` does not exit
+# nonzero). Capturing to a plain variable first is the standard fix --
+# `var=$(cmd)` IS one of the cases set -e correctly propagates.
+setup_output="$($PYTHON scripts/_phaseb_setup.py "$FIXTURES")"
+read -r A_SID B_SID ZONING_SID PERMITS_SID <<< "$setup_output"
 
 # ingest_zoning_permits.py's phase_zoning_load/phase_permits_load read from
 # its own hardcoded SCRATCHPAD constant (a pre-existing limitation of that
