@@ -347,13 +347,37 @@ class TestRefusal:
             Refusal(code="NOT_A_REAL_CODE", stage="L8", message="x")
 
     def test_all_spec_codes_individually_accepted(self):
-        """Exercises every code in REFUSAL_CODES, not just one -- a typo
-        in the middle of the tuple would not be caught by testing only
-        the first/last entries. 19 codes at P21; 21 as of P34
-        (ELECTION_REQUIRED, ELECTION_NOT_SUPPORTED) -- iterates the real
-        tuple rather than a hardcoded count, so this test needed no
-        change when the vocabulary grew; only its own name, which did
-        hardcode the count, was stale."""
+        """C24.9 (P59, annex), corrected: this test's docstring previously
+        claimed it would catch "a typo in the middle of the tuple" -- it
+        cannot. RefusalCode's Literal type (line ~269) is built AS
+        `Literal[REFUSAL_CODES]`, generated directly FROM this tuple, not
+        hand-written independently -- so "every member of REFUSAL_CODES is
+        accepted by a type built from REFUSAL_CODES" is true by
+        construction and cannot fail regardless of whether REFUSAL_CODES
+        itself is correct, complete, or in sync with docs/LEDGEX_SPEC.md
+        §9. That real cross-check already exists, independently, at
+        build/qa_check.py's check_refusal_codes_match_spec() (diffs
+        REFUSAL_CODES against §9's prose and 0055's REFUSAL_CODES_BEGIN/
+        END block, both directions) -- this test does not duplicate it.
+
+        What this test still legitimately verifies (kept, not tautological):
+        every code in the current tuple constructs a valid Refusal without
+        some OTHER field-validation quirk rejecting it -- exercising all of
+        them, not just one, still matters for that narrower claim, since a
+        Pydantic Literal/enum interaction bug could in principle affect
+        only some members.
+
+        Added: a plain structural tripwire against the failure a Literal-
+        generated-from-the-tuple loop can never catch -- REFUSAL_CODES
+        silently shrinking (an accidental deletion) or gaining a duplicate.
+        Independent of RefusalCode's own construction, so it can actually
+        fail. 23 codes as of D13 (P59) -- see this module's own top
+        docstring, decision (a)."""
+        assert len(REFUSAL_CODES) == len(set(REFUSAL_CODES)), "REFUSAL_CODES has a duplicate entry"
+        assert len(REFUSAL_CODES) == 23, (
+            f"REFUSAL_CODES has {len(REFUSAL_CODES)} entries, expected 23 -- if this changed "
+            f"deliberately, update this count (and this module's own top docstring, decision (a))"
+        )
         for code in REFUSAL_CODES:
             Refusal(code=code, stage="L0", message="x")
 
