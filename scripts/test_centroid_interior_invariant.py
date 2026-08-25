@@ -29,13 +29,23 @@ Proves both directions, not just the fix in isolation:
      OWN_DISTRICT, not NEIGHBOR_DISTRICT -- the parcel classifies to its
      own district under the fix.
 
-Requires DATABASE_URL only. Writes a small number of permanent rows under
-jurisdiction_id='test_p59_c1' (parcel is not immutable, but this follows
-the same "real, permanent, clearly-namespaced, harmless" convention this
-suite's siblings already use -- see test_snapshot_race_invariant.py's own
-docstring). No licence/source rows touched at all (sidesteps the C15
-attribution-contamination hazard entirely -- this invariant needs only
-jurisdiction + parcel + parcel_exception, none of which touch licence).
+Requires DATABASE_URL only. Writes one parcel row under jurisdiction_id=
+'test_p59_c1', then DELETES it itself at the end of every run, pass or
+fail (same unconditional discipline db/tests/teardown.sql uses, and the
+same zero-fact-only safety check: this fixture never writes a fact,
+verified directly before deleting, not assumed). No licence/source rows
+touched at all (sidesteps the C15 attribution-contamination hazard
+entirely -- this invariant needs only jurisdiction + parcel, neither of
+which touch licence).
+
+Corrected (P59->P60, follow-up finding): this docstring previously
+claimed permanence was a deliberate, "harmless" convention -- the same
+claim test_flag_invalid_geometry.py's docstring made, which turned out to
+be false there (a real accumulating orphan, caught via a false positive
+in a live ST_IsValid sweep). Checked here on the strength of that same
+finding, not assumed clean by association: this script has the identical
+shape (standalone `make` target, never through `make db-test`, writes a
+permanently fact-less parcel) and is fixed the same way.
 
 Usage:
   DATABASE_URL=... .venv-ingest/bin/python3 scripts/test_centroid_interior_invariant.py
@@ -164,13 +174,43 @@ def test_populate_interior_centroids_fixes_it(conn, parcel_id):
     )
 
 
+def _cleanup(conn, parcel_id):
+    """Delete this run's own fixture parcel. Run unconditionally (pass or
+    fail), same discipline as db/tests/teardown.sql. Safety check mirrors
+    I4/0017 directly rather than assuming: this fixture never writes a
+    fact (see module docstring), but refuses to delete if one somehow
+    exists, rather than risk it. rollback() first: a prior failure
+    elsewhere in this same run can leave the connection's transaction
+    aborted, and Postgres refuses every further statement -- including
+    this cleanup's own SELECT -- until it is rolled back (found live
+    while proving test_flag_invalid_geometry.py's identical fix)."""
+    conn.rollback()
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM fact WHERE parcel_id = %s", (parcel_id,))
+        fact_count = cur.fetchone()[0]
+        if fact_count:
+            print(f"[cleanup] SKIPPED -- parcel {parcel_id} has {fact_count} fact row(s), "
+                  f"not deleting (I4). This should never happen for this fixture; investigate.")
+            return
+        cur.execute("DELETE FROM parcel WHERE id = %s", (parcel_id,))
+        n_parcel = cur.rowcount
+    conn.commit()
+    print(f"[cleanup] removed {n_parcel} parcel row(s) for {parcel_id}")
+
+
 def main():
     conn = get_db()
+    parcel_id = None
     try:
         parcel_id = _seed(conn)
         test_naive_centroid_fails_and_misclassifies(conn, parcel_id)
         test_populate_interior_centroids_fixes_it(conn, parcel_id)
     finally:
+        # Unconditional, pass or fail -- same discipline as
+        # db/tests/teardown.sql, run here because nothing else ever will
+        # (this script is wired standalone, never through make db-test).
+        if parcel_id is not None:
+            _cleanup(conn, parcel_id)
         conn.close()
 
     print(f"\n{len(failures)} failure(s)" if failures else "\nAll assertions passed")
