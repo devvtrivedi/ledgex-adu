@@ -5,10 +5,18 @@
 -- via composite foreign keys rather than triggers. Every new composite FK
 -- uses MATCH SIMPLE (Postgres's default -- there is no other option for a
 -- plain FOREIGN KEY): the constraint is satisfied trivially whenever ANY
--- referencing column is NULL. A derived fact has source_id, snapshot_id
--- and method_version all NULL (fact_provenance_complete, 0006), so every
--- FK added here is a no-op for derived facts by construction -- confirmed
--- against fact_provenance_complete's own CHECK, not assumed.
+-- referencing column is NULL. A derived fact has source_id AND snapshot_id
+-- both NULL (fact_provenance_complete, 0006), so every FK added here (all
+-- keyed on source_id/snapshot_id, never method_version) is a no-op for
+-- derived facts by construction -- confirmed against fact_provenance_
+-- complete's own CHECK, not assumed. **Corrected (D17, P59):** this
+-- paragraph previously also listed "method_version" as NULL for a derived
+-- fact -- the opposite of what the CHECK actually requires:
+-- fact_provenance_complete requires method_version IS NOT NULL for a
+-- derived fact (it is source_id/snapshot_id that must be NULL there).
+-- The FK argument above is unaffected -- none of the new composite FKs in
+-- this migration reference method_version at all -- only this
+-- introductory claim about the column was wrong.
 --
 -- (a) A fact could claim source A while citing source B's snapshot: fact
 --     has independent FKs to source(id) and snapshot(id), but nothing tied
