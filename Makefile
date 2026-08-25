@@ -367,13 +367,16 @@ test-centroid-interior:
 # rights broadening or silent missing dependency." P26: real for the one
 # real pack, jurisdictions/ca_san_jose -- schema validity plus every
 # active, ca_san_jose-owned source's licence/field_definition/
-# expected_fields agreement with the live database. Mappings, rights
-# broadening against Plan 2.1.4 Appendix K, dependency cascades and
-# endpoint liveness are NOT yet checked -- scripts/check_conformance.py
-# names all four explicitly on every run, same coverage-honesty
-# discipline P20/P21 already established for make golden/make test. The
-# exit code here means ONLY that those real checks passed, not that
-# §1.2's full contract is satisfied.
+# expected_fields agreement with the live database. D8 (P59): mappings,
+# rights broadening against Plan 2.1.4 Appendix K, and dependency
+# cascades are NOT yet checked -- scripts/check_conformance.py names all
+# THREE explicitly on every run, same coverage-honesty discipline P20/P21
+# already established for make golden/make test. Endpoint liveness is
+# real (P28, make liveness, its own separate scheduled-only gate) and is
+# NOT one of these three -- this comment previously said "all four...
+# including liveness," which check_conformance.py's own docstring has
+# never claimed. The exit code here means ONLY that those real checks
+# passed, not that §1.2's full contract is satisfied.
 conformance:
 	DATABASE_URL="$(DATABASE_URL)" $(PYTHON) scripts/check_conformance.py
 
