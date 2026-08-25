@@ -159,7 +159,23 @@ def close_resolved_exceptions(cur, detector_key, detector_version, still_true_pa
 
     An empty still_true_pairs is not a caller error -- it means the run
     found nothing true at all, and every currently-open row for this
-    detector_key/detector_version is correctly closed."""
+    detector_key/detector_version is correctly closed.
+
+    C24.4 (P59, annex): requires pe.detail to carry a 'reason' key.
+    `pe.detail ->> 'reason'` evaluates SQL NULL for a row whose detail has
+    no such key, and `st.reason = NULL` is never true under normal `=`
+    comparison -- so a reason-less row's NOT EXISTS was previously always
+    TRUE regardless of still_true_pairs' content, closing it unconditionally
+    on every call, whether or not the run actually re-evaluated it. Not
+    currently exploitable (verified: this function's only real caller,
+    load_zoning, always writes a 'reason' key -- REASON_NO_CONTAINING_
+    DISTRICT/REASON_MULTIPLE_CONTAINING_DISTRICTS/REASON_MULTIPLE_POLYGONS_
+    AGREE, all three), but latent for any future detector reusing this
+    shared function without one. Fixed by excluding reason-less rows from
+    this function's scope entirely (the same "never invent a resolution
+    we cannot actually verify" reasoning as insert_facts/insert_exceptions'
+    own refuse-not-drop guards) rather than guessing which of open/closed
+    a value-less row should default to."""
     pairs = list(still_true_pairs)
     parcel_ids = [p for p, _r in pairs]
     reasons = [r for _p, r in pairs]
@@ -172,6 +188,7 @@ def close_resolved_exceptions(cur, detector_key, detector_version, still_true_pa
          WHERE pe.detector_key = %(detector_key)s
            AND pe.detector_version = %(detector_version)s
            AND pe.outcome = 'open'
+           AND pe.detail ? 'reason'
            AND NOT EXISTS (
                  SELECT 1
                    FROM unnest(%(parcel_ids)s::uuid[], %(reasons)s::text[]) AS st(parcel_id, reason)
