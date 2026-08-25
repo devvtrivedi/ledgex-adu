@@ -327,12 +327,23 @@ def check_spec_references_migrations():
 REFUSAL_CODE_MIGRATION = MIGRATIONS_DIR / "0055_parcel_refusal_codes.sql"
 MODEL_FILE = ROOT / "core" / "model.py"
 SPEC_SECTION_9_RE = re.compile(r"## 9\. Refusal and error codes(.*?)### 9\.1", re.S)
-REFUSAL_CODE_IN_PROSE_RE = re.compile(r"\b[A-Z][A-Z]*(?:_[A-Z]+)+\b")
+# (C16, P59): all four extraction classes below were letters-only ([A-Z]),
+# so a refusal code containing a digit (e.g. a hypothetical "OAUTH2_TOKEN_
+# EXPIRED") would silently fail to be captured on whichever side(s) used
+# that regex -- not flagged as a mismatch, simply invisible to the diff,
+# because a token neither side extracts can never appear in either set.
+# No refusal code has ever contained a digit here (empty diff confirmed by
+# rerunning both old and new patterns against the real §9 text, the real
+# 0055 REFUSAL_CODES_BEGIN/END block, and the real core/model.py tuple --
+# identical match sets, all three), so this was a latent blind spot, not
+# an active silent failure -- closed now, before a digit-bearing code is
+# ever added, rather than after.
+REFUSAL_CODE_IN_PROSE_RE = re.compile(r"\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b")
 REFUSAL_CODE_BLOCK_RE = re.compile(r"REFUSAL_CODES_BEGIN(.*?)REFUSAL_CODES_END", re.S)
-REFUSAL_CODE_LITERAL_RE = re.compile(r"'([A-Z][A-Z_]+)'")
+REFUSAL_CODE_LITERAL_RE = re.compile(r"'([A-Z][A-Z0-9_]+)'")
 REFUSAL_CODE_MODEL_BLOCK_RE = re.compile(
     r"REFUSAL_CODES: Final\[tuple\[str, \.\.\.\]\] = \((.*?)\)", re.S)
-REFUSAL_CODE_MODEL_LITERAL_RE = re.compile(r'"([A-Z][A-Z_]+)"')
+REFUSAL_CODE_MODEL_LITERAL_RE = re.compile(r'"([A-Z][A-Z0-9_]+)"')
 
 
 def check_refusal_codes_match_spec():
