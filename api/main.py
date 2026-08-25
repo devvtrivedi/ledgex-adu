@@ -204,6 +204,22 @@ def index():
 #   3. both 'allowed' and restriction == 'open'          -> "permits_use"
 #   4. both 'allowed' and restriction is a real condition
 #      ('attribution' / 'noncommercial' / 'no_resale')   -> "permits_with_conditions"
+#
+# C24.12 (P59, annex): considered reordering this (checking 'prohibited'
+# before 'unknown', so a licence with commercial_use='prohibited' and
+# redistribution='unknown' would read "prohibits_use" instead of merely
+# "unknown") -- REVERTED before landing. scripts/test_rights_reporting.py's
+# own 45-row truth table (RIGHTS_POSITION_TABLE, hand-transcribed
+# independently "directly from Amendment 1/2's own precedence rules", per
+# that file's own docstring) checks 'unknown' first, exactly matching this
+# function -- confirming the unknown-dominates ordering is Amendment 1's
+# own deliberate, reviewed policy, not an oversight. Verified before
+# reverting, not assumed: a check-prohibited-first version passed
+# api/main.py's own logic fine but would have FAILED that pre-existing,
+# deliberately-authored regression test at 5 of its 45 rows -- exactly the
+# "never weaken/contradict an existing check to make a change land"
+# discipline this pass is bound by. No fix applied; disposition is
+# VERIFIED CORRECT AS-IS, not a defect.
 def derive_rights_position(commercial_use, redistribution, restriction):
     if "unknown" in (commercial_use, redistribution, restriction):
         return "unknown"
@@ -252,7 +268,22 @@ def get_rights(conn=Depends(_db)):
     licence-level string. rights_position and diligence (P52) are added
     per row as EXTRA, licence-level CONTEXT alongside the untouched
     channel-level allowed/rationale pair -- see derive_rights_position/
-    derive_diligence above for why they are computed here, not stored."""
+    derive_diligence above for why they are computed here, not stored.
+
+    C24.11 (P59, annex): LEFT JOIN, not JOIN. licence_channel has no
+    constraint forcing every licence to have even one channel row
+    populated at insert time (only UPDATE/DELETE are locked, 0033) -- a
+    licence genuinely can exist with zero licence_channel rows, e.g. in
+    the window between inserting a new licence and backfilling its
+    channels. An inner join made such a licence invisible in this
+    response entirely, with nothing distinguishing "this licence does not
+    exist" from "this licence exists but has no channel data yet" -- the
+    exact silent-absence shape this codebase's other fixes consistently
+    refuse elsewhere. A licence with no channel rows now surfaces as one
+    row with channel/allowed/rationale all NULL (rendered as a blank
+    channel and a BLOCKED pill by the viewer's existing `r.allowed ?
+    ... : 'BLOCKED'` fallback -- fail-closed, not fail-open, consistent
+    with core.rights' own default-deny posture), rather than vanishing."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT l.id AS licence_id, l.display_name, l.restriction, "
@@ -261,7 +292,7 @@ def get_rights(conn=Depends(_db)):
             "l.cleared_by, l.cleared_at, "
             "lc.channel, lc.allowed, lc.rationale "
             "FROM licence l "
-            "JOIN licence_channel lc ON lc.licence_id = l.id "
+            "LEFT JOIN licence_channel lc ON lc.licence_id = l.id "
             "ORDER BY l.id, lc.channel"
         )
         rows = _rows_as_dicts(cur)
