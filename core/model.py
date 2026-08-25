@@ -206,6 +206,26 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
+def _datetime_lt(field_a_name, a, field_b_name, b, context):
+    """a < b, with a clear ValueError instead of a raw stdlib TypeError
+    when a and b don't agree on timezone-awareness (C24.8, P59, annex):
+    Fact's field annotations are plain `datetime.datetime`, not an
+    aware-only type, so nothing stops a caller from passing one naive and
+    one aware value into a pair this module compares directly in Python
+    (unlike core/rules.py's as_of comparisons, which stay entirely inside
+    SQL and never hit this). The whole point of a model_validator here is
+    a clear domain error; letting Python's own "can't compare offset-naive
+    and offset-aware datetimes" leak through instead defeats that."""
+    try:
+        return a < b
+    except TypeError as e:
+        raise ValueError(
+            f"{context}: {field_a_name} and {field_b_name} must both be "
+            f"timezone-aware or both naive to compare -- got "
+            f"{field_a_name}.tzinfo={a.tzinfo!r}, {field_b_name}.tzinfo={b.tzinfo!r}"
+        ) from e
+
+
 # --------------------------------------------------------------------------
 # Refusal + Result[T] -- I8
 # --------------------------------------------------------------------------
@@ -468,7 +488,9 @@ class Fact(BaseModel):
     @model_validator(mode="after")
     def _check_valid_time(self) -> "Fact":
         """fact_valid_time (0006)."""
-        if self.effective_to is not None and self.effective_to <= self.effective_from:
+        if self.effective_to is not None and not _datetime_lt(
+            "effective_from", self.effective_from, "effective_to", self.effective_to, "fact_valid_time"
+        ):
             raise ValueError("effective_to must be strictly after effective_from (fact_valid_time)")
         return self
 
@@ -481,7 +503,9 @@ class Fact(BaseModel):
         if (
             self.superseded_at is not None
             and self.recorded_at is not None
-            and self.superseded_at < self.recorded_at
+            and _datetime_lt(
+                "superseded_at", self.superseded_at, "recorded_at", self.recorded_at, "fact_txn_time"
+            )
         ):
             raise ValueError("superseded_at must be at or after recorded_at (fact_txn_time)")
         return self
@@ -735,7 +759,10 @@ class ParcelException(BaseModel):
         if (
             self.resolved_at is not None
             and self.detected_at is not None
-            and self.resolved_at < self.detected_at
+            and _datetime_lt(
+                "resolved_at", self.resolved_at, "detected_at", self.detected_at,
+                "parcel_exception_resolved_after_detected",
+            )
         ):
             raise ValueError(
                 "resolved_at must be at or after detected_at (parcel_exception_resolved_after_detected)"
