@@ -29,6 +29,7 @@ import datetime
 import json
 import os
 import sys
+import tempfile
 import uuid
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -104,7 +105,7 @@ def seed_reference_rows(conn):
     conn.commit()
 
 
-def make_fixture_geojson_path(scratchpad):
+def make_fixture_geojson_path():
     """Two overlapping squares, both containing (0, 0): a real classified
     polygon (FACILITYID 'real', ZONING='A(PD)') and a null-classification
     polygon (FACILITYID 'null-shape', ZONING/ZONINGABBREV both None) --
@@ -129,10 +130,10 @@ def make_fixture_geojson_path(scratchpad):
             },
         ],
     }
-    path = os.path.join(scratchpad, f"zoning_ambiguity_fixture_{uuid.uuid4().hex}.geojson")
-    with open(path, "w") as f:
-        json.dump(body, f)
-    return path
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".geojson", delete=False)
+    json.dump(body, tmp)
+    tmp.close()
+    return tmp.name
 
 
 def make_test_parcel(conn):
@@ -156,13 +157,10 @@ def make_test_parcel(conn):
 
 
 def run():
-    scratchpad = "/private/tmp/claude-501/-Users-dev-Desktop-ledgex-adu/59865388-e258-4aba-b756-014d02490b5a/scratchpad"
-    os.makedirs(scratchpad, exist_ok=True)
-
     conn = get_db()
     seed_reference_rows(conn)
     parcel_id = make_test_parcel(conn)
-    path = make_fixture_geojson_path(scratchpad)
+    path = make_fixture_geojson_path()
     print(f"[test] parcel {parcel_id}, fixture {path}")
 
     retrieved_at = datetime.datetime.now(datetime.timezone.utc)
@@ -176,10 +174,11 @@ def run():
         )
         facts = dict(cur.fetchall())
         cur.execute(
-            "SELECT detail->>'reason' FROM parcel_exception WHERE parcel_id = %s AND detector_key = %s",
+            "SELECT detail FROM parcel_exception WHERE parcel_id = %s AND detector_key = %s",
             (parcel_id, izp.DETECTOR_KEY_ZONING_UNRESOLVABLE),
         )
-        exception_reasons = [r[0] for r in cur.fetchall()]
+        details = [r[0] for r in cur.fetchall()]
+        exception_reasons = [d.get("reason") for d in details]
     check_conn.close()
     conn.close()
 
@@ -196,6 +195,28 @@ def run():
                          f"it has exactly one real classification (the second candidate has no classification "
                          f"at all)")
 
+    # C20 (P59): this fixture's shape (one real + one null-classification
+    # candidate polygon) is EXACTLY the >1-candidate-row case
+    # classify_zoning_candidates() flags as a non-blocking "companion"
+    # anomaly (REASON_MULTIPLE_POLYGONS_AGREE, written alongside the fact,
+    # never blocking it -- see ingest_zoning_permits.py:310-317,943-956).
+    # The two assertions above alone can't tell "correctly detected and
+    # recorded the companion, non-conflicting candidate" apart from
+    # "silently stopped detecting there were ever two candidate rows at
+    # all" -- both look identical from facts+multiple_containing_districts
+    # alone. Assert the anomaly IS recorded, naming both real FACILITYIDs.
+    anomaly_details = [d for d in details if d.get("reason") == izp.REASON_MULTIPLE_POLYGONS_AGREE]
+    if not anomaly_details:
+        failures.append("expected a 'multiple_containing_polygons_agree' exception recording the "
+                         "companion null-classification polygon -- got none. Either the anomaly-"
+                         "detection path (classify_zoning_candidates: `if len(candidates) > 1`) was "
+                         "removed/narrowed, or the write path for it was, and this fixture (2 real "
+                         "candidate polygon rows, exactly the shape that must trigger it) would no "
+                         "longer catch either.")
+    elif sorted(anomaly_details[0].get("facility_ids", [])) != ["null-shape", "real"]:
+        failures.append(f"'multiple_containing_polygons_agree' exception recorded, but facility_ids="
+                         f"{anomaly_details[0].get('facility_ids')!r}, expected ['null-shape', 'real']")
+
     if failures:
         print("[test] FAIL:")
         for f in failures:
@@ -203,7 +224,8 @@ def run():
         return 1
 
     print("[test] PASS: parcel with one real + one null-classification containing polygon "
-          "resolves to a fact, not a false 'ambiguous' exception.")
+          "resolves to a fact, not a false 'ambiguous' exception, AND the companion polygon's "
+          "presence is correctly recorded as a non-blocking anomaly.")
     return 0
 
 

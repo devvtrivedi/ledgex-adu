@@ -377,6 +377,47 @@ test-centroid-interior:
 conformance:
 	DATABASE_URL="$(DATABASE_URL)" $(PYTHON) scripts/check_conformance.py
 
+# C20 (P59): 4 pre-existing invariant-test scripts, found unwired into
+# either make or db.yml, and 2 of them (apn/ambiguity, below) with real
+# defects on top of that -- fixed as part of the same finding, not
+# separately: an unwired test with a coverage gap is still unwired once
+# wired, so both had to be fixed together to make wiring worth doing.
+#
+# scripts/test_apn_canonicalization_invariant.py: had a hardcoded, session-
+# specific absolute scratchpad path (unrunnable outside the session that
+# wrote it) AND derived its parcel-side APN by hand rather than through the
+# real canonicalize_identifier() -- bypassing the exact function this test
+# exists to exercise. Both fixed: portable tempfile, and the parcel apn is
+# now produced by canonicalize_identifier() from a raw value carrying the
+# real observed parcels-side artifact (trailing whitespace), independent
+# of the permits-side artifact (leading apostrophe) so neither side's
+# fixture is derived from the other's output.
+test-apn-canonicalization:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_apn_canonicalization_invariant.py
+
+# scripts/test_zoning_ambiguity_invariant.py: same hardcoded absolute-path
+# defect as above (fixed the same way), plus a coverage gap -- it checked
+# the fact resolved correctly and wasn't falsely flagged ambiguous, but
+# never checked that the non-blocking "companion polygon" anomaly
+# (REASON_MULTIPLE_POLYGONS_AGREE) is actually recorded, even though its
+# own fixture is exactly the shape that must trigger it. A regression that
+# silently dropped that detection would have passed this test unnoticed.
+# Now asserts the anomaly exception is present and names both real
+# FACILITYIDs.
+test-zoning-ambiguity:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_zoning_ambiguity_invariant.py
+
+# scripts/test_compose_collision_invariant.py: no defect found in the test
+# itself -- just never wired into make or db.yml.
+test-compose-collision:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_compose_collision_invariant.py
+
+# scripts/test_refresh_failure_invariant.py: no defect found in the test
+# itself -- just never wired into make or db.yml. Needs a real object
+# store (OBJECT_STORE_* -- see .env), same as test-parcel-flap above.
+test-refresh-failure:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_refresh_failure_invariant.py
+
 # C19 (P59): Phase E same_as_previous fast path must actually verify
 # identity presence, not just non-blank PARCELID. Needs day4_sources.sql
 # applied plus a reachable object store (real MinIO-backed snapshot, same

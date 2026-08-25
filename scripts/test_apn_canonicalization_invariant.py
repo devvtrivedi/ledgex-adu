@@ -28,7 +28,7 @@ Exit code 0 = PASS (green). Exit code 1 = FAIL (red).
 import datetime
 import os
 import sys
-import uuid
+import tempfile
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, REPO_ROOT)
@@ -36,6 +36,7 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 import ingest_zoning_permits as izp  # noqa: E402 -- module under test, imported, not reimplemented
 from infra.env import get_db  # noqa: E402
+from infra.values import canonicalize_identifier  # noqa: E402
 
 
 def seed_reference_rows(conn):
@@ -94,41 +95,55 @@ def seed_reference_rows(conn):
     conn.commit()
 
 
-def make_test_parcel(conn, apn):
-    """A parcel whose apn is the CLEAN digit string -- what phase_e now
-    stores after canonicalization (Fix 1's parcels-side half)."""
+def make_test_parcel(conn, raw_apn):
+    """A parcel whose apn is run through the REAL canonicalize_identifier
+    (infra/values.py) -- the same function ingest_parcels.py's phase_e
+    calls at ingest time -- rather than a hand-typed value the test author
+    believes to already be canonical. raw_apn carries the OTHER real
+    observed parcels-side artifact (trailing whitespace, per
+    canonicalize_identifier's own docstring: 3 of 225,039 real
+    ca_san_jose.parcels features), so this test exercises canonicalization
+    on BOTH sides of the join it's proving -- parcels-side whitespace,
+    permits-side leading apostrophe -- through the one real function,
+    instead of bypassing it on the parcels side."""
+    stored_apn = canonicalize_identifier(raw_apn)
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO parcel (jurisdiction_id, apn) VALUES (%s, %s) RETURNING id",
-            (izp.JURISDICTION_ID, apn),
+            (izp.JURISDICTION_ID, stored_apn),
         )
         parcel_id = cur.fetchone()[0]
     conn.commit()
-    return parcel_id
+    return parcel_id, stored_apn
 
 
-def make_fixture_csv_path(scratchpad, apn_field_value):
-    path = os.path.join(scratchpad, f"permits_apn_fixture_{uuid.uuid4().hex}.csv")
-    with open(path, "w", newline="") as f:
-        f.write("ASSESSORS_PARCEL_NUMBER,ISSUEDATE,Status\n")
-        f.write(f'"{apn_field_value}",1/1/2026 12:00:00 AM,Active\n')
-    return path
+def make_fixture_csv_path(apn_field_value):
+    tmp = tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False, newline="")
+    tmp.write("ASSESSORS_PARCEL_NUMBER,ISSUEDATE,Status\n")
+    tmp.write(f'"{apn_field_value}",1/1/2026 12:00:00 AM,Active\n')
+    tmp.close()
+    return tmp.name
 
 
 def run():
-    scratchpad = "/private/tmp/claude-501/-Users-dev-Desktop-ledgex-adu/59865388-e258-4aba-b756-014d02490b5a/scratchpad"
-    os.makedirs(scratchpad, exist_ok=True)
-
-    apn = "67620002"
+    # Ground truth the real identifier both sides must independently
+    # arrive back at -- NOT chained through each other's output, so a
+    # broken canonicalize_identifier can't cancel itself out by applying
+    # identically-wrong logic to both sides (a real risk if the permit
+    # side's raw value were derived from the parcel side's stored,
+    # already-canonicalized value instead of from this constant).
+    apn_clean = "67620002"
+    raw_parcel_apn = apn_clean + " "  # real observed artifact: trailing whitespace
     conn = get_db()
     seed_reference_rows(conn)
-    parcel_id = make_test_parcel(conn, apn)
+    parcel_id, apn = make_test_parcel(conn, raw_parcel_apn)
     # The exact real-world defect: a leading apostrophe, the spreadsheet
     # "force text" artifact -- measured for real in
     # ca_san_jose.building_permits_active.csv (1 of 17,499 rows).
-    permit_apn_raw = "'" + apn
-    path = make_fixture_csv_path(scratchpad, permit_apn_raw)
-    print(f"[test] parcel {parcel_id} apn={apn!r}, permit fixture row APN={permit_apn_raw!r}, path={path}")
+    permit_apn_raw = "'" + apn_clean
+    path = make_fixture_csv_path(permit_apn_raw)
+    print(f"[test] parcel {parcel_id} raw_apn={raw_parcel_apn!r} canonicalized-and-stored apn={apn!r}, "
+          f"permit fixture row APN={permit_apn_raw!r}, path={path}")
 
     retrieved_at = datetime.datetime.now(datetime.timezone.utc)
     izp.load_permits(conn, path, izp.snapshot_id_for(izp.SOURCE_ID_PERMITS, "1" * 64), retrieved_at)

@@ -227,6 +227,29 @@ jobs:
       - name: scripts/test_c19_reconcile_identity_verified.py
         run: python3 scripts/test_c19_reconcile_identity_verified.py
 
+      # P59, C20: 4 pre-existing invariant-test scripts found wired into
+      # neither make nor db.yml. None of these four actually need
+      # day4_sources.sql (each seeds its own jurisdiction/source/licence
+      # rows, ON CONFLICT DO NOTHING) -- placed here anyway, grouped with
+      # this pass's other additions, not because anything here requires
+      # it. Three of the four (apn/ambiguity/compose-collision) don't
+      # need an object store either (load_permits/load_zoning/
+      # resolve_parcel_id_by_apn here all take a local path or no
+      # snapshot at all) -- the fourth, refresh-failure, calls phase_e()
+      # for real and does need one (already configured job-wide, same
+      # OBJECT_STORE_* the C10/C19 steps above use).
+      - name: scripts/test_apn_canonicalization_invariant.py
+        run: python3 scripts/test_apn_canonicalization_invariant.py
+
+      - name: scripts/test_zoning_ambiguity_invariant.py
+        run: python3 scripts/test_zoning_ambiguity_invariant.py
+
+      - name: scripts/test_compose_collision_invariant.py
+        run: python3 scripts/test_compose_collision_invariant.py
+
+      - name: scripts/test_refresh_failure_invariant.py
+        run: python3 scripts/test_refresh_failure_invariant.py
+
       # P20: make golden's refused-path fixture (scripts/check_golden.py,
       # tests/golden/ca_san_jose/refused.json) -- same reasoning as the
       # snapshot-race test above, no new job: this is a real database
