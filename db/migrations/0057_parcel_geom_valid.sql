@@ -1,0 +1,73 @@
+-- 0057_parcel_geom_valid.sql
+-- Serves: C4 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md).
+--
+-- THE PROBLEM. parcel.geom is written verbatim from the source
+-- (ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(...), 4326)), no ST_IsValid/
+-- ST_MakeValid anywhere in the ingest path). 28 parcels on the real,
+-- long-lived ledgex_schema_check database (and its pre-P55 copy) are
+-- self-intersecting, discovered only when a full-geometry ST_Intersection
+-- crashed GEOS with a real TopologyException during this pass's own C4
+-- reproduction (see the P59 deliverable for the transcript). Nothing
+-- persisted marks a parcel row as geometrically invalid; a future
+-- tile/bbox read path has no column to filter on.
+--
+-- WHAT THIS ADDS, AND ONLY THIS. One GENERATED column, no maintained state,
+-- no backfill statement, no ingest-code coupling:
+--
+--   geom_valid boolean GENERATED ALWAYS AS (ST_IsValid(geom)) STORED
+--
+-- Structural correctness over discipline: a maintained column (set by
+-- ingest code, defaulted, backfilled once) can drift the moment any writer
+-- forgets to set it or updates geom without updating it alongside --
+-- exactly the "NULL inside a constraint silently disables it" shape this
+-- repo has already hit twice (0038, 0045) and the same bet C10's phase-D
+-- gap already lost once (a writer that forgot something adjacent). A
+-- GENERATED STORED column recomputes from geom on every INSERT/UPDATE,
+-- automatically, so there is no discipline to lose. No CHECK constraint is
+-- needed for this reason: the column cannot itself go stale relative to
+-- geom, by construction, not by convention.
+--
+-- NULL SEMANTICS, STATED EXPLICITLY (CONVENTIONS' own requirement for any
+-- expression-keyed column/constraint). ST_IsValid is STRICT (returns NULL
+-- on a NULL argument, never false) -- confirmed live against this
+-- database's installed PostGIS 3.4:
+--   SELECT proname, provolatile FROM pg_proc WHERE proname = 'st_isvalid';
+--   -> both overloads report 'i' (IMMUTABLE), which is what a STORED
+--      generated column requires and what makes geom_valid IS NULL mean
+--      EXACTLY "geom IS NULL" -- never "valid but unknown," never "not yet
+--      checked." A parcel with no geometry cannot render on a tile/bbox
+--      path anyway, so `WHERE geom_valid` (not `IS NOT FALSE`) is both the
+--      correct AND the index-matching predicate for a future reader -- see
+--      the partial index below.
+--
+-- NO geom_invalid_reason COLUMN. Considered and rejected: the reason
+-- (ST_IsValidReason(geom)) already lives in parcel_exception.detail once
+-- flag_invalid_geometry.py (wired into CI by this same pass) writes it --
+-- a second copy on parcel would be a second source of truth that can
+-- disagree with the first ("proxy drift," this repo's own named shape).
+-- The serving path needs the boolean to filter; the diagnostic belongs
+-- with the exception row, which is closeable, auditable, and already the
+-- system of record for "why."
+--
+-- THE PARTIAL SPATIAL INDEX IS THE ACTUAL FIX FOR THE CRASH SCENARIO, not
+-- the column alone. A tile query written as
+-- `WHERE geom_valid AND ST_Intersects(geom, bbox)` can be served from an
+-- index containing ONLY valid geometries -- the invalid polygons are
+-- structurally never fed to GEOS by a query that uses this index. This is
+-- a strong mitigation, not an ironclad guarantee (the planner can in
+-- principle choose a different path); see the P59 deliverable for the
+-- EXPLAIN (ANALYZE) proof against the real 225k-row table.
+--
+-- FORWARD-ONLY, STANDALONE. ADD COLUMN ... GENERATED ... STORED requires a
+-- full table rewrite (ACCESS EXCLUSIVE) -- see the P59 deliverable for the
+-- measured time against ledgex_schema_check's real 225,039 rows. Applies
+-- cleanly to an empty (migrations-only) parcel table too: GENERATED STORED
+-- on zero rows is instant. No seed-source half is needed (CLAUDE.md's
+-- "both halves" rule): this corrects no seeded data and adds no default
+-- that a seed file could disagree with -- every row's value is computed
+-- from its own geom, always, by definition.
+
+ALTER TABLE parcel
+  ADD COLUMN geom_valid boolean GENERATED ALWAYS AS (ST_IsValid(geom)) STORED;
+
+CREATE INDEX parcel_geom_valid_gix ON parcel USING gist (geom) WHERE geom_valid;

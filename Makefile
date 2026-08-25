@@ -364,6 +364,21 @@ test-centroid-interior:
 conformance:
 	DATABASE_URL="$(DATABASE_URL)" $(PYTHON) scripts/check_conformance.py
 
+# C4 (P59): scripts/flag_invalid_geometry.py was wired into no Makefile
+# target and no CI workflow -- the 28 known-invalid parcels on the real
+# database were discovered once, by hand, and never re-detected since. Runs
+# both detectors (parcel geometry + zoning-source geometry); local use only
+# needs $(DATABASE_URL). See db.yml's own step for the CI variant, which
+# skips the zoning-source half (its own scratch-file dependency, unrelated
+# to this target).
+flag-invalid-geometry:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/flag_invalid_geometry.py
+
+# C4 (P59): regression fixture -- a self-intersecting polygon proves the
+# detector fires and the closure path (added this pass) actually closes.
+test-flag-invalid-geometry:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_flag_invalid_geometry.py
+
 # C2 (P59): two-run regression fixture -- a permit's APN going blank must
 # never fabricate permits.active=false. Needs day4_sources.sql applied
 # (real ca_san_jose.building_permits_active source + cc0_api_2026_08

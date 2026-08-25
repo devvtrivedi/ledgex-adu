@@ -199,6 +199,23 @@ jobs:
       - name: scripts/test_load_permits_attribution.py
         run: python3 scripts/test_load_permits_attribution.py
 
+      # P59, C4: flag_invalid_geometry.py was wired into no Makefile target
+      # and no CI workflow -- run the parcel-geometry detector here (the
+      # zoning-source half needs its own scratch-file snapshot, not present
+      # on a fresh runner; --skip-zoning-source is exactly for this case).
+      # Runs AFTER day4_sources.sql, not before: start_job_run() writes a
+      # job_run row citing source_id='ca_san_jose.parcels', a real FK that
+      # does not exist until this seed has run (confirmed the hard way --
+      # ForeignKeyViolation against a migrations-only database, before this
+      # step was moved here).
+      - name: scripts/flag_invalid_geometry.py --skip-zoning-source
+        run: python3 scripts/flag_invalid_geometry.py --skip-zoning-source
+
+      # P59, C4: the regression fixture for the detector + closure path
+      # above. Same after-seed placement, same reason.
+      - name: scripts/test_flag_invalid_geometry.py
+        run: python3 scripts/test_flag_invalid_geometry.py
+
       # P20: make golden's refused-path fixture (scripts/check_golden.py,
       # tests/golden/ca_san_jose/refused.json) -- same reasoning as the
       # snapshot-race test above, no new job: this is a real database

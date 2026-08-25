@@ -74,14 +74,77 @@ Two job_run rows (parcels checked / zoning polygons checked have
 different source_ids and different rows_in denominators; forcing them
 into one row would blur which population rows_in/rows_out describes).
 
-No schema changes. One transaction for each of the two exception-
-raising passes.
+P59 (C4, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): this script is now wired
+into `make flag-invalid-geometry` and db.yml (after the day4 seed step --
+start_job_run() needs the real source rows). Migration 0057 added
+`parcel.geom_valid boolean GENERATED ALWAYS AS (ST_IsValid(geom)) STORED`
+plus a partial GiST index `parcel_geom_valid_gix ON parcel USING gist
+(geom) WHERE geom_valid` -- the per-parcel geometry-quality representation
+this file's own exception rows previously had no counterpart for. A
+closure path was added too (flag_parcel_geometry now calls the same
+core.exceptions.close_exceptions_for_parcels ingest_parcels.py already
+uses for the APN detector): a source-side republish with a corrected
+shape now closes the exception, rather than leaving it open forever.
+
+READ-TIME POLICY for a future geometry-serving path (no such path exists
+yet -- §4 of the audit confirms the API serves no `geom` today; this is
+written down for whoever builds it first, so the decision is not
+rediscovered under deadline pressure). Repair stays banned AT REST (the
+paragraph above, unchanged) AND at read time: reproduced for real against
+this pass's own 28 known-invalid parcels, ST_Intersection raises a genuine
+GEOS TopologyException on an actual invalid polygon from this database --
+repairing it only at render time (ST_MakeValid wrapped around a tile
+query) would make the crash go away by rendering a shape the source never
+published, in the exact same visual treatment as a genuinely published lot
+line. That is I9 (a derived conclusion must never render in the treatment
+reserved for a retrieved fact) and it is this audit's own C4 failure
+scenario verbatim ("renders a self-intersecting boundary a user takes as a
+lot line") with the fabrication merely moved from ingest time to render
+time, not removed.
+
+Policy: (1) a geometry-serving query filters `WHERE geom_valid` (NOT
+`IS NOT FALSE` -- confirmed by EXPLAIN that only the bare `geom_valid`
+spelling matches parcel_geom_valid_gix's own partial-index predicate; the
+`IS NOT FALSE` spelling silently falls back to the full geometry index,
+which still contains the 28 invalid rows). (2) exclusion must not be
+silent: the parcel is not simply dropped from a bbox/feature response --
+it is carried as present-but-unrenderable (driven by parcel.geom_valid),
+so a caller can render "boundary flagged, not shown" rather than a
+same-looking hole where a real address sits. Any visual placeholder
+(envelope, centroid marker) must stay visually distinct from a published
+lot line (I9) -- left as a map-phase design choice, not decided here. (3)
+this reaches beyond tiles: every derived-intelligence computation the map
+phase plans (setbacks, buildable envelopes, ADU placement) is
+ST_Intersection/ST_Buffer/ST_Difference over parcel.geom, the exact
+operation family that crashes. Per I8, any such consumer meeting
+geom_valid = false must return a typed refusal, never let a GEOS
+exception propagate uncaught; whether an existing §9 code fits or a new
+one is needed is a decision for whoever builds that consumer (a new
+refusal code is its own spec §9 change + qa_check sync, its own pause
+point, not decided here).
+
+SEPARATE, NOT-YET-CATEGORIZED FINDING (recorded, not one of the audit's
+44): ST_AsMVTGeom -- the actual MVT tile-serving function, not
+ST_Intersection -- does NOT crash on these 28 parcels, but silently
+returns NULL for a geometry-dependent subset of them (reproduced: some of
+the 28 return a real tile geometry, others NULL, against the same bbox).
+NULL from ST_AsMVTGeom is not exclusive to invalid input either (a valid
+geometry can also collapse to NULL at low zoom) -- so a future tile path
+must treat a NULL result as its own logged, investigated condition, never
+silently read it as "no parcel here." See the P59 deliverable's section
+(f) for the reproduction transcript and parcel ids.
+
+No schema changes IN THIS FILE (0057 is a separate migration). One
+transaction for each of the two exception-raising passes.
 """
+import hashlib
 import json
 import os
 import sys
+import tempfile
 import time
 
+import boto3
 import ijson
 import psycopg2
 import psycopg2.extras
@@ -91,13 +154,13 @@ sys.path.insert(0, REPO_ROOT)
 from infra.env import env, get_db  # noqa: E402
 from infra.values import decimal_default  # noqa: E402
 from core.model import ParcelException  # noqa: E402
-from core.exceptions import insert_exceptions  # noqa: E402
+from core.exceptions import insert_exceptions, close_exceptions_for_parcels  # noqa: E402
 
 JURISDICTION_ID = "ca_san_jose"
 SOURCE_ID_PARCELS = "ca_san_jose.parcels"
 SOURCE_ID_ZONING = "ca_san_jose.zoning_districts"
 
-SCRATCHPAD = "/tmp/ledgex_ingest_scratch"
+CHUNK_SIZE = 8 * 1024 * 1024
 
 DETECTOR_KEY_PARCEL_GEOM = "parcel_geometry_invalid"
 DETECTOR_KEY_ZONING_SOURCE_GEOM = "zoning_source_geometry_invalid"
@@ -182,6 +245,7 @@ def flag_parcel_geometry(conn):
             print(f"  {len(invalid)} parcels with invalid geometry (of {rows_in:,} checked)")
 
             existing_open = existing_open_parcels(cur, DETECTOR_KEY_PARCEL_GEOM, DETECTOR_VERSION)
+            invalid_ids = {pid for pid, jid, reason in invalid}
             exception_rows = [
                 ParcelException(
                     parcel_id=pid, jurisdiction_id=jid, type="record_to_ground", severity="warning",
@@ -197,9 +261,26 @@ def flag_parcel_geometry(conn):
             print(f"  parcel_exception rows submitted: {len(exception_rows)}, "
                   f"{exception_skipped} skipped (already open at this detector_version)")
 
+            # C4 (P59): closure path. A parcel with a currently-open
+            # parcel_geometry_invalid exception whose geometry is no longer
+            # in the invalid set this run (a source-side republish with a
+            # corrected shape, or a parcel_exception left open from a
+            # geometry that has since been superseded) is genuinely
+            # resolved -- close it via the SAME targeted-close helper
+            # ingest_parcels.py already uses for the APN detector
+            # (core.exceptions.close_exceptions_for_parcels), not a second
+            # hand-rolled UPDATE. Without this, a source-side fix leaves the
+            # flag open forever (exactly the audit's own C4 complaint).
+            resolved_parcel_ids = existing_open - invalid_ids
+            closed_count = close_exceptions_for_parcels(
+                cur, DETECTOR_KEY_PARCEL_GEOM, DETECTOR_VERSION, resolved_parcel_ids
+            )
+            print(f"  parcel_geometry_invalid exceptions closed (condition_cleared): {closed_count}")
+
         metrics = {
             "exceptions_written": len(exception_rows),
             "exceptions_skipped_already_open": exception_skipped,
+            "exceptions_closed": closed_count,
         }
         finish_job_run(conn, job_run_id, "succeeded", rows_in, len(exception_rows), metrics)
         print(f"  job_run {job_run_id} -> succeeded (rows_in={rows_in:,}, rows_out={len(exception_rows)})")
@@ -210,13 +291,107 @@ def flag_parcel_geometry(conn):
         raise
 
 
-def flag_zoning_source_geometry(conn):
+def parse_s3_uri(uri):
+    """C17 (P59): copied from ingest_zoning_permits.py's own parse_s3_uri
+    (itself copied from ingest_parcels.py, P45 Fix 3) -- not imported, same
+    reasoning as every other piece of shared plumbing across these scripts:
+    core/connectors doesn't exist yet to factor it out for real, and this
+    repo's own established convention (three scripts already do this) is a
+    deliberate copy, not an inter-script import."""
+    from urllib.parse import urlparse
+    parsed = urlparse(uri)
+    if parsed.scheme != "s3" or not parsed.netloc or not parsed.path:
+        raise RuntimeError(f"snapshot.object_uri is not an s3:// URI: {uri}")
+    return parsed.netloc, parsed.path.lstrip("/")
+
+
+def get_s3():
+    return boto3.client(
+        "s3",
+        endpoint_url=env("OBJECT_STORE_URL"),
+        aws_access_key_id=env("OBJECT_STORE_ACCESS_KEY"),
+        aws_secret_access_key=env("OBJECT_STORE_SECRET_KEY"),
+    )
+
+
+def verified_snapshot_file(conn, snapshot_id, source_id):
+    """C17 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): copied from
+    ingest_zoning_permits.py's own verified_snapshot_file, not imported --
+    same convention as parse_s3_uri above. This closes register findings
+    #46/#47's own class (unverified snapshot bytes) at THIS detection site
+    too -- flag_zoning_source_geometry used to open
+    SCRATCHPAD/zoning_districts_fetch_1.geojson directly: no snapshot id,
+    no hash check against snapshot.content_hash, so a newer fetch
+    overwriting that mutable scratch file silently fed this detector
+    polygons that never produced the zoning facts it was reasoning about.
+
+    Returns (path, snapshot row dict) for bytes read from
+    snapshot.object_uri. The hash is computed over exactly the bytes the
+    caller will parse -- raises on a content_hash OR byte_size mismatch,
+    before the caller ever touches the bytes."""
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute(
+            """
+            SELECT id, source_id, object_uri, content_hash, media_type,
+                   byte_size, fetched_at
+            FROM snapshot
+            WHERE id = %s AND source_id = %s
+            """,
+            (snapshot_id, source_id),
+        )
+        snapshot = cur.fetchone()
+    if snapshot is None:
+        raise SystemExit(f"no snapshot {snapshot_id} found for {source_id}")
+
+    bucket, key = parse_s3_uri(snapshot["object_uri"])
+    s3 = get_s3()
+    hasher = hashlib.sha256()
+    byte_size = 0
+    suffix = ".geojson" if snapshot["media_type"] == "application/geo+json" else ".snapshot"
+    tmp = tempfile.NamedTemporaryFile(prefix="ledgex-flag-geom-", suffix=suffix, delete=False)
+    tmp_path = tmp.name
+    try:
+        obj = s3.get_object(Bucket=bucket, Key=key)
+        with tmp:
+            for chunk in obj["Body"].iter_chunks(chunk_size=CHUNK_SIZE):
+                if not chunk:
+                    continue
+                tmp.write(chunk)
+                hasher.update(chunk)
+                byte_size += len(chunk)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+    digest = hasher.hexdigest()
+    if digest != snapshot["content_hash"]:
+        os.unlink(tmp_path)
+        raise RuntimeError(
+            f"snapshot byte hash mismatch for {snapshot_id}: "
+            f"object_uri bytes sha256={digest}, snapshot.content_hash={snapshot['content_hash']}"
+        )
+    if byte_size != snapshot["byte_size"]:
+        os.unlink(tmp_path)
+        raise RuntimeError(
+            f"snapshot byte_size mismatch for {snapshot_id}: "
+            f"object_uri bytes={byte_size}, snapshot.byte_size={snapshot['byte_size']}"
+        )
+    return tmp_path, snapshot
+
+
+def flag_zoning_source_geometry(conn, snapshot_id):
     """Indirect case: a zoning polygon that classified real parcels was
     itself invalid. Re-derives the same repair-then-contains join
     ingest_zoning_permits.py performs, since no persisted reference
     connects a fact back to the raw zoning feature that produced it."""
     job_run_id = start_job_run(conn, "flag_invalid_geometry_zoning", SOURCE_ID_ZONING)
-    path = os.path.join(SCRATCHPAD, "zoning_districts_fetch_1.geojson")
+    # C17 (P59): verified_snapshot_file, not a direct open() of the mutable
+    # scratch file -- raises before any bytes are parsed if content_hash or
+    # byte_size disagrees with what snapshot_id's own row claims.
+    path, snapshot = verified_snapshot_file(conn, snapshot_id, SOURCE_ID_ZONING)
     try:
         t0 = time.monotonic()
         with conn.cursor() as cur:
@@ -227,7 +402,7 @@ def flag_zoning_source_geometry(conn):
             for feat in ijson.items(f, "features.item"):
                 props = feat.get("properties") or {}
                 rows.append((props.get("ZONING"), json.dumps(feat["geometry"], default=decimal_default)))
-        print(f"  parsed {len(rows):,} zoning features in {time.monotonic()-t0:.1f}s")
+        print(f"  parsed {len(rows):,} zoning features in {time.monotonic()-t0:.1f}s (snapshot_id={snapshot_id})")
 
         with conn.cursor() as cur:
             psycopg2.extras.execute_values(
@@ -263,6 +438,30 @@ def flag_zoning_source_geometry(conn):
             affected = cur.fetchall()
             print(f"  parcels classified via a repaired invalid zoning polygon: {len(affected):,}")
 
+            # C17 (P59): ST_Contains(z.geom, p.centroid) evaluates SQL NULL,
+            # never TRUE, for any parcel whose centroid IS NULL -- silently
+            # absent from `affected` above, a false-clean (the same NULL-
+            # inside-a-predicate shape as 0038/0045's own history in this
+            # repo). Genuinely possible mid-reconcile (a parcel row can
+            # exist with geom set and centroid not yet (re)computed -- see
+            # C1's own populate_interior_centroids). Reported explicitly
+            # here, not silently dropped: a looser ST_Intersects(z.geom,
+            # p.geom) test (geometry, not centroid -- centroid doesn't
+            # exist to test) over the SAME invalid-zoning-polygon set names
+            # every such parcel, even though point-in-polygon classification
+            # cannot be determined for them without a centroid.
+            cur.execute("""
+                SELECT p.id FROM zoning_repaired z
+                JOIN parcel p ON p.centroid IS NULL AND p.geom IS NOT NULL
+                              AND ST_Intersects(z.geom, p.geom)
+                WHERE z.id = ANY(%s)
+            """, (invalid_ids,))
+            null_centroid_candidates = [r[0] for r in cur.fetchall()]
+            print(f"  candidates with NULL centroid near an invalid zoning polygon "
+                  f"(EXCLUDED from affected-set above -- cannot determine "
+                  f"classification without a centroid): {len(null_centroid_candidates):,}"
+                  + (f" -- {null_centroid_candidates}" if null_centroid_candidates else ""))
+
             existing_open = existing_open_parcels(cur, DETECTOR_KEY_ZONING_SOURCE_GEOM, DETECTOR_VERSION)
             exception_rows = [
                 ParcelException(
@@ -294,15 +493,39 @@ def flag_zoning_source_geometry(conn):
         fail_job_run(conn, job_run_id, e)
         print(f"  job_run {job_run_id} -> failed: {e}")
         raise
+    finally:
+        try:
+            os.unlink(path)
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":
+    # C4 (P59): --skip-zoning-source lets CI (db.yml) run the parcel-geometry
+    # detector, which needs only the live `parcel` table, without also
+    # requiring flag_zoning_source_geometry's own snapshot dependency.
+    # Default (no flag) runs both, same as every local invocation to date --
+    # but flag_zoning_source_geometry now REQUIRES --snapshot-id (C17): no
+    # more silent fallback to a mutable scratch path.
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--skip-zoning-source", action="store_true",
+                         help="Run only flag_parcel_geometry (no snapshot dependency); for CI.")
+    parser.add_argument("--snapshot-id",
+                         help="ca_san_jose.zoning_districts snapshot id for flag_zoning_source_geometry "
+                              "(C17: required unless --skip-zoning-source is given -- no fallback to a "
+                              "raw scratch-file path).")
+    args = parser.parse_args()
+    if not args.skip_zoning_source and not args.snapshot_id:
+        parser.error("--snapshot-id is required unless --skip-zoning-source is given (C17)")
+
     conn = get_db()
     print("=== flagging invalid parcel geometry ===")
     flag_parcel_geometry(conn)
     conn.close()
 
-    conn = get_db()
-    print("\n=== flagging parcels affected by invalid zoning source geometry ===")
-    flag_zoning_source_geometry(conn)
-    conn.close()
+    if not args.skip_zoning_source:
+        conn = get_db()
+        print("\n=== flagging parcels affected by invalid zoning source geometry ===")
+        flag_zoning_source_geometry(conn, args.snapshot_id)
+        conn.close()

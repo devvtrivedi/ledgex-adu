@@ -991,7 +991,8 @@ CREATE TABLE public.parcel (
     geom public.geometry(MultiPolygon,4326),
     centroid public.geometry(Point,4326),
     first_seen_at timestamp with time zone DEFAULT now() NOT NULL,
-    last_seen_at timestamp with time zone DEFAULT now() NOT NULL
+    last_seen_at timestamp with time zone DEFAULT now() NOT NULL,
+    geom_valid boolean GENERATED ALWAYS AS (public.st_isvalid(geom)) STORED
 );
 
 
@@ -1566,6 +1567,13 @@ CREATE UNIQUE INDEX parcel_exception_one_open_per_detector_reason_coalesced ON p
 --
 
 CREATE INDEX parcel_geom_gix ON public.parcel USING gist (geom);
+
+
+--
+-- Name: parcel_geom_valid_gix; Type: INDEX; Schema: public; Owner: -
+--
+
+CREATE INDEX parcel_geom_valid_gix ON public.parcel USING gist (geom) WHERE geom_valid;
 
 
 --
