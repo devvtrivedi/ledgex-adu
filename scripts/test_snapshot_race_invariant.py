@@ -68,6 +68,28 @@ import ingest_parcels as ip  # noqa: E402 -- module under test, imported, not re
 import ingest_zoning_permits as izp  # noqa: E402 -- module under test, imported, not reimplemented
 from infra.env import get_db  # noqa: E402
 
+# C15 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): the ONE source of truth
+# for the cc_by_4_0_api_2026_08 licence's display_name/attribution_text,
+# byte-identical to db/seeds/day4_sources.sql's own values (confirmed by
+# reading that file directly before writing these constants, not
+# transcribed from memory). licence is immutable (0027) and every seeder
+# here is ON CONFLICT DO NOTHING, so first-writer-wins, permanently -- a
+# seeder using anything other than these exact strings corrupts the
+# licence's attribution obligation on whatever database it reaches first,
+# forever (fixable only by rebuild). This module runs in CI BEFORE
+# db/seeds/day4_sources.sql (see this file's own docstring), so it cannot
+# simply stop seeding and depend on the real seed -- it must seed the
+# canonical values itself. scripts/test_zoning_ambiguity_invariant.py
+# imports these same two constants rather than carrying its own copy, so
+# the two can no longer independently drift from each other OR from
+# day4_sources.sql the way they did before this fix (verified live via S3,
+# this pass's own database check: one long-lived database,
+# ledgex_smoke_pre_p55_20260822, already carries the wrong, pre-fix
+# attribution permanently -- flagged, not repairable, see the P59
+# deliverable's S3 row).
+CC_BY_4_0_API_2026_08_DISPLAY_NAME = "CC BY 4.0 (api channel, scoped 2026-08)"
+CC_BY_4_0_API_2026_08_ATTRIBUTION_TEXT = "Data © City of San José"
+
 failures = []
 
 
@@ -87,11 +109,11 @@ def seed_reference_rows_parcels(conn):
             """
             INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution,
                                   attribution_text, observed_at, cleared_by, cleared_at)
-            VALUES (%s, 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose',
+            VALUES (%s, %s, 'attribution', 'allowed', 'allowed', %s,
                     '2026-07-31'::timestamptz, NULL, NULL)
             ON CONFLICT (id) DO NOTHING
             """,
-            (ip.LICENCE_ID,),
+            (ip.LICENCE_ID, CC_BY_4_0_API_2026_08_DISPLAY_NAME, CC_BY_4_0_API_2026_08_ATTRIBUTION_TEXT),
         )
         cur.execute(
             """
@@ -122,11 +144,11 @@ def seed_reference_rows_zoning(conn):
             """
             INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution,
                                   attribution_text, observed_at, cleared_by, cleared_at)
-            VALUES (%s, 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose',
+            VALUES (%s, %s, 'attribution', 'allowed', 'allowed', %s,
                     '2026-07-31'::timestamptz, NULL, NULL)
             ON CONFLICT (id) DO NOTHING
             """,
-            (izp.LICENCE_ID_ZONING,),
+            (izp.LICENCE_ID_ZONING, CC_BY_4_0_API_2026_08_DISPLAY_NAME, CC_BY_4_0_API_2026_08_ATTRIBUTION_TEXT),
         )
         cur.execute(
             """

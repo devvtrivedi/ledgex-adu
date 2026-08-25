@@ -37,6 +37,15 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 import ingest_zoning_permits as izp  # noqa: E402 -- module under test, imported, not reimplemented
 from infra.env import get_db  # noqa: E402
+# C15 (P59): imported, not a second copy -- see test_snapshot_race_invariant.py's
+# own module-level comment for the full argument (licence is immutable,
+# first-writer-wins, and these two strings diverging from
+# db/seeds/day4_sources.sql corrupts the licence's attribution obligation
+# permanently on whatever database seeds it first).
+from test_snapshot_race_invariant import (  # noqa: E402
+    CC_BY_4_0_API_2026_08_DISPLAY_NAME,
+    CC_BY_4_0_API_2026_08_ATTRIBUTION_TEXT,
+)
 
 
 def seed_reference_rows(conn):
@@ -49,11 +58,11 @@ def seed_reference_rows(conn):
             """
             INSERT INTO licence (id, display_name, restriction, commercial_use, redistribution,
                                   attribution_text, observed_at, cleared_by, cleared_at)
-            VALUES (%s, 'CC BY 4.0', 'attribution', 'allowed', 'allowed', 'City of San Jose',
+            VALUES (%s, %s, 'attribution', 'allowed', 'allowed', %s,
                     '2026-07-31'::timestamptz, NULL, NULL)
             ON CONFLICT (id) DO NOTHING
             """,
-            (izp.LICENCE_ID_ZONING,),
+            (izp.LICENCE_ID_ZONING, CC_BY_4_0_API_2026_08_DISPLAY_NAME, CC_BY_4_0_API_2026_08_ATTRIBUTION_TEXT),
         )
         cur.execute(
             """
