@@ -214,6 +214,7 @@ REASON_MULTIPLE_POLYGONS_AGREE = "multiple_containing_polygons_agree"
 # itself not being trustworthy, before the join ever runs.
 DETECTOR_KEY_CENTROID_NOT_INTERIOR = "parcel_centroid_not_interior"
 DETECTOR_VERSION_CENTROID_NOT_INTERIOR = "1.0"
+REASON_CENTROID_NOT_INTERIOR = "centroid_not_interior_after_fallback"
 
 # C2 (P59): load_permits' replacement for the old fabricated-false write --
 # see load_permits' own inline comment for the full argument.
@@ -792,7 +793,7 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                     ParcelException(
                         parcel_id=pid, jurisdiction_id=JURISDICTION_ID, type="record_to_ground", severity="warning",
                         detector_key=DETECTOR_KEY_CENTROID_NOT_INTERIOR, detector_version=DETECTOR_VERSION_CENTROID_NOT_INTERIOR,
-                        detail={"reason": "centroid_not_interior_after_fallback"},
+                        detail={"reason": REASON_CENTROID_NOT_INTERIOR},
                     )
                     for pid in centroid_still_bad if pid not in existing_open_centroid
                 ]
@@ -800,6 +801,27 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                     insert_exceptions(cur, centroid_exception_rows)
                 print(f"  parcel_centroid_not_interior exceptions: {len(centroid_exception_rows):,} new "
                       f"({len(centroid_still_bad) - len(centroid_exception_rows):,} already open)")
+
+            # A-N8 (P59C): closure-by-exclusion, unconditional (runs even
+            # when centroid_still_bad is empty -- close_resolved_exceptions'
+            # own docstring: "empty still_true_pairs ... every currently-open
+            # row ... is correctly closed"). populate_interior_centroids
+            # (above) already does a FULL recompute of the still-bad set on
+            # every load_zoning run -- the same precondition
+            # close_resolved_exceptions requires (it's built for load_zoning's
+            # own DETECTOR_KEY_ZONING_UNRESOLVABLE closure two blocks below;
+            # this reuses it, not a second hand-rolled UPDATE). A parcel that
+            # was open here and is no longer in centroid_still_bad_set (its
+            # geometry was corrected, or centroid recomputed interior) closes
+            # condition_cleared.
+            centroid_still_true_pairs = {
+                (pid, REASON_CENTROID_NOT_INTERIOR) for pid in centroid_still_bad_set
+            }
+            centroid_closed_count = close_resolved_exceptions(
+                cur, DETECTOR_KEY_CENTROID_NOT_INTERIOR, DETECTOR_VERSION_CENTROID_NOT_INTERIOR,
+                centroid_still_true_pairs,
+            )
+            print(f"  parcel_centroid_not_interior exceptions closed (condition_cleared): {centroid_closed_count:,}")
 
             # No count(*) OVER () here -- that counted candidate ROWS, which
             # is what made this ambiguity-detection wrong (see

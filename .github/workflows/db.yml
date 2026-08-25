@@ -340,6 +340,12 @@ jobs:
       - name: scripts/test_zoning_centroid_exclusion.py
         run: python3 scripts/test_zoning_centroid_exclusion.py
 
+      # A-N8 (P59C): parcel_centroid_not_interior closure-by-exclusion --
+      # a repaired parcel's exception must close, a still-bad one must
+      # stay open. Same seeded-state placement as the step above.
+      - name: scripts/test_zoning_centroid_exception_closure.py
+        run: python3 scripts/test_zoning_centroid_exception_closure.py
+
       # P43: seeds scripts/seed_internal_test_licences.py's own fixture, then
       # runs `make viewer-test` (P42) -- same reasoning as day4_sources.sql
       # above, no new job: this job already has a live, disposable ledgex_ci,
