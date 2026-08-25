@@ -14,7 +14,7 @@
 # diff against the committed file — match PG_DUMP/DATABASE_URL to 16 before
 # regenerating it.
 
-.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state smoke-real local-up local-down test-qa-check test-guard-destructive test-centroid-interior test-apn-canonicalization test-zoning-ambiguity test-compose-collision test-refresh-failure test-reconcile-identity-verified test-load-parcels-identity test-parcel-flap flag-invalid-geometry test-flag-invalid-geometry test-load-permits-attribution
+.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state smoke-real local-up local-down test-qa-check test-guard-destructive test-centroid-interior test-apn-canonicalization test-zoning-ambiguity test-compose-collision test-refresh-failure test-reconcile-identity-verified test-load-parcels-identity test-parcel-flap flag-invalid-geometry test-flag-invalid-geometry test-load-permits-attribution test-compose-l0-gate
 
 # `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
 # not guaranteed under `make -j`: parallel make can start pdf's docs
@@ -491,6 +491,18 @@ test-flag-invalid-geometry:
 # ledgex_test/ledgex_ci; NOT safe against ledgex_schema_check.
 test-load-permits-attribution:
 	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_load_permits_attribution.py
+
+# A-N5 (P59C): scripts/test_compose_l0_gate.py (P53, C3's value-half
+# regression) was wired into no Makefile target and no CI workflow -- the
+# gate's own `value is True` fix (compose_property_file.py:634-637) was
+# protected only by a file nobody ran except by hand. Needs
+# db/seeds/day4_sources.sql applied (reads the real ca_san_jose jurisdiction
+# row's boundary_source_id as its own activation-switch check) -- same
+# seeded-state requirement as test-load-permits-attribution above, so this
+# runs in db.yml's schema job (seeded), never p5-acceptance/phaseb-acceptance
+# (both stay migrations-only for their whole run).
+test-compose-l0-gate:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_compose_l0_gate.py
 
 # Spec §6.4 make liveness: "every active source responds with expected
 # fields." P28: real for the pack's three active, ca_san_jose-owned

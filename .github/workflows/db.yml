@@ -319,6 +319,17 @@ jobs:
       - name: scripts/test_compose_parcel_refusals.py
         run: python3 scripts/test_compose_parcel_refusals.py
 
+      # A-N5 (P59C): scripts/test_compose_l0_gate.py (P53, C3's value-half
+      # regression -- compose_property_file.py:634-637's `value is True`
+      # gate) was wired into no Makefile target and no CI workflow, so the
+      # fix landed protected only by a file that ran when a human remembered
+      # to run it by hand. Needs day4_sources.sql (already applied above --
+      # reads the real ca_san_jose jurisdiction row's boundary_source_id as
+      # its own activation-switch check), same reasoning and same job
+      # placement as the two compose tests directly above.
+      - name: scripts/test_compose_l0_gate.py
+        run: python3 scripts/test_compose_l0_gate.py
+
       # P43: seeds scripts/seed_internal_test_licences.py's own fixture, then
       # runs `make viewer-test` (P42) -- same reasoning as day4_sources.sql
       # above, no new job: this job already has a live, disposable ledgex_ci,
