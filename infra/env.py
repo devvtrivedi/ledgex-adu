@@ -165,7 +165,29 @@ def refuse_remote(database_url):
     duplicating the host check or being forced to route through get_db()'s
     own connection-policy choices (autocommit=False, a single connection)
     that do not fit every caller. D3 (P56 Phase 2 owner decision): refuses,
-    does not warn."""
+    does not warn.
+
+    C23 (P59, annex, DEFERRED -- not fixed here): this guard models a
+    SUBSET of libpq's real host resolution, not all of it. Two gaps found,
+    neither closed by this pass -- closing them fully means reimplementing
+    a meaningful slice of libpq's own DSN-resolution algorithm inside a
+    security-relevant guard, which risks a false sense of completeness
+    worse than an honest, documented gap; a partial patch here is exactly
+    the kind of scope CONVENTIONS.md says to report, not silently absorb:
+      (a) PGHOST/PGHOSTADDR/PGSERVICE environment fallback: when
+          database_url has no host component at all, psycopg2 (via real
+          libpq, not this function) falls through to these env vars before
+          defaulting to a local socket -- resolved_host() has no way to
+          see that and reports "" (local) regardless. Currently dormant:
+          grepped, nothing in this repo sets any of the three. A
+          developer's ambient shell environment could, outside this
+          repo's control.
+      (b) Comma-separated multi-host DSNs (libpq's own failover syntax,
+          e.g. postgresql://user@host1,host2/db): resolved_host() reads
+          exactly one host via urlparse/parse_qs and cannot represent
+          "tries host1, falls back to host2" -- a URL mixing one local and
+          one remote host is not correctly classified either way.
+    """
     if _is_local(database_url) or os.environ.get(_ALLOW_REMOTE_VAR) == "1":
         return
     host = resolved_host(database_url)
