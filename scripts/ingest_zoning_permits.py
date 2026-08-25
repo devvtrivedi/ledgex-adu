@@ -126,7 +126,7 @@ from infra.env import env, get_db  # noqa: E402
 from infra.values import is_blank, decimal_default, canonicalize_identifier  # noqa: E402
 from core.model import Fact, ParcelException  # noqa: E402
 from core.store import insert_facts  # noqa: E402
-from core.exceptions import insert_exceptions, close_resolved_exceptions, relink_reopened_exceptions  # noqa: E402
+from core.exceptions import insert_exceptions, close_resolved_exceptions, relink_reopened_exceptions, close_exceptions_for_parcels  # noqa: E402
 
 JURISDICTION_ID = "ca_san_jose"
 
@@ -201,6 +201,12 @@ REASON_MULTIPLE_POLYGONS_AGREE = "multiple_containing_polygons_agree"
 DETECTOR_KEY_CENTROID_NOT_INTERIOR = "parcel_centroid_not_interior"
 DETECTOR_VERSION_CENTROID_NOT_INTERIOR = "1.0"
 
+# C2 (P59): load_permits' replacement for the old fabricated-false write --
+# see load_permits' own inline comment for the full argument.
+DETECTOR_KEY_PERMIT_ATTRIBUTION_LOST = "permit_attribution_lost"
+DETECTOR_VERSION_PERMIT_ATTRIBUTION_LOST = "1.0"
+REASON_PERMIT_ATTRIBUTION_LOST = "no_fresh_apn_match_this_run"
+
 
 def populate_interior_centroids(cur):
     """C1: replaces the old unconditional `UPDATE parcel SET centroid =
@@ -255,8 +261,6 @@ def populate_interior_centroids(cur):
     still_not_interior = [r[0] for r in cur.fetchall()]
 
     return recomputed, still_not_interior
-
-
 
 
 def classify_zoning_candidates(candidates):
@@ -1040,9 +1044,30 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
         by_apn = {}   # canonicalized apn -> list of date
         rows_in = 0
         blank_apn = 0
+        non_active_status_rows = 0
         with open(path, newline="", encoding="utf-8-sig") as f:
             for row in csv.DictReader(f):
                 rows_in += 1
+                # C24.13 (P59, annex): this ingest hardcodes permits.active
+                # = True (below) on the strength of an ASSUMPTION -- "every
+                # row in the source file already carries Status='Active'"
+                # (this module's own docstring) -- that was never actually
+                # checked per-row; the Status column, when present, was
+                # read by nothing in this function. Self-verifying now,
+                # not a behavior change to the aggregation itself (which
+                # column(s)/rows should drive permits.active if the
+                # assumption ever breaks is a real design question, not
+                # something to invent silently here -- reported, not
+                # absorbed): if Status IS present in this file and any row
+                # says something other than 'Active', refuse loudly rather
+                # than continue silently trusting a premise that just
+                # proved false. A file with no Status column at all (some
+                # test fixtures; conceivably a differently-shaped future
+                # export) is not checked -- absence of the column is a
+                # different, pre-existing condition this fix does not
+                # newly police.
+                if "Status" in row and row["Status"] != "Active":
+                    non_active_status_rows += 1
                 # canonicalize_identifier, not a bare .strip(): a real row
                 # carries a leading apostrophe (spreadsheet-export "force
                 # text" artifact, ASSESSORS_PARCEL_NUMBER = "'67620002")
@@ -1054,6 +1079,15 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                     blank_apn += 1
                     continue
                 by_apn.setdefault(apn, []).append(parse_issue_date(row["ISSUEDATE"]))
+        if non_active_status_rows:
+            raise RuntimeError(
+                f"{non_active_status_rows} row(s) have Status != 'Active' -- this ingest's "
+                f"permits.active=True is hardcoded on the assumption every row is already "
+                f"Active (this module's own docstring); that assumption just proved false. "
+                f"Refusing rather than silently computing permits.active from a premise that "
+                f"no longer holds -- deciding how non-Active rows should affect the derived "
+                f"value is a real design question, not something to invent here."
+            )
         print(f"  parsed {rows_in:,} permit rows ({len(by_apn):,} distinct non-blank APNs) in {time.monotonic()-t0:.1f}s")
 
         with conn.cursor() as cur:
@@ -1134,18 +1168,65 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
         fact_ids_to_supersede = []
         fact_rows = []
         diff_counts = {
-            "permits.active": {"same": 0, "different": 0, "new": 0, "retired": 0},
-            "permits.series_earliest": {"same": 0, "different": 0, "new": 0, "retired": 0},
+            "permits.active": {"same": 0, "different": 0, "new": 0, "attribution_lost": 0},
+            "permits.series_earliest": {"same": 0, "different": 0, "new": 0, "attribution_lost": 0},
         }
+        # C2 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md). Real evidence
+        # gathered before writing this fix, not assumed: the real permits
+        # export's FOLDERNUMBER and FOLDERRSN columns are BOTH 100%
+        # populated and 100% unique across all 17,467 real rows -- a
+        # genuine, reliable per-permit identity exists in the SOURCE. But
+        # nothing in this ledger has ever PERSISTED that identity alongside
+        # a permits.active/series_earliest fact (Fact carries no such
+        # column) -- the same structural gap source_feature_identity (0043)
+        # closes for parcels is open, unclosed, for permits (new finding,
+        # not one of the audit's 44 -- see this pass's own deliverable).
+        # Without a persisted link from a live fact back to the specific
+        # FOLDERNUMBER/FOLDERRSN that produced it, this run cannot tell "the
+        # permit that produced this parcel's live fact is still in this
+        # run's export, just with an unattributable (blank) APN cell" apart
+        # from "that permit genuinely dropped off the export" -- both look
+        # identical from here: the parcel has no fresh match this run.
+        #
+        # So: fresh_value is None (four routes -- blank APN, not-found APN,
+        # ambiguous/duplicate APN, or genuinely absent) NEVER writes a false
+        # successor, uniformly, for BOTH fields (the old
+        # retire_with_false_successor split is gone -- series_earliest's own
+        # "retired, no successor" branch was justified only by
+        # permits.active's now-removed false-write: "a positive, confirmed
+        # fact (permits.active=false already says so)" no longer holds once
+        # that write is gone). "We can no longer attribute this" and "this
+        # is now false" are different claims (CONVENTIONS) -- absence opens
+        # a typed, non-blocking exception and leaves the live fact exactly
+        # as it was; it never supersedes.
+        #
+        # COST, STATED EXPLICITLY, NOT GLOSSED OVER: a permit that
+        # genuinely drops off the export now leaves a permits.active=true
+        # fact standing indefinitely -- the ledger asserting "active" for a
+        # permit that may no longer be. That is a real error in the
+        # opposite direction from before. It is still the right trade: a
+        # stale true is recoverable the moment a future pass builds
+        # persisted permit identity (the new finding above) or a
+        # product-level staleness policy notices; a fabricated false is an
+        # immutable affirmative falsehood that has already superseded a
+        # true fact and can never be taken back. The audit's own §3
+        # reaches the same place independently: "the map should not surface
+        # permits.active until the retire logic distinguishes absence from
+        # unattributability" -- carried forward as an explicit map-phase
+        # precondition in this pass's own report, not silently assumed
+        # resolved by this fix.
+        attribution_lost_parcels = set()
+        attribution_confirmed_parcels = set()
 
         for parcel_id in candidate_parcels:
             fresh = fresh_by_parcel.get(parcel_id)  # (True, iso_date) or None
             fresh_active = True if fresh is not None else None
             fresh_earliest = fresh[1] if fresh is not None else None
+            parcel_had_absence = False
 
-            for field_key, fresh_value, retire_with_false_successor in (
-                ("permits.active", fresh_active, True),
-                ("permits.series_earliest", fresh_earliest, False),
+            for field_key, fresh_value in (
+                ("permits.active", fresh_active),
+                ("permits.series_earliest", fresh_earliest),
             ):
                 counts = diff_counts[field_key]
                 live_entry = live.get((parcel_id, field_key))
@@ -1165,65 +1246,43 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                     continue
 
                 live_fact_id, live_value = live_entry
-                # Absence (fresh_value is None) on a retire_with_false_successor
-                # field is not a claim on its own -- it only becomes "this is
-                # now false" the first time it's observed (live_value True,
-                # handled below). Once that false is already live, continued
-                # absence is the SAME silence, not a new world_change: compare
-                # it as False here so the comparison agrees with what the live
-                # row already asserts. permits.series_earliest
-                # (retire_with_false_successor=False) is untouched -- its
-                # absence has no false-successor claim to collapse into.
-                effective_fresh_value = (
-                    False if fresh_value is None and retire_with_false_successor
-                    else fresh_value
-                )
-                if effective_fresh_value == live_value:
-                    counts["same"] += 1
+
+                if fresh_value is None:
+                    # Absence. Never a claim on its own -- leave the live
+                    # fact exactly as it is, no supersession, and mark this
+                    # parcel for a typed exception below.
+                    counts["attribution_lost"] += 1
+                    parcel_had_absence = True
                     continue
 
+                if fresh_value == live_value:
+                    counts["same"] += 1
+                    attribution_confirmed_parcels.add(parcel_id)
+                    continue
+
+                # Genuine positive difference (e.g. reactivation: live=false
+                # or absent, fresh=true; or a new, different earliest date)
+                # -- real evidence, a real supersession.
                 fact_ids_to_supersede.append(live_fact_id)
-                if fresh_value is not None:
-                    fact_rows.append(Fact(
-                        parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
-                        field_key=field_key, value=json.dumps(fresh_value), method="bulk",
-                        source_id=SOURCE_ID_PERMITS, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
-                        source_url=ENDPOINT_URL_PERMITS, licence_id=LICENCE_ID_PERMITS,
-                        confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID,
-                        effective_from=retrieved_at, pack_version=FACT_PACK_VERSION,
-                        supersedes_fact_id=live_fact_id, supersession_reason="world_change",
-                    ))
-                    counts["different"] += 1
-                elif retire_with_false_successor:
-                    # permits.active: a permit dropping off the source's own
-                    # pre-filtered active-permits export IS evidence it is no
-                    # longer active -- an explicit false successor, not a
-                    # bare retirement. Same source on both sides (0044
-                    # satisfied), so this is honest in a way parcels'
-                    # cross-source disappearance cascade (P4) was not.
-                    fact_rows.append(Fact(
-                        parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
-                        field_key=field_key, value=json.dumps(False), method="bulk",
-                        source_id=SOURCE_ID_PERMITS, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
-                        source_url=ENDPOINT_URL_PERMITS, licence_id=LICENCE_ID_PERMITS,
-                        confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID,
-                        effective_from=retrieved_at, pack_version=FACT_PACK_VERSION,
-                        supersedes_fact_id=live_fact_id, supersession_reason="world_change",
-                    ))
-                    counts["different"] += 1
-                else:
-                    # permits.series_earliest with zero active permits left:
-                    # no remaining permit to take MIN over. Retire, no
-                    # successor -- zoning's zero-match mechanism, for a
-                    # different reason: this is a positive, confirmed fact
-                    # (permits.active=false already says so), not a matching
-                    # failure, so no exception either.
-                    counts["retired"] += 1
+                fact_rows.append(Fact(
+                    parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
+                    field_key=field_key, value=json.dumps(fresh_value), method="bulk",
+                    source_id=SOURCE_ID_PERMITS, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
+                    source_url=ENDPOINT_URL_PERMITS, licence_id=LICENCE_ID_PERMITS,
+                    confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID,
+                    effective_from=retrieved_at, pack_version=FACT_PACK_VERSION,
+                    supersedes_fact_id=live_fact_id, supersession_reason="world_change",
+                ))
+                counts["different"] += 1
+                attribution_confirmed_parcels.add(parcel_id)
+
+            if parcel_had_absence:
+                attribution_lost_parcels.add(parcel_id)
 
         for field_key in ("permits.active", "permits.series_earliest"):
             c = diff_counts[field_key]
             print(f"  {field_key}: same={c['same']:,} different={c['different']:,} "
-                  f"new={c['new']:,} retired-no-successor={c['retired']:,}")
+                  f"new={c['new']:,} attribution_lost-no-write={c['attribution_lost']:,}")
 
         metrics = {
             "unmatched_breakdown": {
@@ -1247,6 +1306,37 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
             if fact_rows:
                 insert_facts(cur, fact_rows)
             print(f"  fact rows submitted: {len(fact_rows):,}")
+
+            # C2: the typed, non-blocking exception that replaces the old
+            # fabricated-false write. Dedup + closure follow the exact
+            # pattern ingest_parcels.py already uses for the APN detector
+            # (existing_open_parcels/close_exceptions_for_parcels above, in
+            # this same file, for DETECTOR_KEY_ZONING_UNRESOLVABLE) -- reuse,
+            # not a third hand-rolled variant.
+            cur.execute(
+                "SELECT parcel_id FROM parcel_exception WHERE detector_key = %s AND detector_version = %s AND outcome = 'open'",
+                (DETECTOR_KEY_PERMIT_ATTRIBUTION_LOST, DETECTOR_VERSION_PERMIT_ATTRIBUTION_LOST),
+            )
+            existing_open_permit = {r[0] for r in cur.fetchall()}
+            new_permit_exceptions = [
+                ParcelException(
+                    parcel_id=pid, jurisdiction_id=JURISDICTION_ID, type="coverage_gap", severity="info",
+                    detector_key=DETECTOR_KEY_PERMIT_ATTRIBUTION_LOST, detector_version=DETECTOR_VERSION_PERMIT_ATTRIBUTION_LOST,
+                    detail={"reason": REASON_PERMIT_ATTRIBUTION_LOST},
+                )
+                for pid in attribution_lost_parcels
+                if pid not in existing_open_permit
+            ]
+            if new_permit_exceptions:
+                insert_exceptions(cur, new_permit_exceptions)
+            print(f"  permit_attribution_lost exceptions: {len(new_permit_exceptions):,} new, "
+                  f"{len(attribution_lost_parcels) - len(new_permit_exceptions):,} already open")
+
+            permit_closed_count = close_exceptions_for_parcels(
+                cur, DETECTOR_KEY_PERMIT_ATTRIBUTION_LOST, DETECTOR_VERSION_PERMIT_ATTRIBUTION_LOST,
+                attribution_confirmed_parcels,
+            )
+            print(f"  permit_attribution_lost exceptions closed (condition_cleared): {permit_closed_count:,}")
 
         finish_job_run(conn, job_run_id, "succeeded", snapshot_id, rows_in, matched_rows, metrics)
         print(f"\njob_run {job_run_id} -> succeeded (rows_in={rows_in:,}, rows_out={matched_rows:,})")

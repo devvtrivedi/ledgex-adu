@@ -191,6 +191,14 @@ jobs:
         run: |
           "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/seeds/day4_sources.sql
 
+      # P59, C2: load_permits must never fabricate permits.active=false
+      # from an unattributable APN. Safe here (unlike ledgex_schema_check
+      # locally): this job's ledgex_ci database never receives real bulk
+      # permits data, only day4's metadata seed -- see the script's own
+      # docstring for why that distinction matters.
+      - name: scripts/test_load_permits_attribution.py
+        run: python3 scripts/test_load_permits_attribution.py
+
       # P20: make golden's refused-path fixture (scripts/check_golden.py,
       # tests/golden/ca_san_jose/refused.json) -- same reasoning as the
       # snapshot-race test above, no new job: this is a real database

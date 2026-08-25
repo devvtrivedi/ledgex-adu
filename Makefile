@@ -364,6 +364,18 @@ test-centroid-interior:
 conformance:
 	DATABASE_URL="$(DATABASE_URL)" $(PYTHON) scripts/check_conformance.py
 
+# C2 (P59): two-run regression fixture -- a permit's APN going blank must
+# never fabricate permits.active=false. Needs day4_sources.sql applied
+# (real ca_san_jose.building_permits_active source + cc0_api_2026_08
+# licence) and NO pre-existing real permits data in DATABASE_URL -- see
+# the script's own docstring: load_permits reconciles against the FULL
+# live permits.active/series_earliest set, so running it against a
+# database that already has real bulk permits facts turns every one of
+# them into an "attribution lost" exception this run. Safe against
+# ledgex_test/ledgex_ci; NOT safe against ledgex_schema_check.
+test-load-permits-attribution:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_load_permits_attribution.py
+
 # Spec §6.4 make liveness: "every active source responds with expected
 # fields." P28: real for the pack's three active, ca_san_jose-owned
 # sources -- a bounded-prefix GET (never a full ingest), checked for the
