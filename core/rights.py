@@ -105,12 +105,23 @@ def evaluate_rights_gate(cur, touched, channel):
     (scripts/compose_property_file.py's _compose(), api/main.py's
     get_parcel_facts()), only the import path changed.
 
-    touched: iterable of (fact_id, field_key, licence_id, value) rows,
-    exactly current_fact_at's own shape (and _compose's own `touched`
-    local). channel: an output_channel enum member -- caller's
-    responsibility to validate (compose() does this via KNOWN_CHANNELS
-    before touching a query; api/ validates the same way against the same
-    constant, both imported from this module).
+    touched: a Sequence (not a one-shot iterator -- see C1 below) of
+    (fact_id, field_key, licence_id, value) rows, exactly current_fact_at's
+    own shape (and _compose's own `touched` local). channel: an
+    output_channel enum member -- caller's responsibility to validate
+    (compose() does this via KNOWN_CHANNELS before touching a query; api/
+    validates the same way against the same constant, both imported from
+    this module).
+
+    C18 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): touched is read twice
+    below (once to collect licence_ids, once to build blocked_by_licence).
+    A one-shot iterator (a generator, a database cursor result consumed
+    elsewhere) would be exhausted after the first pass and silently produce
+    blocked_by_licence = {} -- fail OPEN, not closed, since the composer
+    treats an empty blocked mapping as "nothing was blocked". touched is
+    therefore materialized into a list immediately, once, so both passes
+    see the same rows regardless of what kind of iterable the caller
+    passed.
 
     Returns (allowed_by_licence, blocked_by_licence):
       allowed_by_licence  -- {licence_id: bool}, exactly the licence_channel
@@ -123,6 +134,7 @@ def evaluate_rights_gate(cur, touched, channel):
                               field whose licence does NOT carry an
                               allowed=true row for this channel.
     """
+    touched = list(touched)
     licence_ids = sorted({row[2] for row in touched})
     cur.execute(
         "SELECT licence_id, allowed FROM licence_channel WHERE licence_id = ANY(%s) AND channel = %s",
