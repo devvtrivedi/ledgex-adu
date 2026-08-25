@@ -29,8 +29,22 @@ Proves both directions, not just the fix in isolation:
      OWN_DISTRICT, not NEIGHBOR_DISTRICT -- the parcel classifies to its
      own district under the fix.
 
-Requires DATABASE_URL only. Writes one parcel row under jurisdiction_id=
-'test_p59_c1', then DELETES it itself at the end of every run, pass or
+A-N3 (P59C): the original fixture above seeds `centroid` as NULL, so it
+only exercises the `centroid IS NULL` disjunct of populate_interior_
+centroids' own re-derive predicate -- reverting just the
+`OR NOT ST_Contains(geom, centroid)` disjunct (the half that un-wedges an
+already-stored wrong point) left this suite green. A second fixture, the
+same C-shape but with the naive (non-interior) centroid PRE-STORED at
+insert time, closes that gap.
+
+A-N4 (P59C): a third fixture, a self-intersecting ("bowtie") polygon --
+ST_IsValid = false, 0057's geom_valid -- proves populate_interior_
+centroids does not raise a GEOS error and abort its caller's transaction
+when invalid geometry is present, and that the row is routed to the
+still_not_interior exception path rather than silently skipped.
+
+Requires DATABASE_URL only. Writes three parcel rows under jurisdiction_id=
+'test_p59_c1', then DELETES them itself at the end of every run, pass or
 fail (same unconditional discipline db/tests/teardown.sql uses, and the
 same zero-fact-only safety check: this fixture never writes a fact,
 verified directly before deleting, not assumed). No licence/source rows
@@ -71,6 +85,11 @@ C_SHAPE_WKT = (
 OWN_DISTRICT_WKT = "POLYGON((0 0, 4 0, 4 10, 0 10, 0 0))"
 NEIGHBOR_DISTRICT_WKT = "POLYGON((4 0, 10 0, 10 10, 4 10, 4 0))"
 
+# A-N4: self-intersecting "bowtie" -- ST_IsValid(this) is FALSE (0057's
+# geom_valid generated column computes it), so ST_Centroid/ST_PointOnSurface/
+# ST_Contains are all liable to raise a GEOS error on it (A-N4's concern).
+BOWTIE_INVALID_WKT = "POLYGON((0 0, 10 10, 10 0, 0 10, 0 0))"
+
 failures = []
 
 
@@ -100,6 +119,57 @@ def _seed(conn):
             (parcel_id, JURISDICTION_ID, f"TEST-C1-{parcel_id[:8]}", C_SHAPE_WKT),
         )
     conn.commit()
+    return parcel_id
+
+
+def _seed_pre_stored_bad_centroid(conn):
+    """A-N3: the SAME C-shaped parcel, but with the naive (non-interior)
+    ST_Centroid pre-stored as `centroid` at insert time -- reproducing an
+    already-stored-wrong point from before this fix existed, or from a
+    later geometry update that lands centroid outside geom again. Only the
+    `OR NOT ST_Contains(geom, centroid)` disjunct in
+    populate_interior_centroids' own UPDATE re-derives THIS row; the
+    `centroid IS NULL` disjunct alone never touches it, since centroid is
+    NOT NULL here by construction."""
+    with conn.cursor() as cur:
+        parcel_id = str(uuid.uuid4())
+        cur.execute(
+            """
+            INSERT INTO parcel (id, jurisdiction_id, apn, geom, centroid)
+            VALUES (%s, %s, %s, ST_Multi(ST_GeomFromText(%s, 4326)),
+                    ST_Centroid(ST_GeomFromText(%s, 4326)))
+            """,
+            (parcel_id, JURISDICTION_ID, f"TEST-C1-STOREDBAD-{parcel_id[:8]}",
+             C_SHAPE_WKT, C_SHAPE_WKT),
+        )
+    conn.commit()
+    return parcel_id
+
+
+def _seed_invalid_geometry(conn):
+    """A-N4: a self-intersecting polygon (ST_IsValid = false, 0057's
+    geom_valid). Proves populate_interior_centroids does not raise a GEOS
+    error and abort the caller's transaction when an invalid geometry is
+    present, and that the row is routed into still_not_interior instead of
+    silently skipped or silently classified against an unverifiable point."""
+    with conn.cursor() as cur:
+        parcel_id = str(uuid.uuid4())
+        cur.execute(
+            """
+            INSERT INTO parcel (id, jurisdiction_id, apn, geom)
+            VALUES (%s, %s, %s, ST_Multi(ST_GeomFromText(%s, 4326)))
+            """,
+            (parcel_id, JURISDICTION_ID, f"TEST-C1-INVALID-{parcel_id[:8]}",
+             BOWTIE_INVALID_WKT),
+        )
+        cur.execute("SELECT geom_valid FROM parcel WHERE id = %s", (parcel_id,))
+        (is_valid,) = cur.fetchone()
+    conn.commit()
+    check(
+        "fixture check: the bowtie polygon is genuinely invalid (geom_valid = false)",
+        is_valid is False,
+        f"got geom_valid={is_valid} -- fixture does not exercise A-N4's failure mode",
+    )
     return parcel_id
 
 
@@ -174,8 +244,69 @@ def test_populate_interior_centroids_fixes_it(conn, parcel_id):
     )
 
 
-def _cleanup(conn, parcel_id):
-    """Delete this run's own fixture parcel. Run unconditionally (pass or
+def test_pre_stored_bad_centroid_is_rederived(conn, parcel_id):
+    """A-N3: proves the `OR NOT ST_Contains(geom, centroid)` disjunct
+    specifically -- not just the `centroid IS NULL` arm -- by seeding a
+    centroid that is already wrong (not NULL) and confirming
+    populate_interior_centroids re-derives it to an interior point."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT ST_Contains(geom, centroid) FROM parcel WHERE id = %s",
+            (parcel_id,),
+        )
+        (pre_fix_is_interior,) = cur.fetchone()
+    check(
+        "fixture check: the pre-stored centroid is NOT interior before the fix runs",
+        pre_fix_is_interior is False,
+        f"got {pre_fix_is_interior} -- fixture does not exercise the stored-bad-point case",
+    )
+
+    with conn.cursor() as cur:
+        recomputed, still_bad = populate_interior_centroids(cur)
+    conn.commit()
+
+    check(
+        "A-N3 FIX: pre-stored bad centroid is re-derived (not left stale)",
+        parcel_id not in still_bad,
+        f"still_bad={still_bad}",
+    )
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT ST_Contains(geom, centroid) FROM parcel WHERE id = %s",
+            (parcel_id,),
+        )
+        (post_fix_is_interior,) = cur.fetchone()
+    check(
+        "A-N3 FIX: re-derived centroid is now interior to the parcel",
+        post_fix_is_interior is True,
+        f"got {post_fix_is_interior}",
+    )
+
+
+def test_invalid_geometry_does_not_abort(conn, parcel_id):
+    """A-N4: proves an invalid (self-intersecting) geometry present in the
+    same UPDATE/SELECT pass does not raise a GEOS error (which would abort
+    the whole caller's transaction -- load_zoning's, in production), and
+    that the invalid-geometry parcel is routed into still_not_interior
+    rather than silently classified or silently dropped."""
+    with conn.cursor() as cur:
+        recomputed, still_bad = populate_interior_centroids(cur)
+    conn.commit()
+
+    check(
+        "A-N4 FIX: populate_interior_centroids did not raise on invalid geometry "
+        "(reached this line at all)",
+        True,
+    )
+    check(
+        "A-N4 FIX: invalid-geometry parcel is routed to still_not_interior",
+        parcel_id in still_bad,
+        f"still_bad={still_bad}",
+    )
+
+
+def _cleanup(conn, parcel_ids):
+    """Delete this run's own fixture parcels. Run unconditionally (pass or
     fail), same discipline as db/tests/teardown.sql. Safety check mirrors
     I4/0017 directly rather than assuming: this fixture never writes a
     fact (see module docstring), but refuses to delete if one somehow
@@ -186,31 +317,40 @@ def _cleanup(conn, parcel_id):
     while proving test_flag_invalid_geometry.py's identical fix)."""
     conn.rollback()
     with conn.cursor() as cur:
-        cur.execute("SELECT count(*) FROM fact WHERE parcel_id = %s", (parcel_id,))
-        fact_count = cur.fetchone()[0]
-        if fact_count:
-            print(f"[cleanup] SKIPPED -- parcel {parcel_id} has {fact_count} fact row(s), "
-                  f"not deleting (I4). This should never happen for this fixture; investigate.")
-            return
-        cur.execute("DELETE FROM parcel WHERE id = %s", (parcel_id,))
-        n_parcel = cur.rowcount
+        for parcel_id in parcel_ids:
+            cur.execute("SELECT count(*) FROM fact WHERE parcel_id = %s", (parcel_id,))
+            fact_count = cur.fetchone()[0]
+            if fact_count:
+                print(f"[cleanup] SKIPPED -- parcel {parcel_id} has {fact_count} fact row(s), "
+                      f"not deleting (I4). This should never happen for this fixture; investigate.")
+                continue
+            cur.execute("DELETE FROM parcel WHERE id = %s", (parcel_id,))
+            print(f"[cleanup] removed {cur.rowcount} parcel row(s) for {parcel_id}")
     conn.commit()
-    print(f"[cleanup] removed {n_parcel} parcel row(s) for {parcel_id}")
 
 
 def main():
     conn = get_db()
-    parcel_id = None
+    parcel_ids = []
     try:
         parcel_id = _seed(conn)
+        parcel_ids.append(parcel_id)
         test_naive_centroid_fails_and_misclassifies(conn, parcel_id)
         test_populate_interior_centroids_fixes_it(conn, parcel_id)
+
+        stored_bad_id = _seed_pre_stored_bad_centroid(conn)
+        parcel_ids.append(stored_bad_id)
+        test_pre_stored_bad_centroid_is_rederived(conn, stored_bad_id)
+
+        invalid_id = _seed_invalid_geometry(conn)
+        parcel_ids.append(invalid_id)
+        test_invalid_geometry_does_not_abort(conn, invalid_id)
     finally:
         # Unconditional, pass or fail -- same discipline as
         # db/tests/teardown.sql, run here because nothing else ever will
         # (this script is wired standalone, never through make db-test).
-        if parcel_id is not None:
-            _cleanup(conn, parcel_id)
+        if parcel_ids:
+            _cleanup(conn, parcel_ids)
         conn.close()
 
     print(f"\n{len(failures)} failure(s)" if failures else "\nAll assertions passed")

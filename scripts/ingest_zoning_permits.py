@@ -251,7 +251,25 @@ def populate_interior_centroids(cur):
     from the caller; this only computes and returns the count/ids. Takes a
     cursor, not a connection -- called from inside load_zoning's own
     single-transaction `with conn.cursor() as cur:` block, same convention
-    as insert_exceptions(cur, ...) and every other helper in this file."""
+    as insert_exceptions(cur, ...) and every other helper in this file.
+
+    A-N4 (P59C): ST_Contains/ST_Centroid/ST_PointOnSurface can all raise a
+    GEOS error on an INVALID polygon (self-intersecting etc.) -- this
+    function had never executed against a database actually carrying
+    invalid geometry (0057's geom_valid), and one raising row would abort
+    the whole load_zoning transaction, discovered for the first time by
+    C1's own remediation run. Guarded on 0057's geom_valid (a STORED
+    generated column computed via ST_IsValid, which is itself safe on
+    invalid input -- referencing it never calls the risky functions): the
+    UPDATE below only ever touches geom_valid rows, so ST_Centroid/
+    ST_PointOnSurface never see an invalid geometry; the residual SELECT
+    uses a CASE (guaranteed short-circuit in Postgres, unlike a bare OR)
+    so ST_Contains is never evaluated for a NOT geom_valid row either --
+    those rows are routed straight into still_not_interior unconditionally,
+    the same exception path a genuinely-non-interior point already takes.
+    No remediation of the invalid geometry itself happens here -- P61's,
+    under D-6.3, tracked separately via the parcel_geometry_invalid
+    detector (C4)."""
     cur.execute("""
         UPDATE parcel
            SET centroid = CASE
@@ -259,6 +277,7 @@ def populate_interior_centroids(cur):
                              ELSE ST_PointOnSurface(geom)
                            END
          WHERE geom IS NOT NULL
+           AND geom_valid
            AND (centroid IS NULL OR NOT ST_Contains(geom, centroid))
     """)
     recomputed = cur.rowcount
@@ -267,10 +286,15 @@ def populate_interior_centroids(cur):
     # for an INVALID polygon (self-intersecting etc. -- C4's own
     # concern). Record a typed, non-blocking exception rather than
     # silently classifying against a point that still is not interior.
+    # A-N4: NOT geom_valid rows are flagged unconditionally, via the CASE's
+    # own short-circuit, without ever calling ST_Contains on them.
     cur.execute("""
         SELECT id FROM parcel
-         WHERE geom IS NOT NULL AND centroid IS NOT NULL
-           AND NOT ST_Contains(geom, centroid)
+         WHERE geom IS NOT NULL
+           AND CASE
+                 WHEN NOT geom_valid THEN TRUE
+                 ELSE (centroid IS NULL OR NOT ST_Contains(geom, centroid))
+               END
     """)
     still_not_interior = [r[0] for r in cur.fetchall()]
 
