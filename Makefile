@@ -338,6 +338,17 @@ db-test:
 	 fi; \
 	 exit $$suite_exit
 
+# P59, C1 (LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): the geometry-interior-point
+# regression fixture -- same wiring shape as db.yml's own
+# scripts/test_snapshot_race_invariant.py step (no pytest-postgresql, needs
+# a real, schema-migrated DATABASE_URL, .venv-ingest for psycopg2). Not
+# folded into db-test/invariants.sql: that suite is single-connection psql,
+# this needs a real Python process to import
+# scripts/ingest_zoning_permits.populate_interior_centroids() directly,
+# same reason the snapshot-race test isn't in invariants.sql either.
+test-centroid-interior:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_centroid_interior_invariant.py
+
 # Parameterized pack suite for sources, mappings, rights and dependency
 # cascades. Spec §1.2 make conformance: "Every enabled pack passes; no
 # rights broadening or silent missing dependency." P26: real for the one

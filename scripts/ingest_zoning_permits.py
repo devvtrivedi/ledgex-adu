@@ -184,6 +184,80 @@ REASON_MULTIPLE_CONTAINING_DISTRICTS = "multiple_containing_districts"
 # (10 the null-polygon shape, 1 the two-real-polygons-agree shape above).
 REASON_MULTIPLE_POLYGONS_AGREE = "multiple_containing_polygons_agree"
 
+# C1 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): the join point used below
+# (parcel.centroid) must be guaranteed INTERIOR to its own parcel --
+# ST_Centroid alone is not (a concave, L-shaped or multi-part parcel's
+# centroid can fall in a neighbor's polygon), and a stray point landing in
+# the wrong district got NO anomaly at all: a single containing polygon
+# with one distinct zoning value is indistinguishable from a clean match in
+# classify_zoning_candidates. This detector records the rare residual case
+# where even the ST_PointOnSurface fallback (populate_interior_centroids,
+# below) is not interior -- geometrically possible only for an invalid
+# polygon (ST_PointOnSurface guarantees an interior point for a VALID
+# geometry; see C4 for validity handling at the source). Distinct from
+# DETECTOR_KEY_ZONING_UNRESOLVABLE: that one is about the JOIN finding zero
+# or multiple districts for a good point; this one is about the POINT
+# itself not being trustworthy, before the join ever runs.
+DETECTOR_KEY_CENTROID_NOT_INTERIOR = "parcel_centroid_not_interior"
+DETECTOR_VERSION_CENTROID_NOT_INTERIOR = "1.0"
+
+
+def populate_interior_centroids(cur):
+    """C1: replaces the old unconditional `UPDATE parcel SET centroid =
+    ST_Centroid(geom) WHERE geom IS NOT NULL AND centroid IS NULL`, which had
+    two independent defects. First, ST_Centroid is not guaranteed interior --
+    fixed here by preferring it only when it verifiably IS interior
+    (ST_Contains(geom, ST_Centroid(geom))) and falling back to
+    ST_PointOnSurface(geom) (interior-guaranteed for valid geometry)
+    otherwise. Second, `WHERE centroid IS NULL` recomputed a point only
+    once, ever -- an already-stored non-interior point (from before this
+    fix, or from a future geometry update that lands centroid outside geom
+    again for some other reason) was silently wrong forever, and the
+    zoning join's own diff-every-run reconciliation (see load_zoning's own
+    docstring: "no same-snapshot short-circuit") would then keep
+    re-deriving the SAME wrong district from the SAME wrong point on every
+    run, reading as stable/confirmed. Re-deriving here on
+    `centroid IS NULL OR NOT ST_Contains(geom, centroid)` instead means any
+    already-stored bad point is corrected before the join below ever reads
+    it, and load_zoning's existing full-reclassification-every-run
+    behavior (not touched by this function) then supersedes -- never
+    updates, I4 -- any zoning.district fact that was derived from the old,
+    wrong point, through the same diff-and-supersede path every other
+    zoning reclassification already goes through. No separate supersession
+    code is needed for that reason.
+
+    Returns the count of parcels whose stored centroid was NOT interior
+    (post-update) -- these get DETECTOR_KEY_CENTROID_NOT_INTERIOR exceptions
+    from the caller; this only computes and returns the count/ids. Takes a
+    cursor, not a connection -- called from inside load_zoning's own
+    single-transaction `with conn.cursor() as cur:` block, same convention
+    as insert_exceptions(cur, ...) and every other helper in this file."""
+    cur.execute("""
+        UPDATE parcel
+           SET centroid = CASE
+                             WHEN ST_Contains(geom, ST_Centroid(geom)) THEN ST_Centroid(geom)
+                             ELSE ST_PointOnSurface(geom)
+                           END
+         WHERE geom IS NOT NULL
+           AND (centroid IS NULL OR NOT ST_Contains(geom, centroid))
+    """)
+    recomputed = cur.rowcount
+
+    # Residual check: even ST_PointOnSurface is not guaranteed interior
+    # for an INVALID polygon (self-intersecting etc. -- C4's own
+    # concern). Record a typed, non-blocking exception rather than
+    # silently classifying against a point that still is not interior.
+    cur.execute("""
+        SELECT id FROM parcel
+         WHERE geom IS NOT NULL AND centroid IS NOT NULL
+           AND NOT ST_Contains(geom, centroid)
+    """)
+    still_not_interior = [r[0] for r in cur.fetchall()]
+
+    return recomputed, still_not_interior
+
+
+
 
 def classify_zoning_candidates(candidates):
     """candidates: list of (facilityid, zoning, zoning_verbatim) for ONE
@@ -642,9 +716,33 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
 
             # Prerequisite: populate parcel.centroid. Data, not DDL -- the
             # column and its GiST index (parcel_centroid_gix) have existed
-            # since 0004 and were simply never populated before this.
-            cur.execute("UPDATE parcel SET centroid = ST_Centroid(geom) WHERE geom IS NOT NULL AND centroid IS NULL")
-            print(f"  parcel.centroid populated for {cur.rowcount:,} rows newly")
+            # since 0004 and were simply never populated before this. C1:
+            # populate_interior_centroids re-derives ANY non-interior stored
+            # point (not just NULL ones -- see its own docstring) using an
+            # interior-guaranteed fallback, and reports the (rare) residual
+            # case where even that fallback isn't interior.
+            centroid_recomputed, centroid_still_bad = populate_interior_centroids(cur)
+            print(f"  parcel.centroid populated/corrected for {centroid_recomputed:,} rows "
+                  f"({len(centroid_still_bad):,} still not interior after the interior-point fallback)")
+
+            if centroid_still_bad:
+                cur.execute("""
+                    SELECT parcel_id FROM parcel_exception
+                    WHERE detector_key = %s AND detector_version = %s AND outcome = 'open'
+                """, (DETECTOR_KEY_CENTROID_NOT_INTERIOR, DETECTOR_VERSION_CENTROID_NOT_INTERIOR))
+                existing_open_centroid = {r[0] for r in cur.fetchall()}
+                centroid_exception_rows = [
+                    ParcelException(
+                        parcel_id=pid, jurisdiction_id=JURISDICTION_ID, type="coverage_gap", severity="warning",
+                        detector_key=DETECTOR_KEY_CENTROID_NOT_INTERIOR, detector_version=DETECTOR_VERSION_CENTROID_NOT_INTERIOR,
+                        detail={"reason": "centroid_not_interior_after_fallback"},
+                    )
+                    for pid in centroid_still_bad if pid not in existing_open_centroid
+                ]
+                if centroid_exception_rows:
+                    insert_exceptions(cur, centroid_exception_rows)
+                print(f"  parcel_centroid_not_interior exceptions: {len(centroid_exception_rows):,} new "
+                      f"({len(centroid_still_bad) - len(centroid_exception_rows):,} already open)")
 
             # No count(*) OVER () here -- that counted candidate ROWS, which
             # is what made this ambiguity-detection wrong (see

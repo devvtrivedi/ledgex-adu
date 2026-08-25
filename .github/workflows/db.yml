@@ -151,6 +151,15 @@ jobs:
       - name: scripts/test_snapshot_race_invariant.py
         run: python3 scripts/test_snapshot_race_invariant.py
 
+      # P59, C1: the geometry-interior-point regression fixture (the C1
+      # acceptance criterion (d) fixture). Same job, same disposable
+      # ledgex_ci database, same reason as the snapshot-race step directly
+      # above -- needs a real Python process, not psql. Touches only
+      # jurisdiction/parcel/parcel_exception (test_p59_c1 namespace), never
+      # licence -- no seeding-order dependency on the day4 step below.
+      - name: scripts/test_centroid_interior_invariant.py
+        run: python3 scripts/test_centroid_interior_invariant.py
+
       # P36, README finding #38 (built, not left as a candidate -- finding
       # #36's own gap, cross-seeder drift between db/seeds/day4_sources.sql
       # and scripts/check_golden.py's own rule seed, was CI-unreachable
