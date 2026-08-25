@@ -28,12 +28,23 @@ only reaches a recipe's own subprocess environment when that recipe names it
 explicitly on the command line -- and roughly half of this repo's own
 python-based targets never did (`make golden` until P56 containment,
 301f312; `scripts/migrate.py`/`migrate_verify.py`/`migrate_baseline.py`
-still do not, found live by P56a's own §2 test:
-`DATABASE_URL=postgresql://nonexistent.invalid/x make migrate` reaches a raw
+did not either, found live by P56a's own §2 test:
+`DATABASE_URL=postgresql://nonexistent.invalid/x make migrate` reached a raw
 `psycopg2.OperationalError`, not this file's own refusal, because all three
-connect via env("DATABASE_URL") directly and never call get_db() at all).
-Verify any claim like this against the Makefile's own recipe text, not this
-comment -- that is exactly the check that was skipped the first time.
+connected via env("DATABASE_URL") directly and never called get_db() at
+all). D9 (P59): that TEST RESULT is no longer live -- P56a's own fix, the
+same pass this paragraph documents, added an explicit `refuse_remote()`
+call to each of the three scripts (see refuse_remote()'s own docstring
+below); re-run today, the identical command correctly refuses, naming the
+host, not a raw OperationalError (verified live before writing this
+correction, not assumed). The "never call get_db()" clause remains
+literally true -- refuse_remote() was extracted specifically so these
+three could call it directly without also inheriting get_db()'s own
+connection-policy choices (autocommit=False) that do not fit them. The
+Makefile-passing-DATABASE_URL half is also fixed (all three recipes now
+name it explicitly) -- verify any claim like this against the Makefile's
+own recipe text, not this comment, the same discipline that was skipped
+the first time.
 
 So get_db() REFUSES a non-local host unless LEDGEX_ALLOW_REMOTE_DB=1 is set
 explicitly. Modelled directly on scripts/check_golden.py's own
