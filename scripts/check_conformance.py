@@ -123,22 +123,33 @@ def seed_reference_rows(conn):
     database not because the pack is wrong, but because nothing was ever
     seeded to compare it against.
 
-    The `source` INSERT is ON CONFLICT DO UPDATE, not DO NOTHING like
-    licence/jurisdiction/field_definition above -- found for real, not
-    hypothetical: scripts/check_golden.py's OWN seed_reference_rows()
-    also inserts a ca_san_jose.parcels row (ON CONFLICT DO NOTHING,
-    never setting expected_fields, defaulting to '[]') for its own,
-    narrower purpose. db.yml's schema job runs `make golden` before this
-    script in the SAME shared, disposable database -- if golden's minimal
-    row wins the race, this seed's own DO-NOTHING insert would silently
-    no-op, leaving expected_fields empty, and the very check this script
-    exists to run (does the pack's supplies: match the live
-    expected_fields) would fail for a reason that has nothing to do with
-    the pack. DO UPDATE makes this seed's own required shape win
-    regardless of what ran first -- safe against ledgex_schema_check too,
-    since the values being written are identical to what
-    db/seeds/day4_sources.sql already put there; an UPDATE to the same
-    values is a no-op in effect, not merely in intent."""
+    C8 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): the `source` INSERT is
+    ON CONFLICT DO NOTHING, same as licence/jurisdiction/field_definition
+    above -- CORRECTED from an earlier ON CONFLICT DO UPDATE, which made
+    check_active_sources_against_database()'s comparison structurally
+    circular: it clobbered expected_fields/active/url_verified_at/
+    phase_status/phase_status_reason/endpoint_url/licence_id with this
+    script's OWN hardcoded literals immediately before reading those same
+    columns back and comparing them to the pack -- asserting "the pack
+    matches this script's own literals," never "the pack matches the
+    authority" (db/seeds/day4_sources.sql), while this docstring and the
+    module docstring both claimed the latter. In db.yml's real, current
+    step order, db/seeds/day4_sources.sql already runs BEFORE this script
+    (and before `make golden` too) -- so DO NOTHING here means this
+    seed's own fallback only ever fires when day4's real row is genuinely
+    absent (a migrations-only `make conformance` run with no seed at
+    all), and otherwise leaves day4's authoritative row untouched for the
+    comparison to read for real. The original DO UPDATE was motivated by
+    a DIFFERENT ordering hazard -- `make golden`'s own narrower
+    seed_reference_rows() (ON CONFLICT DO NOTHING, expected_fields
+    defaulting to '[]') winning a race if it ran before this script with
+    no day4 seed in between -- that hazard is real only when NEITHER day4
+    NOR this script's own seed has run first; CI's actual order rules it
+    out. A local, out-of-order invocation (make golden then make
+    conformance, with day4 never applied) can still hit it -- accepted:
+    an honest failure there (comparing against golden's own weak seed) is
+    correct behavior, not a regression, and strictly better than the
+    prior DO UPDATE's guaranteed-wrong-reason pass."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -246,14 +257,7 @@ def seed_reference_rows(conn):
               (%s, %s, 'Active Building Permits', 'City of San José', 'bulk', 'active', 'Licence confirmed: CC0.',
                %s, %s, true, '2026-08-06'::timestamptz,
                '["permits.active","permits.series_earliest"]'::jsonb)
-            ON CONFLICT (id) DO UPDATE SET
-              expected_fields = EXCLUDED.expected_fields,
-              active = EXCLUDED.active,
-              url_verified_at = EXCLUDED.url_verified_at,
-              phase_status = EXCLUDED.phase_status,
-              phase_status_reason = EXCLUDED.phase_status_reason,
-              endpoint_url = EXCLUDED.endpoint_url,
-              licence_id = EXCLUDED.licence_id
+            ON CONFLICT (id) DO NOTHING
             """,
             (
                 ip.SOURCE_ID, ip.JURISDICTION_ID, ip.ENDPOINT_URL, ip.LICENCE_ID,
