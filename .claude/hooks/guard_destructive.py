@@ -81,6 +81,50 @@ def _remote_database_url(command):
     return None
 
 
+# C24.1 (P59, annex): _remote_database_url above only sees a postgres://
+# URL LITERAL -- `psql -h remote-host -c "DELETE FROM fact"` or
+# `PGHOST=remote-host psql -c "..."` name the same remote host through a
+# form this guard's whole job is to catch commands hiding behind ("the
+# actions worth stopping here do not always live at the front", per this
+# file's own module docstring) and previously sailed through completely
+# unseen -- the "database destruction" rule below only matches DROP
+# DATABASE/SCHEMA/dropdb/OWNED/TABLESPACE by name, not an arbitrary
+# DELETE/UPDATE/INSERT or a destructive script run via -f. Scoped
+# narrowly to an actual `psql` invocation specifically (not a bare -h/
+# --host anywhere in the command) to avoid colliding with unrelated
+# tools that reuse -h for something else entirely (curl -h is --help,
+# not host; same for grep -h and others).
+#
+# Still NOT covered by either detector below (documented gap, not
+# silently absorbed): a keyword=value DSN passed as a single quoted
+# argument to psql (`psql "host=remote-host dbname=x"`) -- a third,
+# harder-to-scope-safely form, left for a future pass rather than risking
+# an overly broad pattern that starts blocking unrelated quoted strings.
+_PSQL_HOST_FLAG_RE = re.compile(
+    r"\bpsql\b[^\n;&|]*(?:-h\s+|--host[=\s])([^\s\"'`;|&)]+)"
+)
+_PGHOST_PREFIX_RE = re.compile(
+    r"\bPGHOST=([^\s\"'`;|&)]+)[^\n;&|]*\bpsql\b"
+)
+
+
+def _remote_host_flag(command):
+    """Return the first non-local host literal reached via `psql -h`/
+    `--host` or a `PGHOST=` prefix before a psql invocation, if any."""
+    for pattern in (_PSQL_HOST_FLAG_RE, _PGHOST_PREFIX_RE):
+        for m in pattern.finditer(command):
+            host = m.group(1)
+            if host.startswith("/"):
+                continue  # unix socket directory
+            if host.lower() not in _LOCAL_HOSTS:
+                return m.group(0)
+    return None
+
+
+def _remote_database_ref(command):
+    return _remote_database_url(command) or _remote_host_flag(command)
+
+
 # (rule name, matcher, reason). A matcher is a compiled regex or a callable
 # returning a truthy detail.
 RULES = [
@@ -134,7 +178,7 @@ RULES = [
     ),
     (
         "write to a non-local database",
-        _remote_database_url,
+        _remote_database_ref,
         "This command names a postgres URL that is not localhost. Writes through it\n"
         "may be PERMANENT: fact rows cannot be deleted or updated (0017, 0007/0040),\n"
         "licence and licence_channel are immutable (0027, 0033), rules cannot be\n"

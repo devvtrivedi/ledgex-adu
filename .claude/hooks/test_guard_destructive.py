@@ -41,6 +41,13 @@ MUST_BLOCK = [
     "git push -f origin main",
     "rm -rf /",
     "rm -rf ~",
+    # C24.1 (P59, annex): psql -h/--host and PGHOST= previously named a
+    # remote host through a form _remote_database_url's postgres://...
+    # regex could not see at all -- sailed through untouched.
+    'psql -h db.example.supabase.co -c "DELETE FROM fact"',
+    'psql --host=db.example.supabase.co -c "select 1"',
+    'psql --host db.example.supabase.co -U postgres -c "select 1"',
+    'PGHOST=db.example.supabase.co psql -c "UPDATE licence SET restriction = \'open\'"',
 ]
 
 MUST_ALLOW = [
@@ -63,6 +70,16 @@ MUST_ALLOW = [
     "rm -rf build/__pycache__",
     "make db-test",
     "createdb ledgex_smoke",
+    # C24.1 (P59, annex): -h means --help for curl (and several other
+    # unix tools), not --host -- the new psql-scoped host-flag detector
+    # must not fire on these merely because "-h" appears somewhere in the
+    # command.
+    "curl -h",
+    "curl -h https://data.sanjoseca.gov",
+    "grep -h pattern file.txt",
+    'psql -h localhost -c "select 1"',
+    'psql --host=127.0.0.1 -c "select 1"',
+    'PGHOST=localhost psql -c "select 1"',
 ]
 
 
