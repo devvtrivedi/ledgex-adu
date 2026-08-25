@@ -12,21 +12,33 @@
 -- SCOPE: durable namespace, not test_state's session-local v_parcel_id --
 -- this script is a SEPARATE psql invocation from the suite and has no
 -- access to that table's contents (dropped with the suite's own session,
--- pass or fail). Every one of this file's 7 parcel-creating INSERTs
--- (confirmed directly: grep 'INSERT INTO parcel\b' across invariants.sql,
--- not sampled) uses a 'test-'/'TEST-' prefixed apn -- 6 of the 7
--- uppercase ('TEST-', 'TEST-T4-', 'TEST-T5-', 'TEST-DUP-'), one (T68,
--- 'test-t68-' || uuid) lowercase, inconsistent with the rest and not
--- assumed away: matched with apn ILIKE 'test-%', case-insensitive,
--- specifically because that inconsistency is real, not a typo in this
--- file's own comment. Every job_run uses job_key LIKE 'test.%' (that
--- namespace IS consistently cased, confirmed the same way), same as
--- invariants.sql's own former teardown already established. This is
--- STRICTLY BROADER than v_parcel_id scoping -- it also reaches residue
--- any PREVIOUS run left behind, including a run that aborted before its
--- own teardown step (this file) ever got invoked -- which is the entire
--- reason this file exists as its own separate step rather than staying
--- inline.
+-- pass or fail). This file previously claimed here that all 7 of
+-- invariants.sql's parcel-creating INSERTs use a 'test-'/'TEST-' prefixed
+-- apn -- **corrected (C24.7, P59)**: that claim was false. T55
+-- (invariants.sql) deliberately inserts a parcel with apn = NULL (proving
+-- a NULL apn is accepted), and `NULL ILIKE 'test-%'` evaluates to NULL,
+-- never TRUE -- that row was invisible to every WHERE clause below,
+-- permanently, on every run: T55 writes no fact against it either, so it
+-- was also never protected by the zero-fact filter's intent, just missed
+-- by the pattern entirely. A real, confirmed orphan: one extra permanent
+-- row per db-test run, accumulating unbounded on any database this suite
+-- runs against repeatedly. Fixed by adding `OR jurisdiction_id =
+-- 'test_ca_san_jose'` alongside the apn pattern on every WHERE clause
+-- below -- that jurisdiction_id is grepped as never referenced by any
+-- real ingest code path (scripts/, core/, api/, infra/), so widening the
+-- match to it carries no risk to real data, unlike widening the apn
+-- pattern itself would. Of the 6 apn-bearing INSERTs, 5 uppercase
+-- ('TEST-', 'TEST-T4-', 'TEST-T5-', 'TEST-DUP-'), one (T68, 'test-t68-'
+-- || uuid) lowercase, inconsistent with the rest and not assumed away:
+-- matched with apn ILIKE 'test-%', case-insensitive, specifically because
+-- that inconsistency is real, not a typo in this file's own comment.
+-- Every job_run uses job_key LIKE 'test.%' (that namespace IS
+-- consistently cased, confirmed the same way), same as invariants.sql's
+-- own former teardown already established. This is STRICTLY BROADER than
+-- v_parcel_id scoping -- it also reaches residue any PREVIOUS run left
+-- behind, including a run that aborted before its own teardown step
+-- (this file) ever got invoked -- which is the entire reason this file
+-- exists as its own separate step rather than staying inline.
 --
 -- Broader scope changes what "safe" requires, and this is the design
 -- point worth stating explicitly rather than discovering it live. Class-3
@@ -85,32 +97,32 @@ DECLARE
     v_deleted int;
 BEGIN
     DELETE FROM exception_evidence
-     WHERE parcel_id IN (SELECT id FROM parcel WHERE apn ILIKE 'test-%');
+     WHERE parcel_id IN (SELECT id FROM parcel WHERE (apn ILIKE 'test-%' OR jurisdiction_id = 'test_ca_san_jose'));
     GET DIAGNOSTICS v_deleted = ROW_COUNT;
     RAISE NOTICE 'teardown: exception_evidence % row(s)', v_deleted;
 
     DELETE FROM property_file_fact
-     WHERE parcel_id IN (SELECT id FROM parcel WHERE apn ILIKE 'test-%');
+     WHERE parcel_id IN (SELECT id FROM parcel WHERE (apn ILIKE 'test-%' OR jurisdiction_id = 'test_ca_san_jose'));
     GET DIAGNOSTICS v_deleted = ROW_COUNT;
     RAISE NOTICE 'teardown: property_file_fact % row(s)', v_deleted;
 
     UPDATE parcel_exception
        SET reopened_from_id = NULL
-     WHERE parcel_id IN (SELECT id FROM parcel WHERE apn ILIKE 'test-%')
+     WHERE parcel_id IN (SELECT id FROM parcel WHERE (apn ILIKE 'test-%' OR jurisdiction_id = 'test_ca_san_jose'))
        AND reopened_from_id IS NOT NULL;
 
     DELETE FROM parcel_exception
-     WHERE parcel_id IN (SELECT id FROM parcel WHERE apn ILIKE 'test-%');
+     WHERE parcel_id IN (SELECT id FROM parcel WHERE (apn ILIKE 'test-%' OR jurisdiction_id = 'test_ca_san_jose'));
     GET DIAGNOSTICS v_deleted = ROW_COUNT;
     RAISE NOTICE 'teardown: parcel_exception % row(s)', v_deleted;
 
     DELETE FROM property_file
-     WHERE parcel_id IN (SELECT id FROM parcel WHERE apn ILIKE 'test-%');
+     WHERE parcel_id IN (SELECT id FROM parcel WHERE (apn ILIKE 'test-%' OR jurisdiction_id = 'test_ca_san_jose'));
     GET DIAGNOSTICS v_deleted = ROW_COUNT;
     RAISE NOTICE 'teardown: property_file % row(s)', v_deleted;
 
     DELETE FROM source_feature_identity
-     WHERE parcel_id IN (SELECT id FROM parcel WHERE apn ILIKE 'test-%');
+     WHERE parcel_id IN (SELECT id FROM parcel WHERE (apn ILIKE 'test-%' OR jurisdiction_id = 'test_ca_san_jose'));
     GET DIAGNOSTICS v_deleted = ROW_COUNT;
     RAISE NOTICE 'teardown: source_feature_identity % row(s)', v_deleted;
 
@@ -123,7 +135,7 @@ BEGIN
     -- class-2 (fact-bearing) TEST-% parcel, from this run or any other,
     -- is excluded by construction and left exactly as it was.
     DELETE FROM parcel
-     WHERE apn ILIKE 'test-%'
+     WHERE (apn ILIKE 'test-%' OR jurisdiction_id = 'test_ca_san_jose')
        AND NOT EXISTS (SELECT 1 FROM fact WHERE fact.parcel_id = parcel.id);
     GET DIAGNOSTICS v_deleted = ROW_COUNT;
     RAISE NOTICE 'teardown: parcel (zero-fact only) % row(s)', v_deleted;
