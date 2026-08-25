@@ -317,6 +317,68 @@ def get_job_runs(
 # EXCEPTIONS (Track A)
 # ---------------------------------------------------------------------------
 
+# C13 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): parcel_exception.detail
+# carries licence-gated data VALUES on some detector's anomaly paths --
+# zoning_spatial_join_unresolvable writes the resolved district value
+# (ingest_zoning_permits.py's REASON_MULTIPLE_POLYGONS_AGREE branch, "zoning":
+# data["zoning"]); parcel_apn_unresolvable and parcel_disappeared_from_source
+# write raw APNs (ingest_parcels.py). parcel_exception has no source_id or
+# licence_id column of its own (it is an exception row, not a fact), and each
+# detector is written by exactly one ingest script against exactly one
+# source, so this route maps detector_key -> the source whose licence
+# actually governs the values that detector's detail carries. This is a
+# second copy of a plain string vocabulary (the DETECTOR_KEY_* constants
+# already live in scripts/ingest_zoning_permits.py, scripts/ingest_parcels.py
+# and scripts/flag_invalid_geometry.py) -- the same deliberately-undiffed
+# shape KNOWN_CHANNELS documents above for output_channel: api/ does not
+# import scripts/ (see this module's own docstring), and a detector_key this
+# map is missing fails LOUD (KeyError, caught below and redacted, never
+# silently served ungated) rather than silently serving an unmapped
+# detector's detail with no gate at all.
+DETECTOR_KEY_SOURCE = {
+    "parcel_geometry_invalid": "ca_san_jose.parcels",
+    "zoning_source_geometry_invalid": "ca_san_jose.zoning_districts",
+    "zoning_spatial_join_unresolvable": "ca_san_jose.zoning_districts",
+    "parcel_apn_unresolvable": "ca_san_jose.parcels",
+    "parcel_disappeared_from_source": "ca_san_jose.parcels",
+}
+
+REDACTED_DETAIL = {"redacted_for_rights": True}
+
+
+def _gate_exception_details(cur, rows):
+    """rows: list of dicts, each with 'id', 'detector_key', 'detail' among
+    other keys (exactly _rows_as_dicts(cur)'s own shape for
+    get_exceptions()'s query). Consults core.rights.evaluate_rights_gate --
+    the SAME implementation get_parcel_facts() uses, never a second one
+    (I6, C13 acceptance (a)) -- and replaces `detail` with REDACTED_DETAIL
+    for any row whose governing source's licence does not carry an
+    allowed=true VIEWER_CHANNEL row. An unmapped detector_key (not in
+    DETECTOR_KEY_SOURCE) is treated as blocked -- fail closed, never open,
+    for a detector this map does not yet know about."""
+    source_ids = sorted({DETECTOR_KEY_SOURCE[r["detector_key"]] for r in rows if r["detector_key"] in DETECTOR_KEY_SOURCE})
+    licence_by_source = {}
+    if source_ids:
+        cur.execute("SELECT id, licence_id FROM source WHERE id = ANY(%s)", (source_ids,))
+        licence_by_source = dict(cur.fetchall())
+
+    touched = []
+    for r in rows:
+        source_id = DETECTOR_KEY_SOURCE.get(r["detector_key"])
+        licence_id = licence_by_source.get(source_id) if source_id else None
+        if licence_id is not None:
+            touched.append((r["id"], r["detector_key"], licence_id, r["detail"]))
+
+    allowed_by_licence, _ = evaluate_rights_gate(cur, touched, VIEWER_CHANNEL)
+
+    for r in rows:
+        source_id = DETECTOR_KEY_SOURCE.get(r["detector_key"])
+        licence_id = licence_by_source.get(source_id) if source_id else None
+        if licence_id is None or not allowed_by_licence.get(licence_id, False):
+            r["detail"] = REDACTED_DETAIL
+    return rows
+
+
 @app.get("/v1/exceptions")
 def get_exceptions(
     # P41 Fix 1: outcome is compared directly against parcel_exception.outcome,
@@ -351,7 +413,7 @@ def get_exceptions(
             f"FROM parcel_exception WHERE {where} ORDER BY detected_at DESC LIMIT 500",
             params,
         )
-        return {"data": _rows_as_dicts(cur)}
+        return {"data": _gate_exception_details(cur, _rows_as_dicts(cur))}
 
 
 # ---------------------------------------------------------------------------
