@@ -162,7 +162,27 @@ function showTab(id, btn) {
 }
 
 async function j(url) {
+  // C24.10 (P59, annex): fetch() only rejects on a NETWORK error -- a
+  // non-2xx HTTP response (this API's own error contract: problem+json
+  // for schema-drift/source-timeout/invalid-request/not-found/conflict/
+  // internal, per build/qa_check.py's docstring) resolves normally, with
+  // r.ok false and no exception. Calling r.json() unconditionally either
+  // throws a confusing parse error (if the error body isn't JSON) or
+  // silently succeeds with an error-shaped body lacking the `data` key
+  // every call site destructures -- `const { data } = await j(...)`
+  // would silently get data=undefined and fail downstream with no
+  // indication a server error ever happened. Checked explicitly instead.
   const r = await fetch(url);
+  if (!r.ok) {
+    let detail = "";
+    try {
+      const body = await r.json();
+      detail = body.detail || body.title || JSON.stringify(body);
+    } catch {
+      detail = await r.text().catch(() => "");
+    }
+    throw new Error(`${url} -> HTTP ${r.status}${detail ? ": " + detail : ""}`);
+  }
   return r.json();
 }
 
