@@ -1,6 +1,7 @@
 # LedgeX / ADU.X
-# Source of record: docs/LEDGEX_SPEC.md. See §1.2 for the six make targets
-# this project treats as its CI gate, and §3.13 for migration conventions.
+# Source of record: docs/LEDGEX_SPEC.md. See §1.2 for the seven make targets
+# this project treats as its CI gate (D12, P59: corrected from "six", matching
+# §1.2's own table title), and §3.13 for migration conventions.
 #
 # schema / schema-dump / conformance require a running PostgreSQL 16 +
 # PostGIS 3.4 instance reachable at DATABASE_URL. site (and qa's
@@ -120,10 +121,13 @@ qa:
 # after qa has already checked the tree as committed, not before.
 all: qa pdf
 
-# --- Six make targets (spec §1.2) ---
-# The spec's CI gate. check-boundary/schema/schema-dump/conformance/test/golden
-# are the six; `docs`/`pdf`/`qa`/`all`/`clean` above are this repo's own
-# convenience targets, not part of that six.
+# --- Seven make targets (spec §1.2) ---
+# D12 (P59): corrected from "Six" -- check-boundary/schema/schema-dump/
+# conformance/test/golden/liveness are the seven §1.2 names (liveness is
+# scheduled/workflow_dispatch-only, not push/PR-gated like the other six,
+# but it is still one of the seven -- see make liveness's own target
+# below and §1.2's own row for it); `docs`/`pdf`/`qa`/`all`/`clean` above
+# are this repo's own convenience targets, not part of that seven.
 
 # Spec §1.2 make check-boundary: "Jurisdiction-name grep, import-linter,
 # public-to-commerce catalogue query, filesystem authority, no-graph and
