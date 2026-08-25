@@ -39,7 +39,8 @@ TWO DESIGN DECISIONS, reported before writing, not picked silently:
     quietly" -- the exact case CONVENTIONS worries about ("a return value
     is easier to drop on the floor than an exception").
 
-    Refusal.code's vocabulary is §9's 19 codes, and duplicating that list
+    Refusal.code's vocabulary is §9's 23 codes (D13, P59: corrected from
+    "19" -- REFUSAL_CODES below is the live count), and duplicating that list
     a THIRD time (docs/LEDGEX_SPEC.md's own prose, 0038/0048's
     refusals_codes_valid() CHECK, now this file) is a real drift risk --
     build/qa_check.py's check_refusal_codes_match_spec() already diffs
@@ -203,6 +204,7 @@ from typing import Any, Final, Generic, Literal, TypeVar
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
 
 # --------------------------------------------------------------------------
 # Refusal + Result[T] -- I8
