@@ -151,7 +151,21 @@ SCRATCHPAD = "/tmp/ledgex_ingest_scratch"
 CHUNK_SIZE = 8 * 1024 * 1024
 
 FACT_CONFIDENCE = "high"
-FACT_CONFIDENCE_RULE_ID = "bulk_direct_from_assessor_gis"
+# C24.14 (P59, annex): this used to be one constant, FACT_CONFIDENCE_RULE_ID
+# = "bulk_direct_from_assessor_gis" -- copy-pasted from ingest_parcels.py,
+# where that label is accurate (parcels really do come direct from the
+# assessor GIS layer). Applied unchanged to every fact this file writes
+# too, including zoning.district/zoning.district_verbatim (from
+# ca_san_jose.zoning_districts, a different GIS layer, not the assessor's)
+# and permits.active/permits.series_earliest (from
+# ca_san_jose.building_permits_active, a bulk CSV export, not a GIS layer
+# at all) -- confidence_rule_id is a free-text provenance label (core/
+# model.py's Fact.confidence_rule_id, no enum constraint), and every fact
+# either function here wrote carried a false claim about which source
+# actually produced it. Split into two correctly-labeled constants, one
+# per real source.
+FACT_CONFIDENCE_RULE_ID_ZONING = "bulk_direct_from_zoning_districts_gis"
+FACT_CONFIDENCE_RULE_ID_PERMITS = "bulk_direct_from_building_permits_csv"
 FACT_PACK_VERSION = "v1.0"
 
 DETECTOR_KEY_ZONING_UNRESOLVABLE = "zoning_spatial_join_unresolvable"
@@ -860,7 +874,7 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                         field_key=field_key, value=json.dumps(fresh_value), method="bulk",
                         source_id=SOURCE_ID_ZONING, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
                         source_url=ENDPOINT_URL_ZONING, licence_id=LICENCE_ID_ZONING,
-                        confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID,
+                        confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID_ZONING,
                         effective_from=retrieved_at, pack_version=FACT_PACK_VERSION,
                     ))
                     counts["new"] += 1
@@ -880,7 +894,7 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                             field_key=field_key, value=json.dumps(fresh_value), method="bulk",
                             source_id=SOURCE_ID_ZONING, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
                             source_url=ENDPOINT_URL_ZONING, licence_id=LICENCE_ID_ZONING,
-                            confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID,
+                            confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID_ZONING,
                             effective_from=retrieved_at, pack_version=FACT_PACK_VERSION,
                             supersedes_fact_id=live_fact_id, supersession_reason="unknown",
                         ))
@@ -1239,7 +1253,7 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                         field_key=field_key, value=json.dumps(fresh_value), method="bulk",
                         source_id=SOURCE_ID_PERMITS, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
                         source_url=ENDPOINT_URL_PERMITS, licence_id=LICENCE_ID_PERMITS,
-                        confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID,
+                        confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID_PERMITS,
                         effective_from=retrieved_at, pack_version=FACT_PACK_VERSION,
                     ))
                     counts["new"] += 1
@@ -1269,7 +1283,7 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                     field_key=field_key, value=json.dumps(fresh_value), method="bulk",
                     source_id=SOURCE_ID_PERMITS, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
                     source_url=ENDPOINT_URL_PERMITS, licence_id=LICENCE_ID_PERMITS,
-                    confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID,
+                    confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID_PERMITS,
                     effective_from=retrieved_at, pack_version=FACT_PACK_VERSION,
                     supersedes_fact_id=live_fact_id, supersession_reason="world_change",
                 ))
