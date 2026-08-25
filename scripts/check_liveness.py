@@ -228,6 +228,13 @@ def main():
     print("  - non-active/non-ca_san_jose-owned sources in this pack (federal sources: NOTE only, above)")
     print("  - deep content validation beyond raw-key presence in the first "
           f"{PREFIX_BYTES:,} bytes (a field present but corrupted mid-file would not be caught)")
+    # C21.1 (P59): 0 owned_active used to fall through to "0 failures ->
+    # pass" -- a liveness check whose entire purpose is proving something
+    # responded must not report success for having checked nothing.
+    if not owned_active:
+        print(f"\n[FAIL] 0 active, {jurisdiction}-owned sources found -- nothing was probed. "
+              f"A liveness check that checks nothing is not a pass.")
+        return 1
     if failures:
         print(f"\n{len(failures)} failure(s): {failures}")
     else:
