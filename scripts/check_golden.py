@@ -9,12 +9,19 @@ member).
 SPEC.md sec 1.2's golden row names four fixture classes: composed, partial,
 refused, and geometry-disabled Base Core. This checks two -- refused and
 geometry-disabled -- because those are the only two reachable today.
-STANDING-BLOCKER.md: every licence_channel row is allowed=false,
-cleared_by/cleared_at/evidence_uri all NULL, pending counsel/owner
-clearance that has not happened. compose_property_file.py's I6 rights gate
-therefore blocks every touched fact, on every channel, for every parcel --
-correctly, because that is genuinely the rights state today, not a code
-gap. Building a composed/partial fixture would mean fabricating a licence
+D15 (P59): STANDING-BLOCKER.md's original "every licence_channel row is
+allowed=false" is no longer true without qualification -- P55's scoped
+unblock flipped the api channel to allowed=true for the two *_api_2026_08
+licences specifically (cleared_by/cleared_at/evidence_uri remain NULL;
+this is a scoped, diligence-incomplete decision, not full clearance --
+see this file's own seed_reference_rows() below, and
+prompts/P55-scoped-unblock.md). Every OTHER channel, and every other
+licence, remains allowed=false pending counsel/owner clearance that has
+not happened. compose_property_file.py's I6 rights gate still blocks
+every touched fact on THESE fixtures' own channel (paid_property_file, not
+api) for every parcel -- correctly, because that is genuinely the rights
+state for that channel today, not a code gap. Building a composed/partial
+fixture on paid_property_file would still mean fabricating a licence
 clearance that does not exist -- exactly the "do not invent values to fill
 a silence" rule this project is organised around.
 
