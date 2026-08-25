@@ -106,6 +106,18 @@ def _live_permits_active(conn, parcel_id):
         return cur.fetchone()
 
 
+def _exception_ids_reopened_from(conn, parcel_id):
+    """A-N13 (P59C): (id, reopened_from_id) for every permit_attribution_lost
+    row on this parcel, oldest first."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, reopened_from_id FROM parcel_exception WHERE parcel_id = %s "
+            "AND detector_key = %s ORDER BY detected_at ASC",
+            (parcel_id, DETECTOR_KEY_PERMIT_ATTRIBUTION_LOST),
+        )
+        return cur.fetchall()
+
+
 def _exception_outcome(conn, parcel_id):
     with conn.cursor() as cur:
         cur.execute(
@@ -169,6 +181,30 @@ def main():
     check("run 3: permit_attribution_lost exception CLOSED once re-attributed",
           _exception_outcome(conn, parcel_id) == "condition_cleared",
           f"got outcome={_exception_outcome(conn, parcel_id)!r}")
+    snap4, retrieved_at4 = _make_snapshot(conn, "run4")
+
+    # Run 4 (A-N13, P59C): the APN goes blank a SECOND time -- a reopen.
+    # The new open row must carry the first (now-closed) row's id in
+    # reopened_from_id, the P9 convention this detector never followed
+    # until this pass.
+    path4 = _write_permits_csv([("", "1/1/2026 12:00:00 AM")])
+    load_permits(conn, path4, snap4, retrieved_at4)
+    os.unlink(path4)
+
+    conn = get_db()
+    check("run 4: permit_attribution_lost exception REOPENS",
+          _exception_outcome(conn, parcel_id) == "open",
+          f"got outcome={_exception_outcome(conn, parcel_id)!r}")
+    rows = _exception_ids_reopened_from(conn, parcel_id)
+    check("A-N13 FIX: exactly 2 rows to check lineage on", len(rows) == 2, f"got {rows}")
+    if len(rows) == 2:
+        (first_id, first_reopened_from), (second_id, second_reopened_from) = rows
+        check("A-N13 FIX: the FIRST exception's reopened_from_id is NULL "
+              "(nothing before it -- not a reopening)",
+              first_reopened_from is None, f"got {first_reopened_from!r}")
+        check("A-N13 FIX: the SECOND (reopened) exception's reopened_from_id points at the FIRST",
+              second_reopened_from == first_id,
+              f"got reopened_from_id={second_reopened_from!r}, first exception's id={first_id!r}")
 
     conn.close()
     print(f"\n{len(failures)} failure(s)" if failures else "\nAll assertions passed")

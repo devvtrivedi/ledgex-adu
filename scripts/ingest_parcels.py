@@ -1744,6 +1744,18 @@ def phase_e(snapshot_id):
                     cur, DETECTOR_KEY_APN_UNRESOLVABLE, DETECTOR_VERSION_APN_UNRESOLVABLE
                 )
                 print(f"  parcel_apn_unresolvable exceptions relinked (reopened_from_id): {apn_relinked_count:,}")
+                # A-N13 (P59C): parcel_disappeared_from_source never called
+                # this -- a reopen after closure (disappear, reappear,
+                # disappear again) carried NULL reopened_from_id,
+                # inconsistent with the P9 convention DETECTOR_KEY_APN_
+                # UNRESOLVABLE two lines up already follows. Same helper,
+                # filtered internally by detector_key/version -- safe to
+                # call even though exception_rows may carry other
+                # detectors' rows in the same batch.
+                disappeared_relinked_count = relink_reopened_exceptions(
+                    cur, DETECTOR_KEY_PARCEL_DISAPPEARED, DETECTOR_VERSION_PARCEL_DISAPPEARED
+                )
+                print(f"  parcel_disappeared_from_source exceptions relinked (reopened_from_id): {disappeared_relinked_count:,}")
 
             # parcel.apn / parcel.geom / parcel.centroid are non-authoritative
             # caches of the fact ledger (0034) -- kept in sync here so a

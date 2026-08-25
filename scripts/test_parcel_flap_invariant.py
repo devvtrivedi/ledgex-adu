@@ -131,6 +131,20 @@ def _exception_count(conn, apn):
         return cur.fetchone()[0]
 
 
+def _exception_ids_reopened_from(conn, apn):
+    """A-N13 (P59C): (id, reopened_from_id) for every
+    parcel_disappeared_from_source row, oldest first."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT pe.id, pe.reopened_from_id FROM parcel_exception pe "
+            "JOIN parcel p ON p.id = pe.parcel_id "
+            "WHERE p.apn = %s AND pe.detector_key = %s "
+            "ORDER BY pe.detected_at ASC",
+            (apn, ip.DETECTOR_KEY_PARCEL_DISAPPEARED),
+        )
+        return cur.fetchall()
+
+
 def main():
     bucket = env("OBJECT_STORE_BUCKET")
     s3 = ip.get_s3()
@@ -180,6 +194,20 @@ def main():
                   _exception_count(conn, apn) == 2, f"got {_exception_count(conn, apn)}")
             check("run B2: the SECOND exception is OPEN",
                   _exception_outcome(conn, apn) == "open", f"got {_exception_outcome(conn, apn)!r}")
+
+            # A-N13 (P59C): the second (reopened) exception must carry the
+            # first's id in reopened_from_id -- the P9 convention this
+            # detector never followed until this pass.
+            rows = _exception_ids_reopened_from(conn, apn)
+            check("A-N13 FIX: exactly 2 rows to check lineage on", len(rows) == 2, f"got {rows}")
+            if len(rows) == 2:
+                (first_id, first_reopened_from), (second_id, second_reopened_from) = rows
+                check("A-N13 FIX: the FIRST exception's reopened_from_id is NULL "
+                      "(nothing before it -- not a reopening)",
+                      first_reopened_from is None, f"got {first_reopened_from!r}")
+                check("A-N13 FIX: the SECOND exception's reopened_from_id points at the FIRST",
+                      second_reopened_from == first_id,
+                      f"got reopened_from_id={second_reopened_from!r}, first exception's id={first_id!r}")
     finally:
         try:
             conn.close()

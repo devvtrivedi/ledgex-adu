@@ -1423,6 +1423,15 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
             ]
             if new_permit_exceptions:
                 insert_exceptions(cur, new_permit_exceptions)
+                # A-N13 (P59C): permit_attribution_lost never called this --
+                # a reopen after closure carried NULL reopened_from_id,
+                # inconsistent with the P9 convention DETECTOR_KEY_ZONING_
+                # UNRESOLVABLE already follows elsewhere in this file. Same
+                # helper, filtered internally by detector_key/version.
+                permit_relinked_count = relink_reopened_exceptions(
+                    cur, DETECTOR_KEY_PERMIT_ATTRIBUTION_LOST, DETECTOR_VERSION_PERMIT_ATTRIBUTION_LOST
+                )
+                print(f"  permit_attribution_lost exceptions relinked (reopened_from_id): {permit_relinked_count:,}")
             print(f"  permit_attribution_lost exceptions: {len(new_permit_exceptions):,} new, "
                   f"{len(attribution_lost_parcels) - len(new_permit_exceptions):,} already open")
 
