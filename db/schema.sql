@@ -357,11 +357,13 @@ CREATE FUNCTION public.fact_licence_validate() RETURNS trigger
 DECLARE
     target_fact_id            uuid;
     actual_licence             text;
+    actual_restriction         public.use_restriction;
     has_inputs                 boolean;
     over_permitted_channel     public.output_channel;
     commercial_violation       boolean;
     redistribution_violation   boolean;
     any_input_requires_attrib  boolean;
+    distinct_sticky_restrictions text[];
 BEGIN
     target_fact_id := CASE WHEN TG_OP = 'DELETE' THEN OLD.fact_id ELSE NEW.fact_id END;
 
@@ -371,6 +373,7 @@ BEGIN
     END IF;
 
     SELECT licence_id INTO actual_licence FROM public.fact WHERE id = target_fact_id;
+    SELECT restriction INTO actual_restriction FROM public.licence WHERE id = actual_licence;
 
     -- Channel dimension: a channel the derived licence permits, that at
     -- least one input's licence does not permit (no matching allowed=true
@@ -439,6 +442,31 @@ BEGIN
         END IF;
     END IF;
 
+    -- C11 (0058): representability check, BEFORE any of the four sticky
+    -- restriction checks below -- see this migration's own header for
+    -- the full argument. A derivation whose inputs carry more than one
+    -- distinct non-open restriction cannot be represented by this
+    -- single-valued column; refuse explicitly rather than let whichever
+    -- sticky check below happens to run first raise an unrelated-looking
+    -- error.
+    SELECT array_agg(DISTINCT l2.restriction::text ORDER BY l2.restriction::text)
+      INTO distinct_sticky_restrictions
+      FROM public.fact_input fi
+      JOIN public.fact    f2 ON f2.id = fi.input_fact_id
+      JOIN public.licence l2 ON l2.id = f2.licence_id
+     WHERE fi.fact_id = target_fact_id
+       AND l2.restriction <> 'open';
+
+    IF distinct_sticky_restrictions IS NOT NULL AND array_length(distinct_sticky_restrictions, 1) > 1 THEN
+        RAISE EXCEPTION
+            'I5_RESTRICTION_UNREPRESENTABLE: derived fact % has inputs carrying more '
+            'than one non-open restriction (%) -- licence.restriction is a single-'
+            'valued column and cannot represent their intersection (e.g. both '
+            'no_resale AND noncommercial simultaneously, at once). Refusing the '
+            'derivation rather than silently dropping one obligation.',
+            target_fact_id, distinct_sticky_restrictions;
+    END IF;
+
     -- attribution: sticky, not a permission subset. If any input requires
     -- it, the derived fact must require it too.
     SELECT EXISTS (
@@ -450,12 +478,61 @@ BEGIN
            AND l.restriction = 'attribution'
     ) INTO any_input_requires_attrib;
 
-    IF any_input_requires_attrib
-       AND (SELECT restriction FROM public.licence WHERE id = actual_licence) <> 'attribution'
-    THEN
+    -- Message text UNCHANGED from 0029's original ("I5 violated:", no new
+    -- prefix) -- this check itself is not new, only the three below it
+    -- are; db/tests/invariants.sql's own pre-existing T50/T51 assert this
+    -- exact wording and must not need to change alongside a fix that
+    -- does not touch this check's own behavior.
+    IF any_input_requires_attrib AND actual_restriction <> 'attribution' THEN
         RAISE EXCEPTION
             'I5 violated: derived fact % licence % does not require '
             'attribution, but at least one input does.',
+            target_fact_id, actual_licence;
+    END IF;
+
+    -- C11 (0058): no_resale, sticky, same shape as attribution.
+    IF EXISTS (
+        SELECT 1
+          FROM public.fact_input fi
+          JOIN public.fact    f ON f.id = fi.input_fact_id
+          JOIN public.licence l ON l.id = f.licence_id
+         WHERE fi.fact_id = target_fact_id
+           AND l.restriction = 'no_resale'
+    ) AND actual_restriction <> 'no_resale' THEN
+        RAISE EXCEPTION
+            'I5_RESTRICTION_DROPPED: derived fact % licence % does not carry '
+            'no_resale, but at least one input does.',
+            target_fact_id, actual_licence;
+    END IF;
+
+    -- C11 (0058): noncommercial, sticky, same shape.
+    IF EXISTS (
+        SELECT 1
+          FROM public.fact_input fi
+          JOIN public.fact    f ON f.id = fi.input_fact_id
+          JOIN public.licence l ON l.id = f.licence_id
+         WHERE fi.fact_id = target_fact_id
+           AND l.restriction = 'noncommercial'
+    ) AND actual_restriction <> 'noncommercial' THEN
+        RAISE EXCEPTION
+            'I5_RESTRICTION_DROPPED: derived fact % licence % does not carry '
+            'noncommercial, but at least one input does.',
+            target_fact_id, actual_licence;
+    END IF;
+
+    -- C11 (0058): unknown, sticky, same shape -- see this migration's own
+    -- header for why `unknown` is a peer here, not a special case.
+    IF EXISTS (
+        SELECT 1
+          FROM public.fact_input fi
+          JOIN public.fact    f ON f.id = fi.input_fact_id
+          JOIN public.licence l ON l.id = f.licence_id
+         WHERE fi.fact_id = target_fact_id
+           AND l.restriction = 'unknown'
+    ) AND actual_restriction <> 'unknown' THEN
+        RAISE EXCEPTION
+            'I5_RESTRICTION_DROPPED: derived fact % licence % does not carry '
+            'unknown, but at least one input does.',
             target_fact_id, actual_licence;
     END IF;
 

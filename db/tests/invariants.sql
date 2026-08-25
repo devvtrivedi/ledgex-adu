@@ -116,7 +116,36 @@ INSERT INTO licence (
   -- attribution dimension, isolated.
   ('test.attribution_required', 'Test fixture: requires attribution', 'attribution', 'allowed', 'allowed', 'Test fixture attribution text', now(), 'test', now()),
   ('test.no_attribution', 'Test fixture: does not carry attribution forward', 'open', 'allowed', 'allowed', NULL, now(), 'test', now()),
-  ('test.attribution_carried', 'Test fixture: correctly carries attribution forward', 'attribution', 'allowed', 'allowed', 'Test fixture attribution text', now(), 'test', now())
+  ('test.attribution_carried', 'Test fixture: correctly carries attribution forward', 'attribution', 'allowed', 'allowed', 'Test fixture attribution text', now(), 'test', now()),
+  -- C11 (P59, 0058): restriction='open', commercial_use='unknown',
+  -- redistribution='unknown' -- deliberately 'unknown' on BOTH permission
+  -- columns (never 'allowed'), so pairing this licence as a DERIVED fact
+  -- against ANY input never trips the pre-existing commercial_use/
+  -- redistribution 'allowed'-claim checks (those only fire when the
+  -- DERIVED side claims 'allowed') -- isolates the restriction dimension
+  -- alone, the same "each pair isolates exactly one dimension" discipline
+  -- this whole fixture block already follows. Reused across T108-T112
+  -- below as the WRONG (restriction-dropping) derived licence for
+  -- no_resale/noncommercial/unknown, and as the derived licence for the
+  -- multi-restriction refusal test, where restriction's own value is
+  -- irrelevant (the check fires before reaching any restriction-specific
+  -- comparison).
+  ('test.c11_open_unknown_perms', 'Test fixture: open restriction, unknown perms both dimensions', 'open', 'unknown', 'unknown', NULL, now(), 'test', now()),
+  -- C11 (0058) ALSO required updating T46/T47 (pre-existing, from the
+  -- ORIGINAL commercial_use/redistribution-dimension bug fix): both used
+  -- to pair test.noncommercial_only (restriction=noncommercial) with
+  -- test.no_resale_only (restriction=no_resale) as two inputs -- exactly
+  -- the multi-restriction shape 0058's own I5_RESTRICTION_UNREPRESENTABLE
+  -- check now (correctly) intercepts, before either test's own intended
+  -- commercial_use/redistribution assertion ever runs. These three new
+  -- fixtures keep restriction='open' on both inputs AND the derived fact
+  -- (isolating the commercial_use/redistribution dimension exactly the
+  -- way this file's own fixtures already isolate one dimension at a
+  -- time), so T46/T47 keep testing what they always tested, undisturbed
+  -- by the new, separate restriction dimension.
+  ('test.c11_commercial_prohibited_open', 'Test fixture: commercial_use prohibited only, open restriction', 'open', 'prohibited', 'allowed', NULL, now(), 'test', now()),
+  ('test.c11_redistribution_prohibited_open', 'Test fixture: redistribution prohibited only, open restriction', 'open', 'allowed', 'prohibited', NULL, now(), 'test', now()),
+  ('test.c11_both_prohibited_open', 'Test fixture: both commercial_use and redistribution prohibited, open restriction', 'open', 'prohibited', 'prohibited', NULL, now(), 'test', now())
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO licence_channel (licence_id, channel, allowed, rationale)
@@ -125,7 +154,9 @@ SELECT licence_id, channel, true, 'test fixture: unrestricted on channels, isola
     'test.noncommercial_only', 'test.no_resale_only', 'test.wrongly_noncommercial_derived',
     'test.correctly_restricted', 'test.unknown_commercial', 'test.claims_commercial_allowed',
     'test.claims_commercial_unknown', 'test.attribution_required', 'test.no_attribution',
-    'test.attribution_carried'
+    'test.attribution_carried', 'test.c11_open_unknown_perms',
+    'test.c11_commercial_prohibited_open', 'test.c11_redistribution_prohibited_open',
+    'test.c11_both_prohibited_open'
   ]) AS licence_id
   CROSS JOIN unnest(ARRAY['free_snapshot', 'paid_property_file', 'api', 'bulk_export']::output_channel[]) AS channel
 ON CONFLICT (licence_id, channel) DO NOTHING;
@@ -219,6 +250,24 @@ INSERT INTO snapshot (
    '6807ac29ca72075c1cc37bbdb1ed367c967981c0c74c969d045ab5e5664f7774', 'application/json', 100,
    '{"url":"https://example.com","params":{}}'::jsonb,
    200, now(), 'test.cc_by_4_0')
+ON CONFLICT (id) DO NOTHING;
+
+-- C11 (0058): two more, for T46/T47's own new open-restriction fixtures
+-- (test.c11_commercial_prohibited_open / test.c11_redistribution_
+-- prohibited_open) -- same fact_snapshot_licence_fk requirement as the
+-- block above; test.c11_both_prohibited_open needs none (used only as a
+-- DERIVED fact's licence, and a derived fact's snapshot_id is NULL by
+-- fact_provenance_complete's own CHECK).
+INSERT INTO snapshot (
+  id, source_id, object_uri, content_hash, media_type, byte_size,
+  request, http_status, fetched_at, licence_observed_id
+) VALUES
+  ('test_ca_san_jose.test_source:sha256:6e67d10df1b946e95713844eeb7965b8ce5baff84b1667fda826ed38c65e6646', 'test_ca_san_jose.test_source', 's3://bucket/test-c11-commercial-prohibited-open',
+   '6e67d10df1b946e95713844eeb7965b8ce5baff84b1667fda826ed38c65e6646', 'application/json', 100,
+   '{"url":"https://example.com","params":{}}'::jsonb, 200, now(), 'test.c11_commercial_prohibited_open'),
+  ('test_ca_san_jose.test_source:sha256:f65780f69dbee7f08d5c45622556aaf8b0fbc0a9d54e8ef2feffaf7fbe0b49e4', 'test_ca_san_jose.test_source', 's3://bucket/test-c11-redistribution-prohibited-open',
+   'f65780f69dbee7f08d5c45622556aaf8b0fbc0a9d54e8ef2feffaf7fbe0b49e4', 'application/json', 100,
+   '{"url":"https://example.com","params":{}}'::jsonb, 200, now(), 'test.c11_redistribution_prohibited_open')
 ON CONFLICT (id) DO NOTHING;
 
 -- Second source + snapshot, method='bulk' (deliberately different from
@@ -348,7 +397,13 @@ INSERT INTO field_definition (
   ('test.t69_field', 'Test Field T69', 'public_record', 'string', 'test', 'T69 invariant test field (supersession target not superseded)'),
   ('test.t70_field', 'Test Field T70', 'public_record', 'string', 'test', 'T70 invariant test field (legitimate supersession, positive control)'),
   ('test.t71_field', 'Test Field T71', 'public_record', 'string', 'test', 'T71 invariant test field (cross-source supersession rejected, 0044)'),
-  ('test.t72_field', 'Test Field T72', 'public_record', 'string', 'test', 'T72 invariant test field (same-source supersession still succeeds, 0044 positive control)')
+  ('test.t72_field', 'Test Field T72', 'public_record', 'string', 'test', 'T72 invariant test field (same-source supersession still succeeds, 0044 positive control)'),
+  ('test.t109_field', 'Test Field T109', 'public_record', 'string', 'test', 'T109 invariant test field (C11, 0058: no_resale drop rejected)'),
+  ('test.t110_field', 'Test Field T110', 'public_record', 'string', 'test', 'T110 invariant test field (C11, 0058: no_resale carried forward)'),
+  ('test.t111_field', 'Test Field T111', 'public_record', 'string', 'test', 'T111 invariant test field (C11, 0058: noncommercial drop rejected)'),
+  ('test.t112_field', 'Test Field T112', 'public_record', 'string', 'test', 'T112 invariant test field (C11, 0058: unknown restriction carried forward)'),
+  ('test.t113_field', 'Test Field T113', 'public_record', 'string', 'test', 'T113 invariant test field (C11, 0058: multi-restriction refusal, input 1 / derived)'),
+  ('test.t113_field_2', 'Test Field T113b', 'public_record', 'string', 'test', 'T113 invariant test field (C11, 0058: multi-restriction refusal, input 2)')
 ON CONFLICT (field_key) DO NOTHING;
 
 -- Cross-block scratch state for this run: the fresh parcel id, and (later)
@@ -2778,8 +2833,8 @@ BEGIN
         effective_from, pack_version
     ) VALUES (
         v_parcel_id, 'test_ca_san_jose', 'test.t46_field_a', '"input1_value"'::jsonb, 'direct',
-        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:cff19b2a105a07f128fe53e3bef1b5fd2c0820dccfc0f65f94fd767418751fcb', now(), 'https://example.com',
-        'test.noncommercial_only', 'high', 'rule_1', now(), 'v1.0'
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:6e67d10df1b946e95713844eeb7965b8ce5baff84b1667fda826ed38c65e6646', now(), 'https://example.com',
+        'test.c11_commercial_prohibited_open', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input1_fact_id;
 
     -- Input 2: commercial_use=allowed, redistribution=prohibited.
@@ -2789,18 +2844,23 @@ BEGIN
         effective_from, pack_version
     ) VALUES (
         v_parcel_id, 'test_ca_san_jose', 'test.t46_field_b', '"input2_value"'::jsonb, 'direct',
-        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:bef91ddbcb9895f41aa49c95501153f3d1ad4f5dc2c6f532fe488693c7e49664', now(), 'https://example.com',
-        'test.no_resale_only', 'high', 'rule_1', now(), 'v1.0'
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:f65780f69dbee7f08d5c45622556aaf8b0fbc0a9d54e8ef2feffaf7fbe0b49e4', now(), 'https://example.com',
+        'test.c11_redistribution_prohibited_open', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input2_fact_id;
 
     -- Derived: matches input 1 only (commercial_use=prohibited), still
     -- claims redistribution=allowed -- silently drops input 2's restriction.
+    -- C11 (0058): restriction='open' on all three rows now (was
+    -- noncommercial/no_resale/noncommercial) -- isolates this test's own
+    -- commercial_use/redistribution assertion from the separate
+    -- restriction-stickiness dimension 0058 added; see the fixture block
+    -- above for the full reasoning.
     INSERT INTO fact (
         parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
         v_parcel_id, 'test_ca_san_jose', 'test.t46_field', '"derived"'::jsonb, 'derived',
-        'v1.0', 'test.wrongly_noncommercial_derived',
+        'v1.0', 'test.c11_commercial_prohibited_open',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
 
@@ -2845,8 +2905,8 @@ BEGIN
         effective_from, pack_version
     ) VALUES (
         v_parcel_id, 'test_ca_san_jose', 'test.t47_field_a', '"input1_value"'::jsonb, 'direct',
-        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:cff19b2a105a07f128fe53e3bef1b5fd2c0820dccfc0f65f94fd767418751fcb', now(), 'https://example.com',
-        'test.noncommercial_only', 'high', 'rule_1', now(), 'v1.0'
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:6e67d10df1b946e95713844eeb7965b8ce5baff84b1667fda826ed38c65e6646', now(), 'https://example.com',
+        'test.c11_commercial_prohibited_open', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input1_fact_id;
 
     INSERT INTO fact (
@@ -2855,18 +2915,19 @@ BEGIN
         effective_from, pack_version
     ) VALUES (
         v_parcel_id, 'test_ca_san_jose', 'test.t47_field_b', '"input2_value"'::jsonb, 'direct',
-        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:bef91ddbcb9895f41aa49c95501153f3d1ad4f5dc2c6f532fe488693c7e49664', now(), 'https://example.com',
-        'test.no_resale_only', 'high', 'rule_1', now(), 'v1.0'
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:f65780f69dbee7f08d5c45622556aaf8b0fbc0a9d54e8ef2feffaf7fbe0b49e4', now(), 'https://example.com',
+        'test.c11_redistribution_prohibited_open', 'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_input2_fact_id;
 
     -- Derived: commercial_use=prohibited AND redistribution=prohibited --
-    -- correctly narrows both dimensions.
+    -- correctly narrows both dimensions. C11 (0058): restriction='open'
+    -- throughout now, same reasoning as T46 above.
     INSERT INTO fact (
         parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
         confidence, confidence_rule_id, effective_from, pack_version
     ) VALUES (
         v_parcel_id, 'test_ca_san_jose', 'test.t47_field', '"derived"'::jsonb, 'derived',
-        'v1.0', 'test.correctly_restricted',
+        'v1.0', 'test.c11_both_prohibited_open',
         'high', 'rule_1', now(), 'v1.0'
     ) RETURNING id INTO v_derived_fact_id;
 
@@ -5430,6 +5491,252 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TESTS T109-T113: C11 (P59, 0058) -- fact_licence_validate() generalized
+-- the existing attribution-stickiness shape to no_resale, noncommercial
+-- and unknown, plus an explicit multi-restriction refusal
+-- (I5_RESTRICTION_UNREPRESENTABLE). See 0058's own migration header for
+-- the full argument, including the owner's own explicit choice of this
+-- refuse-first shape over the alternative ("no vanishing to open, but
+-- any non-open value legal") that was presented alongside it. Reuses
+-- this file's own existing dimension-isolation fixtures
+-- (test.no_resale_only, test.noncommercial_only, test.unknown_commercial,
+-- test.correctly_restricted, test.claims_commercial_unknown) plus the one
+-- new fixture added above (test.c11_open_unknown_perms) -- verified each
+-- pairing does not accidentally trip the pre-existing commercial_use/
+-- redistribution checks before writing these tests, not assumed.
+-- ============================================================================
+
+\echo '### TEST T109: input carries no_resale, derived drops it (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id       uuid;
+    v_input_fact_id   uuid;
+    v_derived_fact_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t109_field', '"input_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:bef91ddbcb9895f41aa49c95501153f3d1ad4f5dc2c6f532fe488693c7e49664', now(), 'https://example.com',
+        'test.no_resale_only', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_input_fact_id;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
+        confidence, confidence_rule_id, effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t109_field', '"derived"'::jsonb, 'derived',
+        'v1.0', 'test.c11_open_unknown_perms',
+        'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_derived_fact_id;
+
+    BEGIN
+        INSERT INTO fact_input (fact_id, input_fact_id, ordinal, role)
+        VALUES (v_derived_fact_id, v_input_fact_id, 1, 'test_input');
+
+        SET CONSTRAINTS fact_licence_inheritance IMMEDIATE;
+
+        RAISE EXCEPTION 'FAIL T109: derived fact dropping a required no_resale was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'I5_RESTRICTION_DROPPED:%does not carry no_resale, but at least one input does%' THEN
+                RAISE NOTICE 'PASS T109: no_resale drop rejected at COMMIT (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T109');
+            ELSE
+                RAISE EXCEPTION 'FAIL T109: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+\echo '### TEST T110: input carries no_resale, derived carries it forward too (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id       uuid;
+    v_input_fact_id   uuid;
+    v_derived_fact_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t110_field', '"input_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:bef91ddbcb9895f41aa49c95501153f3d1ad4f5dc2c6f532fe488693c7e49664', now(), 'https://example.com',
+        'test.no_resale_only', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_input_fact_id;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
+        confidence, confidence_rule_id, effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t110_field', '"derived"'::jsonb, 'derived',
+        'v1.0', 'test.correctly_restricted',
+        'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_derived_fact_id;
+
+    INSERT INTO fact_input (fact_id, input_fact_id, ordinal, role)
+    VALUES (v_derived_fact_id, v_input_fact_id, 1, 'test_input');
+
+    SET CONSTRAINTS fact_licence_inheritance IMMEDIATE;
+
+    RAISE NOTICE 'PASS T110: derived fact correctly carrying no_resale forward accepted (id=%)', v_derived_fact_id;
+    INSERT INTO test_pass VALUES ('T110');
+END $$;
+
+\echo '### TEST T111: input carries noncommercial, derived drops it (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id       uuid;
+    v_input_fact_id   uuid;
+    v_derived_fact_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t111_field', '"input_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:cff19b2a105a07f128fe53e3bef1b5fd2c0820dccfc0f65f94fd767418751fcb', now(), 'https://example.com',
+        'test.noncommercial_only', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_input_fact_id;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
+        confidence, confidence_rule_id, effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t111_field', '"derived"'::jsonb, 'derived',
+        'v1.0', 'test.c11_open_unknown_perms',
+        'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_derived_fact_id;
+
+    BEGIN
+        INSERT INTO fact_input (fact_id, input_fact_id, ordinal, role)
+        VALUES (v_derived_fact_id, v_input_fact_id, 1, 'test_input');
+
+        SET CONSTRAINTS fact_licence_inheritance IMMEDIATE;
+
+        RAISE EXCEPTION 'FAIL T111: derived fact dropping a required noncommercial was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'I5_RESTRICTION_DROPPED:%does not carry noncommercial, but at least one input does%' THEN
+                RAISE NOTICE 'PASS T111: noncommercial drop rejected at COMMIT (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T111');
+            ELSE
+                RAISE EXCEPTION 'FAIL T111: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+\echo '### TEST T112: input carries unknown restriction, derived carries it forward too (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id       uuid;
+    v_input_fact_id   uuid;
+    v_derived_fact_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t112_field', '"input_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', now(), 'https://example.com',
+        'test.unknown_commercial', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_input_fact_id;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
+        confidence, confidence_rule_id, effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t112_field', '"derived"'::jsonb, 'derived',
+        'v1.0', 'test.claims_commercial_unknown',
+        'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_derived_fact_id;
+
+    INSERT INTO fact_input (fact_id, input_fact_id, ordinal, role)
+    VALUES (v_derived_fact_id, v_input_fact_id, 1, 'test_input');
+
+    SET CONSTRAINTS fact_licence_inheritance IMMEDIATE;
+
+    RAISE NOTICE 'PASS T112: derived fact correctly carrying unknown restriction forward accepted (id=%)', v_derived_fact_id;
+    INSERT INTO test_pass VALUES ('T112');
+END $$;
+
+\echo '### TEST T113: inputs carry TWO distinct non-open restrictions -- refused as unrepresentable (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id        uuid;
+    v_input_fact_id_1  uuid;
+    v_input_fact_id_2  uuid;
+    v_derived_fact_id  uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t113_field', '"input_value_1"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:bef91ddbcb9895f41aa49c95501153f3d1ad4f5dc2c6f532fe488693c7e49664', now(), 'https://example.com',
+        'test.no_resale_only', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_input_fact_id_1;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t113_field_2', '"input_value_2"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:cff19b2a105a07f128fe53e3bef1b5fd2c0820dccfc0f65f94fd767418751fcb', now(), 'https://example.com',
+        'test.noncommercial_only', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_input_fact_id_2;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
+        confidence, confidence_rule_id, effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t113_field', '"derived"'::jsonb, 'derived',
+        'v1.0', 'test.c11_open_unknown_perms',
+        'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_derived_fact_id;
+
+    BEGIN
+        INSERT INTO fact_input (fact_id, input_fact_id, ordinal, role)
+        VALUES (v_derived_fact_id, v_input_fact_id_1, 1, 'test_input');
+        INSERT INTO fact_input (fact_id, input_fact_id, ordinal, role)
+        VALUES (v_derived_fact_id, v_input_fact_id_2, 2, 'test_input');
+
+        SET CONSTRAINTS fact_licence_inheritance IMMEDIATE;
+
+        RAISE EXCEPTION 'FAIL T113: derived fact over inputs carrying TWO distinct non-open restrictions was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'I5_RESTRICTION_UNREPRESENTABLE:%more than one non-open restriction%' THEN
+                RAISE NOTICE 'PASS T113: multi-restriction derivation refused as unrepresentable (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T113');
+            ELSE
+                RAISE EXCEPTION 'FAIL T113: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -5510,22 +5817,30 @@ END $$;
 -- PARCEL_NO_FACTS (a real, reachable shape); T105 still rejects a
 -- genuinely unknown code after this widening, its own fresh literal
 -- (T98's lesson, repeated).
--- Raised 122 -> 124 by P56 Phase 2 (finding #50): T106 no parcel created
--- this run carries jurisdiction_id='ca_san_jose'; T107 the same for
--- job_run/rule rows created this run, which T106's own composite-FK
--- argument does not reach.
+-- Raised 125 -> 130 by P59 (LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md, C11, 0058):
+-- T109-T113 -- fact_licence_validate() generalized the existing
+-- attribution-stickiness shape to no_resale, noncommercial and unknown,
+-- plus an explicit refusal (I5_RESTRICTION_UNREPRESENTABLE) when a
+-- derivation's inputs carry more than one distinct non-open restriction
+-- (licence.restriction is single-valued and cannot represent their
+-- intersection). T109/T111 negative (drop rejected), T110/T112 positive
+-- (correct propagation accepted), T113 the multi-restriction refusal.
 -- Raised 124 -> 125 by P59 (LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md, C12): T108
 -- no licence_channel row is allowed=true for a licence with unknown or
 -- prohibited terms -- the one-query CI invariant the audit's own C12
 -- refutation handed over, turning I6's unknown-rights-block from a
 -- seed-discipline hope into a checked, push-gated invariant.
+-- Raised 122 -> 124 by P56 Phase 2 (finding #50): T106 no parcel created
+-- this run carries jurisdiction_id='ca_san_jose'; T107 the same for
+-- job_run/rule rows created this run, which T106's own composite-FK
+-- argument does not reach.
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 125 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 125 passing tests, got %', v_pass_count;
+    IF v_pass_count < 130 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 130 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 
