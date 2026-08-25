@@ -652,5 +652,19 @@ local-up:
 local-down:
 	$(PYTHON) scripts/local_up.py --down
 
+# P59 sweep (pre-review verification, not part of the original C24.1 fix):
+# .claude/hooks/test_guard_destructive.py (48 MUST_BLOCK/MUST_ALLOW cases)
+# was added by C24.1 and proven 48/48 once, by hand, at fix time -- but
+# never wired into this Makefile or any .github/workflows/*.yml, so nothing
+# would catch a future regression of the guard's psql -h/PGHOST coverage.
+# Found during the sweep's own wiring check (grep for the filename came
+# back empty everywhere, the same shape as C20's own defect class); not
+# folded into qa/check-boundary/all since guard_destructive.py is Claude
+# Code dev-tooling (a PreToolUse hook, .claude/settings.json), not one of
+# §1.2's seven spec-defined targets -- a standalone target instead, run
+# deliberately, same reasoning as local-up/local-down above.
+test-guard-destructive:
+	$(PYTHON) .claude/hooks/test_guard_destructive.py
+
 clean:
 	rm -rf dist build/__pycache__ $(SCHEMA_DUMP).tmp
