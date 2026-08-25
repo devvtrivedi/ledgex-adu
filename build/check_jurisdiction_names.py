@@ -51,58 +51,178 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CORE_DIR = ROOT / "core"
 
-BLOCKLIST = [
-    # Jurisdiction ids named in §2's repository tree.
-    "ca_san_jose",
-    "ca_santa_clara_county",
-    "ca_state",
+# C6 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): each entry is a WORD
+# SEQUENCE, not a literal string -- _pattern_for() below joins the words
+# with a flexible, optional separator ([\s_-]*, case-insensitive) so
+# "ca_san_jose", "ca-san-jose", "ca san jose" and "caSanJose" all match the
+# SAME compiled pattern (IGNORECASE makes the case transition inside
+# "caSanJose" invisible to the matcher; the zero-width separator handles
+# the no-separator camelCase/concatenated case). Single-word entries
+# (APN, ZONING, ...) go through the identical builder for one consistent
+# code path, not a special case.
+WORD_SEQUENCES = [
+    # Jurisdiction ids named in §2's repository tree, plus their bare
+    # (no "ca_" prefix) city/county-name-only forms -- probed directly and
+    # confirmed missing from the pre-fix blocklist (audit: "bare 'san_jose'
+    # ... all pass").
+    ("ca", "san", "jose"),
+    ("san", "jose"),
+    ("ca", "santa", "clara", "county"),
+    ("santa", "clara"),
+    ("ca", "state"),
     # The human-readable city name, in prose -- I1 forbids the
-    # jurisdiction name, not just its identifier form.
-    "San Jose",
-    "San José",
+    # jurisdiction name, not just its identifier form. "san jose" above
+    # already covers this under IGNORECASE + flexible separator (a plain
+    # space IS one of the allowed separators) -- kept as an explicit
+    # comment, not a redundant second entry, so a future reader does not
+    # wonder where "San Jose" prose is caught.
+    #
     # San-José-source-specific property/column names, found as literal
     # string lookup keys during the scripts/*.py copy-list audit.
-    "APN",
-    "ZONING",
-    "ASSESSORS_PARCEL_NUMBER",
-    "ZONINGABBREV",
-    "SITUSADDR",
-    "SITEADDRESS",
-    "SITE_ADDR",
-    "SITUS_ADDRESS",
+    ("apn",),
+    ("zoning",),
+    ("assessors", "parcel", "number"),
+    ("zoning", "abbrev"),
+    ("situs", "addr"),
+    ("site", "address"),
+    ("site", "addr"),
+    ("situs", "address"),
 ]
 
-# Matched as whole tokens (word boundaries), case-sensitive: these are
-# exact identifiers/property keys as they appear in source data and code,
-# not prose words that might otherwise share a substring.
-PATTERN = re.compile(r"\b(" + "|".join(re.escape(w) for w in BLOCKLIST) + r")\b")
+
+def _pattern_for(words):
+    # \b at the outer edges only -- internal boundaries between words are
+    # the flexible separator itself, not \b, precisely so a zero-width
+    # (camelCase/concatenated) join still matches.
+    body = r"[\s_-]*".join(re.escape(w) for w in words)
+    return re.compile(r"\b" + body + r"\b", re.IGNORECASE)
+
+
+COMPILED = [(seq, _pattern_for(seq)) for seq in WORD_SEQUENCES]
+
+# Data-file extensions scanned in addition to *.py (C6 acceptance (b)):
+# a jurisdiction lookup table dropped as a non-.py file was invisible to
+# both this grep and import-linter before this pass. Binary/generated
+# artifacts are deliberately excluded (nothing under core/ is expected to
+# be one; if that changes, this list is the place to extend, not a reason
+# to widen the glob to "every file").
+DATA_EXTENSIONS = (".json", ".yaml", ".yml", ".sql", ".txt")
+
+# WHAT THIS STILL CANNOT CATCH, STATED HONESTLY (C6 acceptance (c), not an
+# implied guarantee): runtime string construction -- e.g. "ca_" + "san_jose"
+# as two separate literals concatenated at execution time -- produces no
+# single line containing the forbidden compound, so this line-by-line
+# static grep cannot see it, by construction. No case-insensitivity or
+# separator-flexibility closes that gap; only a data-flow/taint analysis
+# could, and this script is not one. I1's CI enforcement is therefore
+# narrower than I1's own text ("a violation should be impossible") --
+# recorded here, not left as an implied guarantee this script does not
+# back.
+
+
+# GRANDFATHERED (C6, P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): exact
+# (relative_path, line, matched_token) triples for pre-existing violations
+# this widening pass caught for real, run against the real tree, per
+# CONVENTIONS' own requirement -- not hidden by narrowing the pattern
+# (CONVENTIONS forbids weakening a check to make something pass). This is
+# NOT a directory or pattern exemption -- exact sites only, and a NEW
+# occurrence of any of these tokens anywhere else still fails. Every entry
+# below carries the new finding it belongs to (deliverable §f of the P59
+# pass that discovered it, not yet a numbered register finding) and a
+# one-line reason. A grandfathered site whose line no longer contains its
+# recorded token is itself a failure (STALE ENTRY, printed as such) --
+# an exemption that outlives its violation is exactly the kind of
+# self-certifying claim this repo has already found rotting twice
+# (teardown.sql's "confirmed directly", 0056's "TRUE no-op").
+#
+# core/model.py's Parcel.apn / Parcel.situs_address, and core/store.py's /
+# core/exceptions.py's own docstring references to `.apn` -- a real,
+# pre-existing I1 violation the case-sensitivity bug in this script was
+# concealing (bare uppercase "APN" was already deliberately blocklisted;
+# see this module's own "CORRECTED" docstring paragraph above). Whether
+# "apn" is a local (San-José-specific) field name or portable US-assessor
+# domain vocabulary for I1's purposes is an open question, put to the
+# owner in this pass's own deliverable, not resolved here by removing the
+# match. 0035_parcel_source_parcel_id_field.sql shows this repo already
+# has a working precedent for a jurisdiction-neutral name at the schema
+# layer (field_key "parcel.source_parcel_id", not "parcel.PARCELID") --
+# renaming core/model.py's fields is a real, separate, cross-cutting
+# refactor (touches core/, api/, scripts/, possibly the API wire
+# contract), out of scope for this pass.
+GRANDFATHERED = {
+    ("core/exceptions.py", 193, "apn"),
+    ("core/exceptions.py", 213, "apn"),
+    ("core/model.py", 515, "apn"),
+    ("core/model.py", 516, "apn"),
+    ("core/model.py", 530, "apn"),
+    ("core/model.py", 531, "situs_address"),
+    ("core/store.py", 12, "apn"),
+    ("core/store.py", 19, "apn"),
+}
 
 
 def check():
     if not CORE_DIR.exists():
         print("core/ does not exist -- nothing to check.")
-        return []
+        return [], set()
 
     failures = []
-    for path in sorted(CORE_DIR.rglob("*.py")):
+    grandfathered_seen = set()
+    paths = sorted(
+        p for p in CORE_DIR.rglob("*")
+        if p.is_file() and (p.suffix == ".py" or p.suffix in DATA_EXTENSIONS)
+    )
+    for path in paths:
+        relpath = str(path.relative_to(ROOT))
         text = path.read_text(encoding="utf-8")
         for lineno, line in enumerate(text.splitlines(), start=1):
-            m = PATTERN.search(line)
-            if m:
-                failures.append(
-                    f"{path.relative_to(ROOT)}:{lineno}: forbidden token "
-                    f"'{m.group(1)}' (I1: core/ contains no jurisdiction "
-                    f"name, local rule or local field name)")
-    return failures
+            for seq, pattern in COMPILED:
+                m = pattern.search(line)
+                if m:
+                    key = (relpath, lineno, m.group(0).lower())
+                    if key in GRANDFATHERED:
+                        grandfathered_seen.add(key)
+                        continue
+                    failures.append(
+                        f"{relpath}:{lineno}: forbidden token "
+                        f"'{m.group(0)}' (matches word sequence {seq!r}; I1: "
+                        f"core/ contains no jurisdiction name, local rule or "
+                        f"local field name)")
+
+    stale = GRANDFATHERED - grandfathered_seen
+    for relpath, lineno, token in sorted(stale):
+        failures.append(
+            f"{relpath}:{lineno}: STALE GRANDFATHER ENTRY -- '{token}' no "
+            f"longer matches at this line. Either the violation was fixed "
+            f"(remove this entry from GRANDFATHERED) or it moved (update "
+            f"the line number) -- an exemption must never outlive what it "
+            f"exempts.")
+
+    return failures, grandfathered_seen
 
 
 if __name__ == "__main__":
-    failures = check()
+    failures, grandfathered_seen = check()
+
+    # Printed every run, pass or fail -- same coverage-honesty discipline
+    # make test/make golden/make viewer-test already use: a grandfather
+    # list nobody has to go looking for is a list that stays accurate.
+    print(f"GRANDFATHERED (pre-existing, exact-site only) -- {len(GRANDFATHERED)} entr"
+          f"{'y' if len(GRANDFATHERED) == 1 else 'ies'}:")
+    for relpath, lineno, token in sorted(GRANDFATHERED):
+        seen_mark = "OK" if (relpath, lineno, token) in grandfathered_seen else "STALE"
+        print(f"  [{seen_mark}] {relpath}:{lineno} '{token}'")
+    print()
+
     if failures:
         print("JURISDICTION-NAME GREP FAILED\n")
         for f in failures:
             print("  x " + f)
         sys.exit(1)
-    files_checked = len(list(CORE_DIR.rglob("*.py"))) if CORE_DIR.exists() else 0
+    files_checked = (
+        len([p for p in CORE_DIR.rglob("*") if p.is_file() and (p.suffix == ".py" or p.suffix in DATA_EXTENSIONS)])
+        if CORE_DIR.exists() else 0
+    )
     print(f"JURISDICTION-NAME GREP PASSED -- {files_checked} file(s) under "
-          f"core/ scanned, no blocklisted token found.")
+          f"core/ scanned (.py + {DATA_EXTENSIONS}), no blocklisted token found "
+          f"outside the {len(GRANDFATHERED)} grandfathered site(s) above.")
