@@ -141,6 +141,26 @@ def resolved_host(database_url):
 
 
 def _is_local(database_url):
+    # A-N9 (P59C): resolved_host() reads only the netloc and the `host`
+    # query parameter -- libpq itself also honors `hostaddr` and `service`
+    # (a service file can name an entirely different host), so a URL
+    # carrying either routed around this guard completely, inheriting the
+    # C23 docstring's own two DEFERRED gaps but undocumented there. Refuses
+    # outright rather than resolving them correctly: reimplementing the
+    # rest of libpq's DSN resolution inside a security-relevant guard is
+    # exactly the false-sense-of-completeness risk the C23 docstring
+    # already argues against, and `hostaddr`/`service` are rare enough in
+    # this repo's own DSNs (grepped: nothing sets either) that refusing the
+    # shape outright costs nothing real. Checked before resolved_host()'s
+    # own answer -- a URL naming a local `host` AND a `hostaddr`/`service`
+    # is still refused, since which one libpq actually uses is exactly the
+    # ambiguity this guard is not trying to resolve.
+    try:
+        query = parse_qs(urlparse(database_url).query)
+    except ValueError:
+        query = {}
+    if "hostaddr" in query or "service" in query:
+        return False
     host = resolved_host(database_url)
     if host is None:
         # Unparseable is NOT treated as local. A URL this function cannot read
@@ -187,6 +207,20 @@ def refuse_remote(database_url):
           exactly one host via urlparse/parse_qs and cannot represent
           "tries host1, falls back to host2" -- a URL mixing one local and
           one remote host is not correctly classified either way.
+
+    A-N9 (P59C, CLOSED -- not deferred): a third gap, `hostaddr`/`service`
+    query parameters (libpq honors both; a service file can name an
+    entirely different host), is now handled -- but by refusing the URL
+    outright (_is_local() below returns False whenever either is present,
+    before it even asks resolved_host()'s own opinion), not by resolving
+    them correctly. Same reasoning as (a)/(b) above: reimplementing that
+    slice of libpq's DSN resolution risks a false sense of completeness
+    worse than refusing the shape. Chosen over "reimplement resolution for
+    hostaddr/service specifically" because refuse-outright is simpler,
+    equally safe (a caller who genuinely needs one sets
+    LEDGEX_ALLOW_REMOTE_DB=1, same escape hatch every other remote case
+    already uses), and does not narrow this docstring's own honesty about
+    (a)/(b) remaining open.
     """
     if _is_local(database_url) or os.environ.get(_ALLOW_REMOTE_VAR) == "1":
         return
