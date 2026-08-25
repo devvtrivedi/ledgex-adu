@@ -76,12 +76,23 @@ This is a plan, not work performed. Executing it is a separate authorization
    and running the ingest as a real job_run against `ledgex_schema_check` with
    `DATABASE_URL` explicitly overridden to the local container (never the `.env`
    default -- see the safety note in P59-LEDGER.md).
-4. Command (not run this pass):
+4. **Corrected (A-N12, P59C).** The command below was wrong: `--phase zoning` is
+   not in the script's argparse surface (`--source {zoning,permits}` and
+   `--phase {b,load}` are two separate flags) -- the original form died on first
+   contact, safely (`SystemExit: 2`, before opening a connection), but P61 is the
+   pass that runs this under owner authorization and it should not have to
+   discover the correct flags for the first time then. Corrected command (still
+   not run this pass):
    `DATABASE_URL="postgresql://postgres:x@localhost:5432/ledgex_schema_check" \
-   .venv-ingest/bin/python3 scripts/ingest_zoning_permits.py --phase zoning \
+   .venv-ingest/bin/python3 scripts/ingest_zoning_permits.py --source zoning \
+   --phase load \
    --snapshot-id ca_san_jose.zoning_districts:sha256:eae7823a22e72537d5738d473c6c8289e0e2af78e76be782ea5e432fdd5d04ba`
-   (exact flag names not re-verified against the script's current argparse surface
-   in this pass -- verify before running).
+   Verified argparse accepts this exact form: run against a deliberately
+   nonexistent database (`DATABASE_URL=postgresql://dev@localhost/ledgex_does_not_exist_dryrun`),
+   it parses cleanly, dispatches to `phase_zoning_load()`, and fails only at
+   `get_db()`'s connection attempt (`psycopg2.OperationalError: ... database
+   "ledgex_does_not_exist_dryrun" does not exist`) -- proving the flags parse and
+   dispatch correctly without ever reaching a real database or writing anything.
 5. Expected result: S1 returns 0 on `ledgex_schema_check` afterward, and the 1,057
    facts in the CSV above each show a non-null `superseded_at` with a real
    successor fact citing the corrected centroid's classification (or, for parcels
