@@ -58,7 +58,12 @@ finding #35 -- see 0053's own migration header for why these are two
 codes, not one, and not folded into RULE_UNAVAILABLE), PARCEL_REFERENCE_
 UNKNOWN (L0) and PARCEL_NO_FACTS (L8, both P37, README finding #40 --
 see 0055's own migration header for why neither reuses PARCEL_NOT_FOUND
-or COVERAGE_GAP/INSUFFICIENT_COVERAGE despite the adjacent names).
+or COVERAGE_GAP/INSUFFICIENT_COVERAGE despite the adjacent names), and
+LICENCE_UNKNOWN (L0, P53, prompts/P53-l0-gate.md -- the jurisdiction
+gate; D14, P59: this list previously omitted it, though it is the one
+refusal code every current real composition against a real database
+emits, since no jurisdiction.incorporated fact is ever seeded for a real
+parcel yet).
 PARCEL_REFERENCE_UNKNOWN is the one code this script returns as a typed
 Result directly, never as a property_file row -- see compose()'s own
 docstring.
@@ -258,7 +263,7 @@ def compose(conn, parcel_id, channel, election=None, as_of=None):
     caller's own pre-existing, uncommitted transaction as a side effect of an
     input-validation error detected before compose() has done any work at all
     -- a STRONGER, more surprising claim on the caller's connection than the
-    current code makes, not a weaker one. None of the five real call sites
+    current code makes, not a weaker one. None of the real call sites
     listed below need it: an invalid channel reaching compose() is a
     programming error on the caller's side (a hardcoded literal, not
     user input at this layer), caught in development, not a runtime condition
@@ -304,12 +309,22 @@ def compose(conn, parcel_id, channel, election=None, as_of=None):
     a caller must COMMIT its own fixture/setup writes BEFORE calling compose()
     with a channel that will pass the KNOWN_CHANNELS check, because the
     rollback in `finally` ends whatever transaction is open on `conn`,
-    including work the caller started. Verified true of all five real call
-    sites at the time of writing, by reading each one rather than assuming:
-    check_golden.run_composition (seed_reference_rows and
-    make_fixture_parcel_and_fact both commit), test_compose_election._seed,
-    test_compose_parcel_refusals (both call sites), and
-    test_compose_geometry_tier_used._seed.
+    including work the caller started. D14 (P59): re-verified fresh against
+    the current tree, by reading each call site rather than reusing an old
+    count -- NINE real call sites today, not five (five was the original
+    P41 count; P53's own test_compose_l0_gate.py added three more test
+    functions calling compose(), and this pass's own C3 fix added a
+    fourth, test_explicit_false_value_still_refuses -- five + one more from
+    l0_gate's own four = nine): check_golden.run_composition
+    (seed_reference_rows and make_fixture_parcel_and_fact both commit),
+    test_compose_election._seed, test_compose_parcel_refusals (both call
+    sites), test_compose_geometry_tier_used._seed, and
+    test_compose_l0_gate.py's four test functions
+    (test_negative_control_jurisdiction_unresolvable_still_refuses,
+    test_positive_companion_jurisdiction_resolvable_does_not_refuse,
+    test_explicit_false_value_still_refuses,
+    test_untouched_jurisdiction_never_gates -- each commits its own
+    `_seed_l0_gate_fixture`/`_seed_fact` calls before its own compose()).
     """
     if channel not in KNOWN_CHANNELS:
         raise ValueError(
