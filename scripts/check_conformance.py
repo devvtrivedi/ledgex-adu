@@ -117,11 +117,22 @@ def seed_reference_rows(conn):
     db/seeds/day4_sources.sql's own real expected_fields, observed_at,
     cleared_by/cleared_at values -- never a fabricated clearance.
 
-    Needed because CI's schema job applies migrations only and never runs
-    db/seeds/ (CLAUDE.md's own documented rule) -- without this, every
-    active-source check below would fail on a fresh, migrations-only
-    database not because the pack is wrong, but because nothing was ever
-    seeded to compare it against.
+    Needed for a LOCAL, standalone `make conformance` run against a fresh
+    migrations-only database (day4_sources.sql never applied) -- without
+    this, every active-source check below would fail not because the pack
+    is wrong, but because nothing was ever seeded to compare it against.
+    D4 (P59): this docstring used to claim CI's schema job "applies
+    migrations only and never runs db/seeds/" as "CLAUDE.md's own
+    documented rule" -- CLAUDE.md's own text corrected that blanket claim
+    at P53 (2026-08-22): db.yml's schema job DOES run
+    db/seeds/day4_sources.sql, between make db-test and this script's own
+    later step in the same job (added by P36) -- so in the real CI run
+    this fallback normally no-ops (day4's real row already exists) and
+    the comparison below reads day4's own values, not this fallback's.
+    Only db-test's own step, and the dedicated p5-acceptance/
+    phaseb-acceptance jobs' own separate databases, stay migrations-only
+    for their entire run -- see CLAUDE.md's own corrected paragraph for
+    the full statement.
 
     C8 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): the `source` INSERT is
     ON CONFLICT DO NOTHING, same as licence/jurisdiction/field_definition
