@@ -150,12 +150,18 @@ DATA_EXTENSIONS = (".json", ".yaml", ".yml", ".sql", ".txt")
 # refactor (touches core/, api/, scripts/, possibly the API wire
 # contract), out of scope for this pass.
 GRANDFATHERED = {
-    ("core/exceptions.py", 193, "apn"),
-    ("core/exceptions.py", 213, "apn"),
-    ("core/model.py", 515, "apn"),
-    ("core/model.py", 516, "apn"),
-    ("core/model.py", 530, "apn"),
-    ("core/model.py", 531, "situs_address"),
+    # Line numbers updated (P59, later in the same pass): C24.4 shifted
+    # core/exceptions.py, C24.8 shifted core/model.py -- caught by this
+    # very staleness check when make check-boundary was run as part of
+    # the D10/D18 spec-amendment sweep. Content re-verified unchanged at
+    # the new positions before updating (same docstring/field-definition
+    # sites, not new violations).
+    ("core/exceptions.py", 210, "apn"),
+    ("core/exceptions.py", 230, "apn"),
+    ("core/model.py", 541, "apn"),
+    ("core/model.py", 542, "apn"),
+    ("core/model.py", 556, "apn"),
+    ("core/model.py", 557, "situs_address"),
     ("core/store.py", 12, "apn"),
     ("core/store.py", 19, "apn"),
 }

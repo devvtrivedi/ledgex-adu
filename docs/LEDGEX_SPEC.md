@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.45
+# LedgeX / ADU.X — Engineering Reference Spec v1.46
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.45 | Machine-executed build contract. |
+| 1 | This Spec v1.46 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -118,7 +118,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.45 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.46 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -129,17 +129,22 @@ ledgex/
 │     ├── LEDGEX_SPEC.md                           ← this file
 │     ├── ARCHITECTURE_BLUEPRINT.pdf
 │     └── SAN_JOSE_CHECKLIST.pdf
-├── core/                                          ← NO city names. Enforced by CI. Three layers have
-│                                                     real code as of P21 -- core/store.py (L4),
-│                                                     core/exceptions.py (L6), core/model.py (below) --
-│                                                     each a flat file, not a core/<name>/ directory the
-│                                                     layer diagram below implies: built via forced
-│                                                     extraction from working scripts/*.py call sites
-│                                                     (store, exceptions) or as the first standalone
-│                                                     domain module (model), never as anticipated
+├── core/                                          ← NO city names. Enforced by CI. Corrected (D10, P59):
+│                                                     this entry previously said "Three layers have real
+│                                                     code as of P21" and named only store/exceptions/
+│                                                     model -- stale. Six modules carry real code today:
+│                                                     core/store.py (L4), core/rules.py (L5),
+│                                                     core/exceptions.py (L6), core/calc.py (L7),
+│                                                     core/rights.py (X), plus core/model.py (below,
+│                                                     foundational, no single layer number). Each a flat
+│                                                     file, not a core/<name>/ directory the layer diagram
+│                                                     below implies: built via forced extraction from
+│                                                     working scripts/*.py or api/ call sites, or as a
+│                                                     first standalone domain module, never as anticipated
 │                                                     scaffolding, so no submodule has needed the
-│                                                     directory form yet. Every other layer below
-│                                                     remains unbuilt.
+│                                                     directory form yet. L0/L1/L2/L8 (resolver/
+│                                                     connectors/snapshots/compose/deliver) remain
+│                                                     unbuilt.
 │     ├── resolver/           L0       core/connectors/ L1               core/snapshots/ L2
 │     ├── normalize/          L3       core/store.py            L4       core/rules/             L5
 │     ├── reconcile/          L6       core/exceptions.py L6              core/calc/              L7
@@ -1769,6 +1774,21 @@ about.
 Channel eligibility for any fact is determined solely by licences.yaml, seeded into licence + licence_channel
 and enforced by the composer (I6). Nothing else grants a channel. Specifically:
 
+Corrected (D18, P59): this section and §7.2's transcription of licences.yaml previously implied, without
+qualification, that cc0/cc_by_4_0's own declared api: true channel is what the runtime licence_channel table
+actually grants for those two ids. That was false both ways, confirmed directly (S2, P59): every long-lived
+database shows ZERO licence_channel rows with allowed=true for api under licence_id cc0 or cc_by_4_0 -- the
+ids §7.2 shows as api: true grant nothing at runtime for that channel. The only real, currently-active api
+grant lives under two DIFFERENT, scoped licence ids -- cc_by_4_0_api_2026_08 / cc0_api_2026_08 (P55,
+db/seeds/day4_sources.sql) -- deliberately absent from licences.yaml and from §7.2 above, since jurisdictions/
+ca_san_jose/licences.yaml's own header states its content is "SPEC.md §7.2, transcribed verbatim," and the
+scoped ids are a runtime SCOPE decision, not a new licence identification the spec itself describes. There is
+no mechanical reconciliation anywhere in this codebase checking licences.yaml's declared channels
+against the live licence_channel table (confirmed directly, P59: scripts/check_conformance.py checks
+YAML schema validity, that every active source names a real licence, and the one-directional
+Appendix-K-non-broadening test above -- never this direction). This paragraph states the gap; it does
+not claim the gap is closed.
+
 - source.phase_status is descriptive. It records why a source is off so a human reading the ledger understands
 the reason. It never grants access. The source_active_matches_phase constraint (§3.2) keeps it from contradict-
 ing active.
@@ -1886,7 +1906,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.45
+Engineering Reference Spec v1.46
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1947,7 +1967,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.45
+Engineering Reference Spec v1.46
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1978,7 +1998,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.45
+Engineering Reference Spec v1.46
 
 ## 9. Refusal and error codes
 
@@ -3120,136 +3140,158 @@ refusal code. No licence_channel row changed for cc0 or cc_by_4_0.              
 barrier with it while the intended one stayed absent. The gate now blocks
 deliberately, for a reason independent of licence clearance, and a negative
 control proves the refusal survives a fully-cleared licence.
-Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
-Review” → “Composition &                review stage.
-Delivery”; core/review/ →
-core/deliver/.
-Aug 2026                                1.1                                         Added I13 and I14.                      Enforces the pivot in code and CI
-rather than in prose.
-Aug 2026                                1.1                                         IRREVERSIBLE: dropped                   Human-review queue removed from
-review_task, review_status, both        Phase 1. Design retained in annex
-review FKs and the three                §6.7.
-/v1/review-tasks/* endpoints.
-Aug 2026                                1.1                                         IRREVERSIBLE: removed escalated         escalated has no meaning without a
-from file_status; removed               queue; the other two are
-unverified from conflict_state;         unreachable once I13 holds.
-dropped fact.machine_verified.
-Aug 2026                                1.1                                         Removed HUMAN_REVIEW_REQUIRED.          Refusal replaces escalation as the
-Added PERMIT_LAYER_UNAVAILABLE,         terminal state for an unmet field.
-SOURCE_NOT_MACHINE_READABLE,
-INSUFFICIENT_COVERAGE.
-Aug 2026                                1.1                                         Replaced v_track_b with                 Manual hours replaced by
-v_delivery_economics; added             automated cost, support rate and
-compose_ms, source_calls,               refusal rate.
-compute_cost_micros, unmet_fields;
-added support_request.
-Aug 2026                                1.2                                         Governing document repointed            Plan 2.1.1 (Aug 2026) superseded
-from Business Plan 2.1 to 2.1.1.        2.1 and formally adopted this spec,
-Status changed from “draft for          Blueprint v1.1 and Checklist v1.1 as
-internal review” to “current            controlling engineering.
-controlling engineering”. Added
-§0.1 authority order and §0.2
-reference remap.
-Aug 2026                                1.2                                         Struck the “DIVERGENCE FROM             The divergence is closed. Plan 2.1.1
-BUSINESS PLAN 2.1” box.                 change-log rows 2–3 adopted
-automated delivery and withdrew
-Concierge. Asserting a live conflict
-that no longer exists misdirects any
-reader.
-Aug 2026                                1.2                                         Added §0.3 recording three drifts in    The Blueprint is design rationale;
-Blueprint v1.1 §05 (duplicate           this spec’s DDL is the contract. The
-conflict_state, stale unverified        drift had to be adjudicated
-value, derived_from array vs            somewhere.
-fact_input).
 
-Historical rows on this page describe superseded v1.2 commerce and independent-review controls. They are preserved as change evidence, not current
-implementation instructions. Sections 3.9 and 13 of v1.6 control.
+Aug 2026             1.46                 P59: two schema changes. db/migrations/0057_parcel_geom_valid.sql adds       P58's audit found parcel geometry
+parcel.geom_valid boolean GENERATED ALWAYS AS (ST_IsValid(geom)) STORED,      validity computed only ad hoc, at
+plus a partial GiST index (parcel_geom_valid_gix) on geom WHERE geom_valid   flag time, with no schema-level
+```sql
+                                             -- a read-time predicate (`WHERE geom_valid`, never `IS NOT FALSE`) can now  record and no cheap way for a
+                                             cheaply exclude invalid geometry at render time without recomputing         render-time consumer to exclude
+                                             ST_IsValid() per read. db/migrations/0058_fact_licence_restriction_sticky.sql invalid geometry without
+                                             generalizes fact_licence_validate()'s existing attribution-stickiness       recomputing ST_IsValid() itself.
+                                             shape to no_resale/noncommercial/unknown (exact-match propagation through   Separately, the same audit found
+                                             derivation, same as attribution already was) and adds a trigger-raised      the licence-inheritance trigger let
+                                             refusal when a derivation's inputs carry more than one distinct non-open    a restriction silently vanish
+                                             restriction -- licence.restriction is single-valued and cannot represent    across a derivation whenever more
+                                             an intersection like "no_resale AND noncommercial." Not a new sec 9 refusal  than one distinct non-open
+                                             code (no caller-facing Result/Refusal path reaches this; it is a            restriction fed into it -- only
+                                             constraint-trigger error, same category as every other RAISE EXCEPTION in   attribution was ever made sticky,
+                                             fact_licence_validate()). Pre-existing multi-restriction rows on 2 of 6      leaving no_resale/noncommercial/
+                                             long-lived databases are grandfathered (CREATE OR REPLACE never             unknown to be silently dropped by
+                                             retroactively re-validates existing rows), stated in the migration's own    a derivation whose inputs
+                                             header, not retroactively caught.                                           disagreed with each other.
 
-facts. Added property_file_fact.use,    confirmed. Intended.
-test_gate_covers_internal_facts,
-and §1.1.
-Aug 2026                                1.2                                      Added I15 (commerce/public              Plan 2.1.1 §05: “Refused files are
-separation) and I16 (a refused file     not charged.” Previously prose-only
-is never charged).                      and unenforceable.
-Aug 2026                                1.2                                      Fixed §6.5 preamble: I1–I12 →           v1.1’s preamble silently excluded
-I1–I16.                                 I13 and I14 — the two invariants
-encoding the entire pivot — from
-the block pasted into every coding
-session.
-Aug 2026                                1.2                                      Fixed the licence-inheritance           v1.1’s trigger collided with the I4
-trigger. It no longer performs          immutability trigger, and v1.1’s
-UPDATE fact; it validates and raises.   own text broke off mid-sentence
-Inheritance is computed in              acknowledging it. As written, v1.1
-core/store.derive(). Made the           threw on the first derived fact with
-trigger DEFERRABLE INITIALLY            lineage.
-DEFERRED. Added
-restriction_severity().
-Aug 2026                                1.2                                      Deleted §7.3 “Source summary”          It was a second normative
-table; replaced with a pointer to      statement of channel eligibility and
-licences.yaml as the sole runtime      had already drifted permissively —
-authority, plus                        marking City Limits, SCC Hazards,
-EnviroStor
-test_licences_not_broader_than_appendix_k .         and CSLB “Yes” while
-their licence was unknown and Plan
-App K recorded them blocked.
-Aug 2026                                1.2                                      Added source.phase_status +            Makes the reason a source is off
-phase_status_reason and the            machine-readable and prevents the
-source_active_matches_phase            §7.3 class of drift recurring.
-constraint.
-Aug 2026                                1.2                                      Fixed §5.3 tier-2 contradiction.       v1.1 said tier 2 is “marked partial”
-Only tier 1 can yield composed.        and, two lines later, that “full files
-are limited to tier 1 and tier 2.”
-Aug 2026                                1.2                                      IRREVERSIBLE: removed                  No channel confidence floor is
-CONFIDENCE_BELOW_THRESHOLD.            defined in any governing
-document, and Plan 2.1.1 §15/§18
-forbid inventing one. Implementing
-it would have forced a coding agent
-to pick a number.
-Aug 2026                                1.2                                      Added SOURCE_DEFERRED refusal code,    The Checklist names all five as
-source_phase_status.deferred,          material and San José-specific; the
-field_definition.phase1_deferred,      v1.1 source list had none of them,
-§7.4. Deferred five named sources      so the fields would have been
-(Valley Water, airport influence, CAL silently unsupplied. Declared gaps,
-FIRE FHSZ, water/sewer retailers,      not silence.
-school boundaries).
-Aug 2026                                1.2                                      Added missing field_definition         These were referenced by
-rows: parcel.situs_address,            sources.yaml supplies: but absent
-parcel.apn_county,                     from §8, which would have failed
-parcel.geometry_county,                the source_rank.field_key FK at seed
-geometry.elevation,                    time.
-legal.recorded_maps, cost.city_fees,
-property.beds, property.baths,
-tax.annual_tax.
-Aug 2026                                1.2                                      Added §13 — the commerce               Plan 2.1.1 §05/§10/§14 make
-schema: customer, disclosure,          pre-purchase disclosure a
-order, payment, plus v_track_b and     mandatory product requirement
-v_track_b_repeat.                      and Track B control. v1.1 had no
-customer, order, disclosure or
-payment entity at all, so measures
-4, 10 and 11 were unmeasurable.
-Aug 2026                                1.2                                      IRREVERSIBLE: removed                  Price is a fact about an order, not
-property_file.price_cents. Added       about a composed file. Keeping it
-payload_hash, storage_cost_micros,     on property_file made I16
-file_refused_not_delivered.            unenforceable across the two
-concerns.
-Aug 2026                                1.2                                      rule_as_of returns SETOF rule, not     A scalar-composite return with no
-rule. Added                            match yields a row of nulls rather
-rule_reviewer_independent.             than no row, silently defeating
-RULE_UNAVAILABLE. Independent
-review was mandated in prose but
-unenforced.
-Aug 2026                                1.2                                      fact_one_current_per_source now        The v1.1 index collided two derived
-includes method_version.               facts for the same (parcel, field)
-under different method versions.
-Aug 2026                                1.2                                      Removed the GEOMETRY_TIER_ENABLED      Two sources of truth for one switch;
-env var;                               a global env var could enable the
-jurisdiction.geometry_tier_enabled     tier for a jurisdiction whose gate
-is authoritative.                      had not cleared.
-Aug 2026                                1.2                                      Added §6.6 golden-file                 make golden was specified as a
-normalisation rules.                   “byte-compare (normalised)” with
-no definition of the normalisation,
-so it could not be implemented
-deterministically.
+      Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
+                                                                                          Review” → “Composition &                review stage.
+                                                                                          Delivery”; core/review/ →
+                                                                                          core/deliver/.
+      Aug 2026                                1.1                                         Added I13 and I14.                      Enforces the pivot in code and CI
+                                                                                                                                  rather than in prose.
+      Aug 2026                                1.1                                         IRREVERSIBLE: dropped                   Human-review queue removed from
+                                                                                          review_task, review_status, both        Phase 1. Design retained in annex
+                                                                                          review FKs and the three                §6.7.
+                                                                                          /v1/review-tasks/* endpoints.
+      Aug 2026                                1.1                                         IRREVERSIBLE: removed escalated         escalated has no meaning without a
+                                                                                          from file_status; removed               queue; the other two are
+                                                                                          unverified from conflict_state;         unreachable once I13 holds.
+                                                                                          dropped fact.machine_verified.
+      Aug 2026                                1.1                                         Removed HUMAN_REVIEW_REQUIRED.          Refusal replaces escalation as the
+                                                                                          Added PERMIT_LAYER_UNAVAILABLE,         terminal state for an unmet field.
+                                                                                          SOURCE_NOT_MACHINE_READABLE,
+                                                                                          INSUFFICIENT_COVERAGE.
+      Aug 2026                                1.1                                         Replaced v_track_b with                 Manual hours replaced by
+                                                                                          v_delivery_economics; added             automated cost, support rate and
+                                                                                          compose_ms, source_calls,               refusal rate.
+                                                                                          compute_cost_micros, unmet_fields;
+                                                                                          added support_request.
+      Aug 2026                                1.2                                         Governing document repointed            Plan 2.1.1 (Aug 2026) superseded
+                                                                                          from Business Plan 2.1 to 2.1.1.        2.1 and formally adopted this spec,
+                                                                                          Status changed from “draft for          Blueprint v1.1 and Checklist v1.1 as
+                                                                                          internal review” to “current            controlling engineering.
+                                                                                          controlling engineering”. Added
+                                                                                          §0.1 authority order and §0.2
+                                                                                          reference remap.
+      Aug 2026                                1.2                                         Struck the “DIVERGENCE FROM             The divergence is closed. Plan 2.1.1
+                                                                                          BUSINESS PLAN 2.1” box.                 change-log rows 2–3 adopted
+                                                                                                                                  automated delivery and withdrew
+                                                                                                                                  Concierge. Asserting a live conflict
+                                                                                                                                  that no longer exists misdirects any
+                                                                                                                                  reader.
+      Aug 2026                                1.2                                         Added §0.3 recording three drifts in    The Blueprint is design rationale;
+                                                                                          Blueprint v1.1 §05 (duplicate           this spec’s DDL is the contract. The
+                                                                                          conflict_state, stale unverified        drift had to be adjudicated
+                                                                                          value, derived_from array vs            somewhere.
+                                                                                          fact_input).
+
+     Historical rows on this page describe superseded v1.2 commerce and independent-review controls. They are preserved as change evidence, not current
+     implementation instructions. Sections 3.9 and 13 of v1.6 control.
+
+                                                                                       facts. Added property_file_fact.use,    confirmed. Intended.
+                                                                                       test_gate_covers_internal_facts,
+                                                                                       and §1.1.
+      Aug 2026                                1.2                                      Added I15 (commerce/public              Plan 2.1.1 §05: “Refused files are
+                                                                                       separation) and I16 (a refused file     not charged.” Previously prose-only
+                                                                                       is never charged).                      and unenforceable.
+      Aug 2026                                1.2                                      Fixed §6.5 preamble: I1–I12 →           v1.1’s preamble silently excluded
+                                                                                       I1–I16.                                 I13 and I14 — the two invariants
+                                                                                                                               encoding the entire pivot — from
+                                                                                                                               the block pasted into every coding
+                                                                                                                               session.
+      Aug 2026                                1.2                                      Fixed the licence-inheritance           v1.1’s trigger collided with the I4
+                                                                                       trigger. It no longer performs          immutability trigger, and v1.1’s
+                                                                                       UPDATE fact; it validates and raises.   own text broke off mid-sentence
+                                                                                       Inheritance is computed in              acknowledging it. As written, v1.1
+                                                                                       core/store.derive(). Made the           threw on the first derived fact with
+                                                                                       trigger DEFERRABLE INITIALLY            lineage.
+                                                                                       DEFERRED. Added
+                                                                                       restriction_severity().
+      Aug 2026                                1.2                                      Deleted §7.3 “Source summary”          It was a second normative
+                                                                                       table; replaced with a pointer to      statement of channel eligibility and
+                                                                                       licences.yaml as the sole runtime      had already drifted permissively —
+                                                                                       authority, plus                        marking City Limits, SCC Hazards,
+                                                                                                                              EnviroStor
+                                                                                       test_licences_not_broader_than_appendix_k .         and CSLB “Yes” while
+                                                                                                                              their licence was unknown and Plan
+                                                                                                                              App K recorded them blocked.
+      Aug 2026                                1.2                                      Added source.phase_status +            Makes the reason a source is off
+                                                                                       phase_status_reason and the            machine-readable and prevents the
+                                                                                       source_active_matches_phase            §7.3 class of drift recurring.
+                                                                                       constraint.
+      Aug 2026                                1.2                                      Fixed §5.3 tier-2 contradiction.       v1.1 said tier 2 is “marked partial”
+                                                                                       Only tier 1 can yield composed.        and, two lines later, that “full files
+                                                                                                                              are limited to tier 1 and tier 2.”
+      Aug 2026                                1.2                                      IRREVERSIBLE: removed                  No channel confidence floor is
+                                                                                       CONFIDENCE_BELOW_THRESHOLD.            defined in any governing
+                                                                                                                              document, and Plan 2.1.1 §15/§18
+                                                                                                                              forbid inventing one. Implementing
+                                                                                                                              it would have forced a coding agent
+                                                                                                                              to pick a number.
+      Aug 2026                                1.2                                      Added SOURCE_DEFERRED refusal code,    The Checklist names all five as
+                                                                                       source_phase_status.deferred,          material and San José-specific; the
+                                                                                       field_definition.phase1_deferred,      v1.1 source list had none of them,
+                                                                                       §7.4. Deferred five named sources      so the fields would have been
+                                                                                       (Valley Water, airport influence, CAL silently unsupplied. Declared gaps,
+                                                                                       FIRE FHSZ, water/sewer retailers,      not silence.
+                                                                                       school boundaries).
+      Aug 2026                                1.2                                      Added missing field_definition         These were referenced by
+                                                                                       rows: parcel.situs_address,            sources.yaml supplies: but absent
+                                                                                       parcel.apn_county,                     from §8, which would have failed
+                                                                                       parcel.geometry_county,                the source_rank.field_key FK at seed
+                                                                                       geometry.elevation,                    time.
+                                                                                       legal.recorded_maps, cost.city_fees,
+                                                                                       property.beds, property.baths,
+                                                                                       tax.annual_tax.
+      Aug 2026                                1.2                                      Added §13 — the commerce               Plan 2.1.1 §05/§10/§14 make
+                                                                                       schema: customer, disclosure,          pre-purchase disclosure a
+                                                                                       order, payment, plus v_track_b and     mandatory product requirement
+                                                                                       v_track_b_repeat.                      and Track B control. v1.1 had no
+                                                                                                                              customer, order, disclosure or
+                                                                                                                              payment entity at all, so measures
+                                                                                                                              4, 10 and 11 were unmeasurable.
+      Aug 2026                                1.2                                      IRREVERSIBLE: removed                  Price is a fact about an order, not
+                                                                                       property_file.price_cents. Added       about a composed file. Keeping it
+                                                                                       payload_hash, storage_cost_micros,     on property_file made I16
+                                                                                       file_refused_not_delivered.            unenforceable across the two
+                                                                                                                              concerns.
+      Aug 2026                                1.2                                      rule_as_of returns SETOF rule, not     A scalar-composite return with no
+                                                                                       rule. Added                            match yields a row of nulls rather
+                                                                                       rule_reviewer_independent.             than no row, silently defeating
+                                                                                                                              RULE_UNAVAILABLE. Independent
+                                                                                                                              review was mandated in prose but
+                                                                                                                              unenforced.
+      Aug 2026                                1.2                                      fact_one_current_per_source now        The v1.1 index collided two derived
+                                                                                       includes method_version.               facts for the same (parcel, field)
+                                                                                                                              under different method versions.
+      Aug 2026                                1.2                                      Removed the GEOMETRY_TIER_ENABLED      Two sources of truth for one switch;
+                                                                                       env var;                               a global env var could enable the
+                                                                                       jurisdiction.geometry_tier_enabled     tier for a jurisdiction whose gate
+                                                                                       is authoritative.                      had not cleared.
+      Aug 2026                                1.2                                      Added §6.6 golden-file                 make golden was specified as a
+                                                                                       normalisation rules.                   “byte-compare (normalised)” with
+                                                                                                                              no definition of the normalisation,
+                                                                                                                              so it could not be implemented
+                                                                                                                              deterministically.
+```
 
 ## 13. Subscription commerce schema
 
@@ -3776,4 +3818,4 @@ These checks are required and not asserted complete by this PDF. Record CI outpu
 
 ---
 
-*Generated 2026-08-21 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*
+*Generated 2026-08-24 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*

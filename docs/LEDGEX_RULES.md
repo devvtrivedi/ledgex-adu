@@ -8,7 +8,7 @@
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | Engineering Reference Spec v1.45 | Machine-executed build contract. |
+| 1 | Engineering Reference Spec v1.46 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement of the Spec. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -190,7 +190,7 @@ run.
 > **READ VERBATIM**
 
 Business Plan 2.1.4 - commercial boundary
-Engineering Reference Spec v1.45 - executable contract
+Engineering Reference Spec v1.46 - executable contract
 Implementation Rules v1.4 - operational restatement
 
 PRESERVE
@@ -212,4 +212,4 @@ customer-delivery boundary.
 
 ---
 
-*Generated 2026-08-21 by `build/build_rules.py`. Source of record: `build/ledgex_source.py`.*
+*Generated 2026-08-24 by `build/build_rules.py`. Source of record: `build/ledgex_source.py`.*

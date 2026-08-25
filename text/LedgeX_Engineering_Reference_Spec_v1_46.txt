@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.45
+ Engineering Reference Spec v1.46
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -168,17 +168,22 @@ ledgex/
 │     ├── LEDGEX_SPEC.md                           ← this file
 │     ├── ARCHITECTURE_BLUEPRINT.pdf
 │     └── SAN_JOSE_CHECKLIST.pdf
-├── core/                                          ← NO city names. Enforced by CI. Three layers have
-│                                                     real code as of P21 -- core/store.py (L4),
-│                                                     core/exceptions.py (L6), core/model.py (below) --
-│                                                     each a flat file, not a core/<name>/ directory the
-│                                                     layer diagram below implies: built via forced
-│                                                     extraction from working scripts/*.py call sites
-│                                                     (store, exceptions) or as the first standalone
-│                                                     domain module (model), never as anticipated
+├── core/                                          ← NO city names. Enforced by CI. Corrected (D10, P59):
+│                                                     this entry previously said "Three layers have real
+│                                                     code as of P21" and named only store/exceptions/
+│                                                     model -- stale. Six modules carry real code today:
+│                                                     core/store.py (L4), core/rules.py (L5),
+│                                                     core/exceptions.py (L6), core/calc.py (L7),
+│                                                     core/rights.py (X), plus core/model.py (below,
+│                                                     foundational, no single layer number). Each a flat
+│                                                     file, not a core/<name>/ directory the layer diagram
+│                                                     below implies: built via forced extraction from
+│                                                     working scripts/*.py or api/ call sites, or as a
+│                                                     first standalone domain module, never as anticipated
 │                                                     scaffolding, so no submodule has needed the
-│                                                     directory form yet. Every other layer below
-│                                                     remains unbuilt.
+│                                                     directory form yet. L0/L1/L2/L8 (resolver/
+│                                                     connectors/snapshots/compose/deliver) remain
+│                                                     unbuilt.
 │     ├── resolver/           L0       core/connectors/ L1               core/snapshots/ L2
 │     ├── normalize/          L3       core/store.py            L4       core/rules/             L5
 │     ├── reconcile/          L6       core/exceptions.py L6              core/calc/              L7
@@ -1786,6 +1791,21 @@ licences:
 Channel eligibility for any fact is determined solely by licences.yaml, seeded into licence + licence_channel
 and enforced by the composer (I6). Nothing else grants a channel. Specifically:
 
+     Corrected (D18, P59): this section and §7.2's transcription of licences.yaml previously implied, without
+     qualification, that cc0/cc_by_4_0's own declared api: true channel is what the runtime licence_channel table
+     actually grants for those two ids. That was false both ways, confirmed directly (S2, P59): every long-lived
+     database shows ZERO licence_channel rows with allowed=true for api under licence_id cc0 or cc_by_4_0 -- the
+     ids §7.2 shows as api: true grant nothing at runtime for that channel. The only real, currently-active api
+     grant lives under two DIFFERENT, scoped licence ids -- cc_by_4_0_api_2026_08 / cc0_api_2026_08 (P55,
+     db/seeds/day4_sources.sql) -- deliberately absent from licences.yaml and from §7.2 above, since jurisdictions/
+     ca_san_jose/licences.yaml's own header states its content is "SPEC.md §7.2, transcribed verbatim," and the
+     scoped ids are a runtime SCOPE decision, not a new licence identification the spec itself describes. There is
+     no mechanical reconciliation anywhere in this codebase checking licences.yaml's declared channels
+     against the live licence_channel table (confirmed directly, P59: scripts/check_conformance.py checks
+     YAML schema validity, that every active source names a real licence, and the one-directional
+     Appendix-K-non-broadening test above -- never this direction). This paragraph states the gap; it does
+     not claim the gap is closed.
+
       • source.phase_status is descriptive. It records why a source is off so a human reading the ledger understands
          the reason. It never grants access. The source_active_matches_phase constraint (§3.2) keeps it from contradict-
          ing active.
@@ -1903,7 +1923,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.45
+                     Engineering Reference Spec v1.46
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1964,7 +1984,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.45
+                   Engineering Reference Spec v1.46
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1993,7 +2013,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.45
+                Engineering Reference Spec v1.46
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -3117,6 +3137,26 @@ signal to a caching artifact would be an expensive way to save tokens.
                                                                                                                              barrier with it while the intended one stayed absent. The gate now blocks
                                                                                                                              deliberately, for a reason independent of licence clearance, and a negative
                                                                                                                              control proves the refusal survives a fully-cleared licence.
+
+   Aug 2026             1.46                 P59: two schema changes. db/migrations/0057_parcel_geom_valid.sql adds       P58's audit found parcel geometry
+                                             parcel.geom_valid boolean GENERATED ALWAYS AS (ST_IsValid(geom)) STORED,      validity computed only ad hoc, at
+                                             plus a partial GiST index (parcel_geom_valid_gix) on geom WHERE geom_valid   flag time, with no schema-level
+                                             -- a read-time predicate (`WHERE geom_valid`, never `IS NOT FALSE`) can now  record and no cheap way for a
+                                             cheaply exclude invalid geometry at render time without recomputing         render-time consumer to exclude
+                                             ST_IsValid() per read. db/migrations/0058_fact_licence_restriction_sticky.sql invalid geometry without
+                                             generalizes fact_licence_validate()'s existing attribution-stickiness       recomputing ST_IsValid() itself.
+                                             shape to no_resale/noncommercial/unknown (exact-match propagation through   Separately, the same audit found
+                                             derivation, same as attribution already was) and adds a trigger-raised      the licence-inheritance trigger let
+                                             refusal when a derivation's inputs carry more than one distinct non-open    a restriction silently vanish
+                                             restriction -- licence.restriction is single-valued and cannot represent    across a derivation whenever more
+                                             an intersection like "no_resale AND noncommercial." Not a new sec 9 refusal  than one distinct non-open
+                                             code (no caller-facing Result/Refusal path reaches this; it is a            restriction fed into it -- only
+                                             constraint-trigger error, same category as every other RAISE EXCEPTION in   attribution was ever made sticky,
+                                             fact_licence_validate()). Pre-existing multi-restriction rows on 2 of 6      leaving no_resale/noncommercial/
+                                             long-lived databases are grandfathered (CREATE OR REPLACE never             unknown to be silently dropped by
+                                             retroactively re-validates existing rows), stated in the migration's own    a derivation whose inputs
+                                             header, not retroactively caught.                                           disagreed with each other.
+
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
                                                                                           Review” → “Composition &                review stage.
                                                                                           Delivery”; core/review/ →
