@@ -14,7 +14,7 @@
 # diff against the committed file — match PG_DUMP/DATABASE_URL to 16 before
 # regenerating it.
 
-.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state smoke-real local-up local-down test-qa-check test-guard-destructive
+.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state smoke-real local-up local-down test-qa-check test-guard-destructive test-centroid-interior test-apn-canonicalization test-zoning-ambiguity test-compose-collision test-refresh-failure test-reconcile-identity-verified test-load-parcels-identity test-parcel-flap flag-invalid-geometry test-flag-invalid-geometry test-load-permits-attribution
 
 # `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
 # not guaranteed under `make -j`: parallel make can start pdf's docs
