@@ -92,6 +92,42 @@ def test_blocked_source_licence_redacts_detail():
     }
 
 
+def test_an7_new_detectors_are_mapped_and_gated():
+    """A-N7 (P59C): parcel_centroid_not_interior and permit_attribution_lost
+    (both new in P59) were missing from DETECTOR_KEY_SOURCE, so their detail
+    was permanently redacted regardless of licence -- fail-closed, but their
+    detail could never be served even to a caller a real licence allows.
+    Proves both directions: served (gated) when the governing source's
+    licence allows channel 'api', redacted when it does not."""
+    source_by_id = {
+        "ca_san_jose.parcels": "test_licence_parcels_allowed",
+        "ca_san_jose.building_permits_active": "test_licence_permits_blocked",
+    }
+    channel_rows = [
+        ("test_licence_parcels_allowed", "api", True),
+        ("test_licence_permits_blocked", "api", False),
+    ]
+    rows = [
+        {
+            "id": "exc-centroid-1",
+            "detector_key": "parcel_centroid_not_interior",
+            "detail": {"reason": "centroid_not_interior_after_fallback"},
+        },
+        {
+            "id": "exc-permit-1",
+            "detector_key": "permit_attribution_lost",
+            "detail": {"reason": "no_fresh_apn_match_this_run"},
+        },
+    ]
+    cur = _FakeExceptionsCursor(source_by_id, channel_rows)
+
+    result = viewer._gate_exception_details(cur, rows)
+    by_id = {r["id"]: r for r in result}
+
+    assert by_id["exc-centroid-1"]["detail"] == {"reason": "centroid_not_interior_after_fallback"}
+    assert by_id["exc-permit-1"]["detail"] == viewer.REDACTED_DETAIL
+
+
 def test_unmapped_detector_key_fails_closed():
     """A detector_key this route does not yet know how to map to a source
     must be redacted, not served ungated -- fail closed, never open."""

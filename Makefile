@@ -14,7 +14,7 @@
 # diff against the committed file — match PG_DUMP/DATABASE_URL to 16 before
 # regenerating it.
 
-.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state smoke-real local-up local-down test-qa-check test-guard-destructive test-centroid-interior test-apn-canonicalization test-zoning-ambiguity test-compose-collision test-refresh-failure test-reconcile-identity-verified test-load-parcels-identity test-parcel-flap flag-invalid-geometry test-flag-invalid-geometry test-load-permits-attribution test-compose-l0-gate
+.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state smoke-real local-up local-down test-qa-check test-guard-destructive test-centroid-interior test-apn-canonicalization test-zoning-ambiguity test-compose-collision test-refresh-failure test-reconcile-identity-verified test-load-parcels-identity test-parcel-flap flag-invalid-geometry test-flag-invalid-geometry test-load-permits-attribution test-compose-l0-gate test-zoning-centroid-exclusion
 
 # `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
 # not guaranteed under `make -j`: parallel make can start pdf's docs
@@ -503,6 +503,16 @@ test-load-permits-attribution:
 # (both stay migrations-only for their whole run).
 test-compose-l0-gate:
 	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_compose_l0_gate.py
+
+# A-N2 (P59C): D-6.6 exclusion regression -- a parcel whose centroid is
+# known-non-interior must get no zoning.district fact, and must be
+# recorded via the existing parcel_centroid_not_interior exception
+# (record_to_ground), never a separate coverage_gap exception. Needs
+# day4_sources.sql applied (the real ca_san_jose.zoning_districts source +
+# licence row). NOT safe against a database already carrying real bulk
+# zoning/parcel data -- see the script's own docstring.
+test-zoning-centroid-exclusion:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_zoning_centroid_exclusion.py
 
 # Spec §6.4 make liveness: "every active source responds with expected
 # fields." P28: real for the pack's three active, ca_san_jose-owned

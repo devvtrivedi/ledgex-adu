@@ -767,6 +767,21 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
             print(f"  parcel.centroid populated/corrected for {centroid_recomputed:,} rows "
                   f"({len(centroid_still_bad):,} still not interior after the interior-point fallback)")
 
+            # A-N2 (P59C), D-6.6: a parcel whose derived point is
+            # known-non-interior is EXCLUDED from zoning classification --
+            # the join used to filter only on `centroid IS NOT NULL`, so
+            # these parcels flowed through and received confidence-high
+            # zoning.district facts derived from a point this same function
+            # just proved sits outside the parcel. The exception type below
+            # is `record_to_ground`, not `coverage_gap` (was `coverage_gap`
+            # until this pass -- the same type flag_invalid_geometry.py
+            # already uses for parcel_geometry_invalid, the sibling
+            # data-quality detector): a `coverage_gap`-typed exception here
+            # would be indistinguishable from a genuine "this parcel is in
+            # no district" statement (the zoning_spatial_join_unresolvable
+            # detector below, which IS a real coverage_gap) and would
+            # launder a data-quality defect into a coverage claim.
+            centroid_still_bad_set = set(centroid_still_bad)
             if centroid_still_bad:
                 cur.execute("""
                     SELECT parcel_id FROM parcel_exception
@@ -775,7 +790,7 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                 existing_open_centroid = {r[0] for r in cur.fetchall()}
                 centroid_exception_rows = [
                     ParcelException(
-                        parcel_id=pid, jurisdiction_id=JURISDICTION_ID, type="coverage_gap", severity="warning",
+                        parcel_id=pid, jurisdiction_id=JURISDICTION_ID, type="record_to_ground", severity="warning",
                         detector_key=DETECTOR_KEY_CENTROID_NOT_INTERIOR, detector_version=DETECTOR_VERSION_CENTROID_NOT_INTERIOR,
                         detail={"reason": "centroid_not_interior_after_fallback"},
                     )
@@ -792,13 +807,18 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
             # every (parcel, candidate) pair and classify per parcel in
             # Python via classify_zoning_candidates, which counts DISTINCT
             # non-blank ZONING values instead.
+            #
+            # A-N2: NOT (p.id = ANY(%s::uuid[])) excludes centroid_still_bad
+            # parcels from the join's own candidate set -- an empty list
+            # makes this clause always-true (no exclusion), same as before.
             t_join_start = time.monotonic()
             cur.execute("""
                 SELECT p.id, z2.facilityid, z2.zoning, z2.zoning_verbatim
                 FROM parcel p
                 JOIN zoning_staging z2 ON ST_Contains(z2.geom, p.centroid)
                 WHERE p.centroid IS NOT NULL
-            """)
+                  AND NOT (p.id = ANY(%s::uuid[]))
+            """, (list(centroid_still_bad_set),))
             join_rows = cur.fetchall()
             print(f"  spatial join: {len(join_rows):,} (parcel, candidate zoning) pairs in {time.monotonic()-t_join_start:.1f}s")
 
@@ -815,6 +835,20 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
         zero_match = set()
         anomaly_count = 0
         for parcel_id in all_parcel_ids:
+            if parcel_id in centroid_still_bad_set:
+                # A-N2: excluded from classification entirely -- neither
+                # matched, zero_match nor ambiguous. Stays out of
+                # zoning_spatial_join_unresolvable's own coverage_gap
+                # exception below; the record_to_ground exception above is
+                # the one and only record. It remains in all_parcel_ids, so
+                # the diff/supersede loop below still sees it: any
+                # previously-live zoning.district/zoning.district_verbatim
+                # fact for this parcel is superseded with NO successor,
+                # through the exact same "matched -> zero-match" path a
+                # genuine zero-match already uses (fresh_value is None
+                # because parcel_id is never added to `matched`) -- not a
+                # new code path, and not a silent no-op either.
+                continue
             kind, data = classify_zoning_candidates(by_parcel.get(parcel_id, []))
             if kind == "zero_match":
                 zero_match.add(parcel_id)

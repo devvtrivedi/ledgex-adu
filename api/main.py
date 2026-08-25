@@ -372,6 +372,18 @@ DETECTOR_KEY_SOURCE = {
     "zoning_spatial_join_unresolvable": "ca_san_jose.zoning_districts",
     "parcel_apn_unresolvable": "ca_san_jose.parcels",
     "parcel_disappeared_from_source": "ca_san_jose.parcels",
+    # A-N7 (P59C): P59's own two new detectors were never added here, so
+    # their detail was permanently redacted (fail-closed is the right
+    # direction, but it made the pass's own new diagnostics invisible with
+    # nothing documenting it). parcel_centroid_not_interior is about the
+    # parcel's own geometry (populate_interior_centroids re-derives
+    # parcel.centroid FROM parcel.geom) -- same governing source as
+    # parcel_geometry_invalid above, not the zoning source it happens to be
+    # raised alongside inside load_zoning. permit_attribution_lost is
+    # governed by the permits source itself (ingest_zoning_permits.py's
+    # DETECTOR_KEY_PERMIT_ATTRIBUTION_LOST / SOURCE_ID_PERMITS).
+    "parcel_centroid_not_interior": "ca_san_jose.parcels",
+    "permit_attribution_lost": "ca_san_jose.building_permits_active",
 }
 
 REDACTED_DETAIL = {"redacted_for_rights": True}

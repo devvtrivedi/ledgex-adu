@@ -330,6 +330,16 @@ jobs:
       - name: scripts/test_compose_l0_gate.py
         run: python3 scripts/test_compose_l0_gate.py
 
+      # A-N2 (P59C): D-6.6 exclusion regression -- a parcel whose centroid
+      # is known-non-interior gets no zoning.district fact and is recorded
+      # via the existing parcel_centroid_not_interior exception
+      # (record_to_ground), never a coverage_gap. Needs day4_sources.sql
+      # (already applied above); calls load_zoning() directly against a
+      # throwaway single-feature GeoJSON, same shape test_flag_invalid_
+      # geometry.py already uses for its own detector-level fixture.
+      - name: scripts/test_zoning_centroid_exclusion.py
+        run: python3 scripts/test_zoning_centroid_exclusion.py
+
       # P43: seeds scripts/seed_internal_test_licences.py's own fixture, then
       # runs `make viewer-test` (P42) -- same reasoning as day4_sources.sql
       # above, no new job: this job already has a live, disposable ledgex_ci,
