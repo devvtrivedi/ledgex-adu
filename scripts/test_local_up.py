@@ -28,11 +28,23 @@ sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 import local_up  # noqa: E402
 
-RESULTS = []  # (name, ok, detail)
+RESULTS = []  # (name, ok, detail, skipped)
 
 
-def check(name, condition, detail=""):
-    RESULTS.append((name, bool(condition), detail))
+def check(name, condition, detail="", skipped=False):
+    # C21.4 (P59): a genuinely-skipped case (environment doesn't support
+    # exercising it -- no second python3 on PATH, docker/postgres/minio
+    # unreachable, a resolved password too short to substring-check
+    # safely) used to be recorded via check(name, True, "SKIPPED -- ..."),
+    # indistinguishable at tally time from a real, exercised pass -- the
+    # final "N/M cases behaved as declared" summary could read 100%
+    # verified while some cases were never actually run. skipped is now a
+    # distinct third state, never counted as verified.
+    RESULTS.append((name, bool(condition), detail, skipped))
+
+
+def check_skipped(name, detail):
+    check(name, True, detail, skipped=True)
 
 
 def _with_env(**kv):
@@ -93,7 +105,7 @@ def test_reexec_lands_on_venv_python():
             other = c
             break
     if other is None:
-        check("reexec lands on .venv-api python", True, "SKIPPED -- no python3 found to invoke with")
+        check_skipped("reexec lands on .venv-api python", "SKIPPED -- no python3 found to invoke with")
         return
     out = subprocess.check_output([other, script, "--print-interpreter"],
                                   cwd=REPO_ROOT, stderr=subprocess.STDOUT, timeout=20)
@@ -274,7 +286,7 @@ def test_password_never_printed():
     real_password, real_source = local_up.resolve_pg_password()
     rc2, combined2, log2 = run(env2, "real container password")
     if rc2 != 0:
-        check("real-password run (needs live docker/postgres/minio)", True,
+        check_skipped("real-password run (needs live docker/postgres/minio)",
               "SKIPPED -- run failed on this machine's current state (%s): %s"
               % (real_source, combined2.strip().splitlines()[-1] if combined2.strip() else "no output"))
     elif not real_password:
@@ -286,7 +298,7 @@ def test_password_never_printed():
         # scripts/smoke_real.py's own step_rights_gate applies the identical
         # len(text) >= 6 floor for the same reason. Not a leak check that can
         # pass or fail here; recorded as skipped rather than silently omitted.
-        check("real resolved password (%s) too short to substring-check safely" % real_source, True,
+        check_skipped("real resolved password (%s) too short to substring-check safely" % real_source,
               "SKIPPED -- password is %d char(s); use a real password locally to exercise this" % len(real_password))
     else:
         check("real resolved password (%s) absent from stdout/stderr" % real_source,
@@ -319,14 +331,22 @@ def main():
         try:
             t()
         except Exception as e:  # noqa: BLE001 -- a broken test IS a failure to report
-            RESULTS.append((t.__name__, False, "EXCEPTION: %s: %s" % (type(e).__name__, e)))
+            RESULTS.append((t.__name__, False, "EXCEPTION: %s: %s" % (type(e).__name__, e), False))
 
     bad = 0
-    for name, ok, detail in RESULTS:
-        print("  %-6s %s%s" % ("ok" if ok else "FAIL", name, ("   [%s]" % detail) if detail else ""))
-        bad += 0 if ok else 1
+    skipped = 0
+    for name, ok, detail, was_skipped in RESULTS:
+        if was_skipped:
+            status = "SKIP"
+            skipped += 1
+        else:
+            status = "ok" if ok else "FAIL"
+            bad += 0 if ok else 1
+        print("  %-6s %s%s" % (status, name, ("   [%s]" % detail) if detail else ""))
 
-    print("\n%d/%d cases behaved as declared." % (len(RESULTS) - bad, len(RESULTS)))
+    verified_total = len(RESULTS) - skipped
+    print("\n%d/%d cases behaved as declared (%d skipped, not counted as verified)."
+          % (verified_total - bad, verified_total, skipped))
     return 1 if bad else 0
 
 
