@@ -21,6 +21,38 @@ SELECT count(*) FROM parcel
    AND NOT ST_Contains(geom, centroid);
 ```
 
+**Corrected (AD4, P59C addendum).** The query above, run raw against `ledgex_schema_check`
+(docker container `ledgex`), counts **fixture/test parcels too** — that database holds 35
+identity-less fixture/golden-test parcels inside its 225,077 total (P59C's own
+parcel-count reconciliation, `P59C-LEDGER.md`'s "Group S" section: every one traced by name
+to a known test fixture script, e.g. `TEST-P25-GEOM-*`, `TEST-C4-*`, `GOLDEN-*-FIXTURE`,
+`TEST-C2-*` — some of those fixtures are deliberately geometry-pathological). A raw count
+against this database is **not** the success criterion P61 should read literally: a non-zero
+result could mix real remediation residue with fixture parcels that were never meant to be
+remediated, reading as worse or better than the real state depending on which way the
+fixtures happen to fall on a given run.
+
+The same identity partition P59C already established for this exact database (S2: every
+identity-less parcel is fixture/golden-test residue, zero unaccounted; cited, not re-derived)
+excludes them:
+
+```sql
+SELECT count(*) FROM parcel p
+ WHERE p.geom IS NOT NULL AND p.centroid IS NOT NULL
+   AND NOT ST_Contains(p.geom, p.centroid)
+   AND EXISTS (SELECT 1 FROM source_feature_identity sfi WHERE sfi.parcel_id = p.id);
+```
+
+Run read-only (`BEGIN; SET TRANSACTION READ ONLY; ... ROLLBACK;`, via `docker exec`, current
+as of this addendum): raw count **1,213**; identity-restricted (real-only) count **1,213**;
+fixture-attributable share of the raw count **0**. On this database, today, the two numbers
+happen to coincide — none of the 35 fixture parcels currently satisfy `geom IS NOT NULL AND
+centroid IS NOT NULL AND NOT ST_Contains(...)` (most have no geometry set at all). That is a
+fact about the CURRENT fixture population, not a guarantee: a future fixture with real,
+pathological geometry could change it, which is exactly why P61's own verification should run
+the identity-restricted form above, not the raw one — a query that happens to agree with its
+safer form today is not evidence the safer form is unnecessary.
+
 ## Per-database counts
 
 | database | migrate-verify | S1 count (non-interior centroid) | of those, with a LIVE zoning.district fact |
@@ -107,12 +139,13 @@ This is a plan, not work performed. Executing it is a separate authorization
    `get_db()`'s connection attempt (`psycopg2.OperationalError: ... database
    "ledgex_does_not_exist_dryrun" does not exist`) -- proving the flags parse and
    dispatch correctly without ever reaching a real database or writing anything.
-5. Expected result: the code-predicate query above (A-N14) returns 0 on
-   `ledgex_schema_check` afterward, and at least the 1,057
+5. Expected result: the **identity-restricted** code-predicate query (AD4, above — not the
+   raw form) returns 0 on `ledgex_schema_check` afterward, and at least the 1,057
    facts in the CSV above each show a non-null `superseded_at` with a real
    successor fact citing the corrected centroid's classification (or, for parcels
    whose correct classification happens to match the old one, no change at all --
-   the diff is real, not assumed to flip every row).
+   the diff is real, not assumed to flip every row). Re-check the fixture-attributable
+   share at verification time too (AD4's third query) -- do not assume it is still 0.
 
 **Until this remediation runs, C1 is not FIXED** -- the code defect is closed and
 proven, but the live, currently-served wrong facts on `ledgex_schema_check` remain
