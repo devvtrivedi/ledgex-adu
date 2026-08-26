@@ -127,3 +127,111 @@ local URL — holds regardless of which local server answers), and not something
 asked to reconcile or fix; named here so a future session reaching for
 `postgresql://localhost/ledgex_schema_check` does not mistake it for the docker container's
 rich, real data.
+
+## 5. P60-4 — the timezone class
+
+**(a) `day4_sources.sql`'s own literals — fixed.** Nine bare `'YYYY-MM-DD'::timestamptz`
+literals, re-verified by grep (not trusted from the prompt's own "nine" claim) — matched
+exactly. Every one now carries an explicit UTC offset
+(`'YYYY-MM-DDT00:00:00+00'::timestamptz`). RED/GREEN proven under two different `PGTZ`
+settings against two independent fresh databases — see commit `9e092c3`'s own message for
+the full transcript (bare literal: `2026-08-06 00:00:00` UTC under `PGTZ=UTC`,
+`2026-08-05 10:00:00` UTC — a different calendar day — under `PGTZ=Pacific/Kiritimati`;
+fixed literal: identical under both). This file is applied via plain `psql`, never through
+`infra.env.get_db()` — so C7/AD1's own connection-level UTC fix never covered it; this was a
+real, separate gap, not a duplicate of an already-closed one.
+
+**(b) Partition of already-seeded data on `ledgex_schema_check` (docker container `ledgex`,
+read-only via `docker exec`, never host port/remote — the real docker `ledgex_schema_check`,
+not the separate Homebrew-served database of the same name section 4 names) — done, and
+resolves cleanly.**
+
+Every column any of the nine (pre-fix) literals, or migrations 0023/0056's own two additional
+literals, ever populated — 9 + 3 = a full accounting, not a sample:
+
+| table | mutability | column | rows | stored value (read live, `AT TIME ZONE 'UTC'`) | expected | match? |
+|---|---|---|---|---|---|---|
+| `licence` | **immutable** (0027) | `observed_at` | `cc0`, `cc_by_4_0`, `cc_by_4_0_api_2026_08`, `cc0_api_2026_08` | `2026-07-31 00:00:00` (all four) | `2026-07-31 00:00:00` | ✅ |
+| `licence` | **immutable** (0027) | `observed_at` | `unknown` (0056's own INSERT) | `2026-08-22 00:00:00` | `2026-08-22 00:00:00` | ✅ |
+| `rule` | **immutable** (0013) | `reviewed_at` | `ca_san_jose.adu_detached_max_height_city_standards.v1` | `2026-08-18 00:00:00` | `2026-08-18 00:00:00` | ✅ |
+| `source` | mutable | `url_verified_at` | `ca_san_jose.parcels`, `.zoning_districts`, `.building_permits_active` (2 of these 3 also touched by 0023's own guarded UPDATE) | `2026-08-06 00:00:00` (all three) | `2026-08-06 00:00:00` | ✅ |
+
+**Root cause of why every value is already correct, confirmed directly, not assumed:**
+`SHOW TimeZone` on this exact database returns `Etc/UTC` — its own server default has always
+been UTC. Every one of these literals was applied via plain `psql` with no `PGTZ` override (the
+normal way this database has ever been seeded/migrated), so every bare literal happened to
+resolve at UTC midnight anyway — the SAME real hazard section (a) and (d) prove is genuine
+(a differently-configured server, or any session connecting with a non-UTC `PGTZ`, would have
+produced a wrong value) simply never fired here, because the one condition it depends on
+(a non-UTC session) was never present on this specific database.
+
+**Consequence for pause points 3 and 4:** neither is reached. Pause point 3 (the immutable-row
+rebuild decision) only exists to escalate a confirmed-wrong immutable value with no other fix —
+there is none: both immutable-table rows (`licence`, `rule`) are already correct. Pause point 4
+(any new migration, 0059) only exists to correct a confirmed-wrong mutable value — there is
+none of those either: `source.url_verified_at` is already correct. **Nothing on this database
+needs remediation.** This is a real finding, not a decision made on the owner's behalf — see
+the final response for the explicit check-in on this reading before treating P60-4(b) as fully
+closed (a different database or environment with a non-UTC server default, never checked here,
+could still be affected; this pass's own scope was specifically `ledgex_schema_check`, per the
+prompt's own instruction, not every database everywhere).
+
+**(c) New documentation-pointer mechanism for migrations 0023/0056 — done.** `db/README.md`'s
+new "Known timezone-literal defects in landed migrations" section (commit `69419f7`),
+deliberately separate from B9 "Stale migration header claims" (B9's own scope: "a prose-only
+staleness — nothing to fix, nothing broken" — the opposite of this). Records both migrations'
+exact literal locations, states plainly this is a functional defect, and — updated by this same
+pass, not left stale — records (b)'s own resolution: **verified already-correct on
+`ledgex_schema_check`, not remediated because remediation was never needed there.**
+
+**(d) Non-UTC CI leg — done, `timezone-non-utc` job in `db.yml`.** A dedicated job, not a pin
+on any existing gate — builds a fresh database, applies `make schema` + `day4_sources.sql`
+under `PGTZ=Pacific/Kiritimati` (UTC+14, deliberately extreme), then asserts every seeded
+value is the exact correct UTC instant. Proven RED against the pre-fix file (git history,
+commit `9e092c3~1`) under this same `PGTZ` — correctly caught 5 shifted timestamps — before
+being proven GREEN and pushed. **Observed green in real CI**, run
+https://github.com/devvtrivedi/ledgex-adu/actions/runs/32920032417 (`f344a59` → `2966084`,
+all 4 `db.yml` jobs green including this new one). This workflow change needed another push
+to be observed — Option A means only the branch's own pushes fire CI, and this one did,
+immediately, same as every other push this session.
+
+**(e) Static check for bare `::timestamptz` literals — done**, `build/check_timestamptz_literals.py`
+(commit `5e6bee7`), modelled directly on `build/check_jurisdiction_names.py`'s own shape:
+same `GRANDFATHERED` exact-site mechanism (the two known 0023/0056 sites) with its own
+staleness self-check, wired into `make check-boundary`. Proven RED on a planted violation
+(reverted, file confirmed byte-identical to before via `diff`), GREEN against the real tree
+(59 files, only the 3 grandfathered sites, all `OK`), and the staleness self-check proven to
+fire on a deliberately-wrong `GRANDFATHERED` entry. Two real false positives found and fixed
+while proving this against the real tree, not assumed clean: a `--` comment line quoting the
+old bare-literal pattern in prose, and `-infinity`/`infinity` (Postgres's own
+timezone-independent sentinel values, not dates at all).
+
+## 6. What P61 inherits
+
+- **`db.yml` and `docs.yml` are both CI green**, verified live, not assumed — the branch's own
+  workflow definitions have now actually run, repeatedly, not merely been read. Any future push
+  to `p59-defect-clearance` (or a merge to `main`, still requiring its own review) fires both.
+- **The credential is rotated and dead** (NXDOMAIN, ruled out as a local DNS issue first).
+  `.env` is local-dev-only, matching `.env.example`. Nothing about local development changed in
+  practice — `refuse_remote`/`_is_local` still correctly allow local URLs, `get_db()` still
+  connects.
+- **The timezone class is closed as a *class*, not just its three known instances.** A bare
+  `::timestamptz` literal anywhere in `db/seeds/` or `db/migrations/` now fails `make
+  check-boundary` (and CI's own `docs.yml` `qa` job, which runs that target) unless explicitly
+  grandfathered — a fourth instance cannot land silently the way C7/AD1/day4 all once did.
+  A dedicated non-UTC CI leg proves the seeding path specifically, on every push, going forward.
+- **Two landed migrations (0023, 0056) carry a permanently-recorded, now-closed-as-correct
+  functional defect** — `db/README.md`'s new section is the pointer, forever (append-only,
+  same as B9), even though this pass found nothing to remediate on the one database checked.
+- **An observation, not a defect, for whoever next reaches for
+  `postgresql://localhost/ledgex_schema_check` on this machine**: it is a separate, near-empty
+  Homebrew Postgres database, not the docker container's real 225,077-parcel one — see section
+  4's own paragraph.
+- **A named, out-of-scope risk**: `test_refresh_failure_invariant.py`/`test_zoning_ambiguity_
+  invariant.py`/`test_apn_canonicalization_invariant.py`'s own `seed_reference_rows()` share
+  `test_snapshot_race_invariant.py`'s pre-fix gap (an `INSERT INTO source` with no
+  `expected_fields`) — harmless today only because each runs after `day4_sources.sql` in every
+  job that wires it in; a future reordering could reproduce defect #4 exactly.
+- **Pending the pause-point check-in in this pass's own final response**: whether P60-4(b)'s
+  "nothing to remediate on `ledgex_schema_check`" finding is accepted as closing that item, or
+  whether the owner wants other databases/environments checked too before it's called done.
