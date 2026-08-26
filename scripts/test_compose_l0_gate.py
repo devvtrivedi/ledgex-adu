@@ -238,7 +238,8 @@ def test_positive_companion_jurisdiction_resolvable_does_not_refuse():
 
 
 def test_explicit_false_value_still_refuses():
-    """C1 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md): the pre-fix gate
+    """C3 (P59, LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md; A-N11, P59C: corrected
+    from a C1 mislabel). The pre-fix gate
     destructured the VALUE away and checked presence only, so an explicit
     jurisdiction.incorporated=false fact -- 0056's own designed meaning,
     "NOT in this jurisdiction" -- suppressed the refusal exactly like true

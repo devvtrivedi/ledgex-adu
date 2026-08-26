@@ -631,18 +631,38 @@ def _compose(conn, parcel_id, channel, election=None, as_of=None):
     # verified endpoint, which P53-l0-gate.md's own Obstacle 2 already ruled
     # out fabricating. Recorded as a known, coupled gap, not silently
     # dropped.
-    incorporated_satisfied = any(
-        field_key == "jurisdiction.incorporated" and value is True
-        for _, field_key, _, value in touched
-    )
+    # A-N11 (P59C): incorporated_value/_present are read separately from
+    # _satisfied so the refusal message below can tell "no fact at all"
+    # apart from "an explicit False fact" -- the single shared message
+    # used to say "no current jurisdiction.incorporated fact exists" in
+    # BOTH cases, which is factually wrong for the explicit-False case (a
+    # sourced fact exists and says the parcel is NOT in the jurisdiction).
+    incorporated_present = False
+    incorporated_value = None
+    for _, field_key, _, value in touched:
+        if field_key == "jurisdiction.incorporated":
+            incorporated_present = True
+            incorporated_value = value
+            break
+    incorporated_satisfied = incorporated_value is True
     if boundary_source_id is not None and not incorporated_satisfied:
+        if incorporated_present:
+            # Explicit False: honest about what's actually there. Not the
+            # absent-case message below -- keeping that one byte-identical
+            # is what avoids reblessing any golden fixture (A-N11).
+            fact_clause = (
+                "a current jurisdiction.incorporated fact exists and is False "
+                "(this parcel is asserted NOT to be in the jurisdiction)"
+            )
+        else:
+            fact_clause = "no current jurisdiction.incorporated fact exists for this parcel"
         refusals.append({
             "code": "LICENCE_UNKNOWN",
             "stage": "L0",
             "message": (
                 f"Jurisdiction {jurisdiction_id!r} declares boundary_source_id="
                 f"{boundary_source_id!r} as the source that resolves its boundary, but "
-                f"no current jurisdiction.incorporated fact exists for this parcel -- "
+                f"{fact_clause} -- "
                 f"default deny (§1.1, §9)."
             ),
             "detail": {
