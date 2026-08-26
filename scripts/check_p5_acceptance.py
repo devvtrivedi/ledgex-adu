@@ -202,13 +202,32 @@ def check_zoning_after_a2(cur):
 
 
 def check_permits_after_b(cur):
+    # Corrected (P60-2): this pair of checks previously asserted the OLD
+    # retire_with_false_successor behavior -- a permit disappearing from the
+    # source file used to supersede permits.active to false. C2 (P59,
+    # LEDGEX-P58-PRE-MAP-AUDIT-REPORT.md; see ingest_zoning_permits.py's own
+    # extensive comment right above its attribution_lost handling) deliberately
+    # removed that write: without a persisted per-permit identity, "genuinely
+    # dropped off the export" and "just unattributable this run" look
+    # identical, so absence now leaves the live fact untouched and opens a
+    # typed, non-blocking permit_attribution_lost exception instead of ever
+    # fabricating a false value. These checks never got updated when C2
+    # landed -- first caught when db.yml's p5-acceptance job ran in CI for
+    # the first time ever (P60-1); 23717099 is in db/fixtures/p5/
+    # p5_permits_A.csv but genuinely absent from p5_permits_B.csv.
     d_active = live_fact(cur, "23717099", "permits.active")
-    check("after B: 23717099 permits.active = false (last permit disappeared), superseded, world_change",
-          d_active is not None and d_active[1] is False and d_active[2] is not None and d_active[3] == "world_change",
+    check("after B: 23717099 permits.active unchanged (still true, no supersession -- "
+          "C2: absence never fabricates a false)",
+          d_active is not None and d_active[1] is True and d_active[2] is None,
           f"got {d_active}")
     d_earliest = live_fact(cur, "23717099", "permits.series_earliest")
-    check("after B: 23717099 permits.series_earliest retired, no successor",
-          d_earliest is None, f"got {d_earliest}")
+    check("after B: 23717099 permits.series_earliest unchanged (still 2026-01-01, no supersession)",
+          d_earliest is not None and d_earliest[1] == "2026-01-01" and d_earliest[2] is None,
+          f"got {d_earliest}")
+    active_reasons = open_exceptions(cur, "23717099", "permit_attribution_lost")
+    check("after B: 23717099 has open permit_attribution_lost exception "
+          "(no_fresh_apn_match_this_run)",
+          "no_fresh_apn_match_this_run" in active_reasons, f"got {active_reasons}")
 
     d_active = live_fact(cur, "58705049", "permits.active")
     check("after B: 58705049 permits.active unchanged (still true, no-op)",
@@ -228,49 +247,68 @@ def check_permits_after_b(cur):
 
 
 def check_permits_after_a2(cur):
+    # Corrected (P60-2): see check_permits_after_b's identical correction --
+    # since B never touched 23717099's permits.active/series_earliest (C2),
+    # reloading A again just re-confirms the SAME unchanged live fact
+    # (fresh == live, the "same" branch) -- nothing to flip "back", because
+    # nothing was ever flipped forward. The attribution-lost exception opened
+    # after B is what actually changes here: 23717099 is present in A again,
+    # so it closes (condition_cleared).
     d_active = live_fact(cur, "23717099", "permits.active")
-    check("after A2: 23717099 permits.active = true again (false -> true, superseded, world_change)",
-          d_active is not None and d_active[1] is True and d_active[2] is not None and d_active[3] == "world_change",
+    check("after A2: 23717099 permits.active STILL unchanged (still true, no supersession -- "
+          "never touched by B or by this reload)",
+          d_active is not None and d_active[1] is True and d_active[2] is None,
           f"got {d_active}")
     d_earliest = live_fact(cur, "23717099", "permits.series_earliest")
-    check("after A2: 23717099 permits.series_earliest = 2026-01-01, NEW fact (was absent after B)",
+    check("after A2: 23717099 permits.series_earliest STILL unchanged (still 2026-01-01, "
+          "no supersession)",
           d_earliest is not None and d_earliest[1] == "2026-01-01" and d_earliest[2] is None,
           f"got {d_earliest}")
+    active_history = exception_history(cur, "23717099", "permit_attribution_lost")
+    check("after A2: 23717099's permit_attribution_lost exception is now closed "
+          "(condition_cleared) -- attribution confirmed again",
+          bool(active_history) and active_history[-1][2] == "condition_cleared",
+          f"got {active_history}")
 
     d_earliest = live_fact(cur, "58705049", "permits.series_earliest")
     check("after A2: 58705049 permits.series_earliest back to 2026-01-02, superseded",
           d_earliest is not None and d_earliest[1] == "2026-01-02" and d_earliest[2] is not None,
           f"got {d_earliest}")
 
+    # Corrected (P60-2): this block previously asserted the OLD
+    # retire_with_false_successor behavior for 23712112 (absent from
+    # p5_permits_A.csv, so A2's reload sees it vanish, same as 23717099 does
+    # after B -- see check_permits_after_b's identical correction and C2's
+    # own comment in ingest_zoning_permits.py). Under C2, absence never
+    # fabricates a false: the live fact B wrote (true, NEW, no supersession)
+    # stays exactly as it is, and a permit_attribution_lost exception opens
+    # instead of a second fact row ever existing.
     d_active = live_fact(cur, "23712112", "permits.active")
-    check("after A2: 23712112 permits.active = false again (true -> false, superseded, world_change)",
-          d_active is not None and d_active[1] is False and d_active[2] is not None and d_active[3] == "world_change",
+    check("after A2: 23712112 permits.active STILL unchanged (still true, no supersession -- "
+          "C2: absence never fabricates a false)",
+          d_active is not None and d_active[1] is True and d_active[2] is None,
           f"got {d_active}")
     d_earliest = live_fact(cur, "23712112", "permits.series_earliest")
-    check("after A2: 23712112 permits.series_earliest retired again, no successor",
-          d_earliest is None, f"got {d_earliest}")
+    check("after A2: 23712112 permits.series_earliest STILL unchanged (still 2026-02-01, "
+          "no supersession)",
+          d_earliest is not None and d_earliest[1] == "2026-02-01" and d_earliest[2] is None,
+          f"got {d_earliest}")
+    active_reasons = open_exceptions(cur, "23712112", "permit_attribution_lost")
+    check("after A2: 23712112 has open permit_attribution_lost exception "
+          "(no_fresh_apn_match_this_run)",
+          "no_fresh_apn_match_this_run" in active_reasons, f"got {active_reasons}")
 
     # This checkpoint runs twice in run_p5_acceptance.sh: once right after
     # A2's reconcile, once more after the deliberate same-snapshot re-run at
-    # the end of the script (identical fixture, no new data). By then
-    # 23712112 permits.active has exactly two total fact rows in its
-    # history -- B's NEW true (23712112 has no row in p5_permits_A.csv, so
-    # A1 wrote nothing) and A2's superseded false successor. A same-snapshot
-    # re-run must not add a third: a live permits.active=false compared
-    # against "still absent this run" is not a world change, it is the same
-    # silence the false already recorded. The three PASS checks above
-    # (value/supersession/reason) stay true whether the re-run added a
-    # fabricated third row or not -- they were true after A2 and stay true
-    # after the churn, because the churned row has the same shape as the
-    # real A2 transition. Only a count (or an unchanged live id) sees it;
-    # id-unchanged would need state persisted across the two separate CLI
-    # invocations bracketing the re-run (nothing here provides that
-    # channel), so a self-contained count against the fixture-determined
-    # expected total is the one that doesn't need new plumbing to exist.
+    # the end of the script (identical fixture, no new data). Since C2 never
+    # writes a fact on absence, 23712112 permits.active has exactly ONE total
+    # fact row throughout -- B's original NEW true -- whether or not the
+    # re-run happened; a same-snapshot re-run only re-opens (or leaves open)
+    # the same attribution_lost exception, never touches the fact table.
     n = total_fact_rows(cur, "23712112", "permits.active")
-    check("after A2: 23712112 permits.active has exactly 2 total fact rows "
-          "(B's true + A2's false; a same-snapshot re-run must not add a third)",
-          n == 2, f"got {n}")
+    check("after A2: 23712112 permits.active has exactly 1 total fact row "
+          "(B's original true; C2 never adds a fabricated successor)",
+          n == 1, f"got {n}")
 
 
 SOURCE_ID_ZONING = "ca_san_jose.zoning_districts"

@@ -166,7 +166,7 @@ cur.execute("""
            (SELECT id FROM snapshot WHERE source_id = 'ca_san_jose.building_permits_active'
             ORDER BY fetched_at DESC LIMIT 1),
            f.method, f.retrieved_at, f.source_published_at, f.source_cadence_stated,
-           f.effective_from, f.effective_to, now(), f.superseded_at, 'cc0', f.confidence,
+           f.effective_from, f.effective_to, now(), f.superseded_at, 'cc0_api_2026_08', f.confidence,
            f.confidence_rule_id, f.conflict, f.method_version, f.ruleset_version, f.pack_version,
            f.jurisdiction_id, NULL, NULL, f.source_asserted_as_of
     FROM fact f JOIN parcel p ON p.id = f.parcel_id

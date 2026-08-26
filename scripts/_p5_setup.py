@@ -68,11 +68,22 @@ def main():
               -- these ids (LICENCE_ID/_ZONING/_PERMITS, repointed -- see
               -- prompts/P55-scoped-unblock.md §4.1/§4.5 step 9), so this
               -- disposable database needs them to exist too, or every real
-              -- ingest call below raises a foreign_key_violation. The OLD
-              -- rows stay: the reconciliation-test INSERTs further down this
-              -- script still cite them literally by hand. notes carries the
-              -- same SUCCESSION mitigation (P55 §12.6) as every other seeder
-              -- of these ids -- real facts get written here too.
+              -- ingest call below raises a foreign_key_violation. notes
+              -- carries the same SUCCESSION mitigation (P55 §12.6) as every
+              -- other seeder of these ids -- real facts get written here too.
+              -- Corrected (P60-2): this comment previously claimed the OLD
+              -- rows above stay because run_p5_acceptance.sh's own finding
+              -- #21 reconciliation-test INSERT cites them literally by hand
+              -- -- that INSERT plants a fact citing a real
+              -- ca_san_jose.building_permits_active snapshot, and the real
+              -- ingest now registers every such snapshot under
+              -- 'cc0_api_2026_08' (P55), so fact_snapshot_licence_fk
+              -- rejected the old 'cc0' literal outright -- first observed
+              -- when db.yml's p5-acceptance job ran in CI for the first time
+              -- ever (P60-1). The INSERT was repointed to 'cc0_api_2026_08';
+              -- the plain 'cc_by_4_0'/'cc0' rows above are no longer read by
+              -- anything in this script and are kept only as harmless,
+              -- pre-existing licence rows (not load-bearing fixture values).
               ('cc_by_4_0_api_2026_08', 'CC BY 4.0 (api channel, scoped 2026-08)',
                'attribution', 'allowed', 'allowed', 'City of San Jose',
                '2026-07-31'::timestamptz, NULL, NULL,
