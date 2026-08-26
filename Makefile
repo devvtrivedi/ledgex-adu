@@ -14,7 +14,7 @@
 # diff against the committed file — match PG_DUMP/DATABASE_URL to 16 before
 # regenerating it.
 
-.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state smoke-real local-up local-down test-qa-check test-guard-destructive test-centroid-interior test-apn-canonicalization test-zoning-ambiguity test-compose-collision test-refresh-failure test-reconcile-identity-verified test-load-parcels-identity test-parcel-flap flag-invalid-geometry test-flag-invalid-geometry test-load-permits-attribution test-compose-l0-gate test-zoning-centroid-exclusion test-zoning-centroid-exception-closure
+.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state smoke-real local-up local-down test-qa-check test-guard-destructive test-centroid-interior test-apn-canonicalization test-zoning-ambiguity test-compose-collision test-refresh-failure test-reconcile-identity-verified test-load-parcels-identity test-parcel-flap flag-invalid-geometry test-flag-invalid-geometry test-load-permits-attribution test-compose-l0-gate test-zoning-centroid-exclusion test-zoning-centroid-exception-closure test-geometry-declared-gap
 
 # `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
 # not guaranteed under `make -j`: parallel make can start pdf's docs
@@ -457,6 +457,12 @@ test-load-parcels-identity:
 # docstring).
 test-parcel-flap:
 	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_parcel_flap_invariant.py
+
+# B5 (P59C): a null or non-polygonal feature geometry must not abort
+# phase_e's whole single-transaction reconcile. Same object-store/
+# scratch-database requirements as test-parcel-flap above.
+test-geometry-declared-gap:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_geometry_declared_gap.py
 
 # C4 (P59): scripts/flag_invalid_geometry.py was wired into no Makefile
 # target and no CI workflow -- the 28 known-invalid parcels on the real

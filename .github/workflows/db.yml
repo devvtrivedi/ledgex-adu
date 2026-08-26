@@ -721,3 +721,10 @@ jobs:
       # assertions have already completed.
       - name: scripts/test_parcel_flap_invariant.py (C5 flap regression)
         run: python3 scripts/test_parcel_flap_invariant.py
+
+      # B5 (P59C): a null or non-polygonal feature geometry must not abort
+      # phase_e's whole single-transaction reconcile. Same job, same
+      # already-live MinIO and already-seeded reference rows as the flap
+      # regression directly above.
+      - name: scripts/test_geometry_declared_gap.py (B5 geometry declared-gap regression)
+        run: python3 scripts/test_geometry_declared_gap.py

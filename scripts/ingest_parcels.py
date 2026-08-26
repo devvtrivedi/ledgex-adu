@@ -993,6 +993,44 @@ JOB_KEY_FULL = "ingest_parcels_full"
 DETECTOR_KEY_APN_UNRESOLVABLE = "parcel_apn_unresolvable"
 DETECTOR_VERSION_APN_UNRESOLVABLE = "1.0"
 
+# B5 (P59C, LEDGEX-P59B-ENGINEERING-REPORT.md sec 3.2.2.5): the geometry
+# analogue of the APN declared-gap handling above. A single feature with
+# "geometry": null (json.dumps -> the literal text 'null', which
+# ST_GeomFromGeoJSON errors on) or a non-polygonal geometry (Point,
+# LineString, GeometryCollection -- this source is declared as polygon
+# data; parcel.geom is geometry(MultiPolygon, 4326)) used to abort the
+# ENTIRE bulk INSERT it was batched into, and with it the whole
+# single-transaction reconcile -- one bad feature in a future export
+# would block all freshness until the source fixed it. Modelled directly
+# on is_unresolvable_apn(): the parcel row is still created (0034's own
+# "every feature becomes a parcel row, no skipping" -- unchanged), with
+# geom left NULL rather than fed a value ST_GeomFromGeoJSON would reject,
+# no parcel.geometry fact written for it (mirrors stored_apn = None),
+# and a typed, non-blocking exception recorded instead.
+DETECTOR_KEY_GEOMETRY_UNRESOLVABLE = "parcel_geometry_declared_gap"
+DETECTOR_VERSION_GEOMETRY_UNRESOLVABLE = "1.0"
+POLYGONAL_GEOMETRY_TYPES = {"Polygon", "MultiPolygon"}
+
+
+def is_unresolvable_geometry(feat):
+    """True if feat's geometry cannot be recorded as parcel.geom (a
+    MultiPolygon column), once its declared shape is checked. Returns
+    (bool, reason) where reason is 'null' (missing/JSON-null geometry) or
+    'non_polygonal:<type>' (a real but non-polygonal GeoJSON type) --
+    same (bool, reason) shape as is_unresolvable_apn(), deliberately, not
+    a second convention. Does not validate ring closure, self-
+    intersection or coordinate sanity -- 0057's geom_valid (a STORED
+    generated column) and C4's own flag_invalid_geometry.py detector
+    already own that, downstream, for geometry that DOES parse; this
+    function is about geometry that isn't even shaped like geometry."""
+    geom = feat.get("geometry")
+    if geom is None:
+        return True, "null"
+    gtype = geom.get("type")
+    if gtype not in POLYGONAL_GEOMETRY_TYPES:
+        return True, f"non_polygonal:{gtype}"
+    return False, None
+
 # Phase B (P4 revision): raised once for every parcel that disappears from
 # the bulk parcels snapshot (its source_feature_identity is retired) --
 # unconditionally, not only when it happens to carry a zoning.district
@@ -1171,6 +1209,8 @@ def phase_e(snapshot_id):
     resolvable_count = 0
     unresolvable_count = 0
     reason_counts = {"blank": 0, "placeholder": 0}
+    geometry_unresolvable_count = 0
+    geometry_reason_counts = {}
     identity_by_feature_id = {}
     identity_rows_to_insert = []
 
@@ -1387,19 +1427,36 @@ def phase_e(snapshot_id):
                 parcel_id = str(uuid.uuid4())
                 stored_apn = None if unresolvable else canon_apn
 
-                parcel_rows.append((parcel_id, JURISDICTION_ID, stored_apn, geojson_geom_param(feat)))
+                # B5: classify geometry BEFORE it ever reaches ST_GeomFromGeoJSON
+                # (via the bulk INSERT template) -- a null or non-polygonal
+                # geometry is routed to a typed exception, not fed to the
+                # parser at all, the same way an unresolvable APN never
+                # reaches its own fact.
+                geom_unresolvable, geom_reason = is_unresolvable_geometry(feat)
+                stored_geom_param = None if geom_unresolvable else geojson_geom_param(feat)
+
+                parcel_rows.append((parcel_id, JURISDICTION_ID, stored_apn, stored_geom_param))
                 identity_rows_to_insert.append((
                     SOURCE_ID, source_feature_id, parcel_id,
                     snapshot_id, retrieved_at, snapshot_id, retrieved_at,
                 ))
-                fact_rows.append(Fact(
-                    parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
-                    field_key="parcel.geometry", value=geojson_geom_param(feat), method="bulk",
-                    source_id=SOURCE_ID, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
-                    source_url=ENDPOINT_URL, licence_id=LICENCE_ID, confidence=FACT_CONFIDENCE,
-                    confidence_rule_id=FACT_CONFIDENCE_RULE_ID, effective_from=retrieved_at,
-                    pack_version=FACT_PACK_VERSION,
-                ))
+                if not geom_unresolvable:
+                    fact_rows.append(Fact(
+                        parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
+                        field_key="parcel.geometry", value=stored_geom_param, method="bulk",
+                        source_id=SOURCE_ID, snapshot_id=snapshot_id, retrieved_at=retrieved_at,
+                        source_url=ENDPOINT_URL, licence_id=LICENCE_ID, confidence=FACT_CONFIDENCE,
+                        confidence_rule_id=FACT_CONFIDENCE_RULE_ID, effective_from=retrieved_at,
+                        pack_version=FACT_PACK_VERSION,
+                    ))
+                else:
+                    geometry_unresolvable_count += 1
+                    geometry_reason_counts[geom_reason] = geometry_reason_counts.get(geom_reason, 0) + 1
+                    exception_rows.append(ParcelException(
+                        parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID, type="coverage_gap", severity="info",
+                        detector_key=DETECTOR_KEY_GEOMETRY_UNRESOLVABLE, detector_version=DETECTOR_VERSION_GEOMETRY_UNRESOLVABLE,
+                        detail={"reason": geom_reason, "source_feature_id": source_feature_id},
+                    ))
                 fact_rows.append(Fact(
                     parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
                     field_key="parcel.source_parcel_id", value=json.dumps(source_feature_id), method="bulk",
@@ -1540,6 +1597,18 @@ def phase_e(snapshot_id):
                         resolvable_count += 1
 
                 if geom_changed:
+                    # B5 (P59C): known, recorded gap -- unlike the NEW branch
+                    # above, this CHANGED/reappeared branch does not yet run
+                    # is_unresolvable_geometry(feat) before feeding
+                    # geojson_geom_param(feat) to ST_GeomFromGeoJSON. A
+                    # previously-good parcel whose geometry goes null or
+                    # non-polygonal on a LATER export can still abort this
+                    # branch. The APN dimension already has this exact
+                    # "degrade" shape (had_live_apn_fact and
+                    # incoming_unresolvable, ~15 lines up) to model the fix
+                    # on; not implemented here -- the NEW-feature path is
+                    # this pass's fix, this one is scoped out and named, not
+                    # silently left.
                     fact_ids_to_supersede.append(geom_fact_id)
                     fact_rows.append(Fact(
                         parcel_id=parcel_id, jurisdiction_id=JURISDICTION_ID,
@@ -1656,6 +1725,8 @@ def phase_e(snapshot_id):
               f"disappeared: {disappeared_count:,} (record_to_ground exception raised, no cross-source writes)")
         print(f"  resolvable APN: {resolvable_count:,}  unresolvable: {unresolvable_count:,} "
               f"(blank={reason_counts['blank']}, placeholder={reason_counts['placeholder']})")
+        print(f"  geometry declared-gap (NEW features only, B5): {geometry_unresolvable_count:,} "
+              f"{dict(geometry_reason_counts) if geometry_reason_counts else ''}")
         print(f"  parcel rows to insert: {len(parcel_rows):,}")
         print(f"  fact rows to insert: {len(fact_rows):,}")
         print(f"  parcel_exception rows to insert: {len(exception_rows):,}")
@@ -1871,6 +1942,8 @@ def phase_e(snapshot_id):
             "apn_resolvable": resolvable_count,
             "apn_unresolvable": unresolvable_count,
             "apn_unresolvable_reasons": reason_counts,
+            "geometry_unresolvable_new_only": geometry_unresolvable_count,
+            "geometry_unresolvable_reasons": geometry_reason_counts,
         }
         finish_job_run_full(conn, job_run_id, "succeeded", snapshot_id, rows_in, len(parcel_rows), metrics)
         conn.commit()
