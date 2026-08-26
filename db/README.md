@@ -364,3 +364,52 @@ append-only, for the same reason the migrations it corrects are.
   unaffected — `p5-acceptance`/`phaseb-acceptance` still run against their
   own migrations-only databases, and this migration must still work there
   regardless of what the `schema` job's database looks like.
+
+## Known timezone-literal defects in landed migrations — not prose, tracked here until remediated
+
+P60-4. **Deliberately a different section from "Stale migration header claims"
+above, not a subsection of it.** B9's own scope is explicit: "a prose-only
+staleness — nothing to fix, nothing broken." What's recorded here is the
+opposite — a genuine functional defect (the timezone class: C7, AD1,
+`db/seeds/day4_sources.sql`'s own P60-4(a) fix), sitting inside migration
+files that are forward-only and can never be hand-edited (§3.13). A bare
+`'YYYY-MM-DD'::timestamptz` literal resolves at the CONNECTING SESSION's
+local midnight at the moment the migration was originally applied, not a
+fixed UTC instant — meaning the actual stored value in any database this
+migration has ever run against depends on that database's session TimeZone
+at apply time, which this file has no way to know or assert after the fact.
+
+This section exists because the forward-only convention's own remedy — "a
+functional defect can only be corrected by a later migration, which
+explains itself in its own header" — is not something to reach for
+unilaterally: whether the affected rows need a corrective migration at all
+depends on which table they're in (an immutable table, per CONVENTIONS'
+own established escalation, has no migration-level fix at all — only a
+full rebuild, an owner decision) and, for a mutable table, a corrective
+migration is itself a standing pause point (never authored without the
+owner's own go-ahead). Until either resolves, the honest record is here,
+not silence and not a hand-edit of the migration body.
+
+- **0023_correct_seeded_endpoint_urls.sql** — two bare literals,
+  `url_verified_at = '2026-08-06'::timestamptz` (lines 41, 49). Same class
+  as `day4_sources.sql`'s own pre-P60-4(a) literals (in fact the identical
+  date, `2026-08-06`, that `day4_sources.sql` also carried for the same
+  three sources' `url_verified_at` — not a coincidence, both trace to the
+  same real verification pass). **Status: not remediated.** Affects the
+  `source` table (mutable — not one of `licence`/`licence_channel`/`rule`/
+  `fact`'s own immutable set, §1's own I4/I18 scope) — a corrective
+  migration is possible in principle, but authoring one is P60's own pause
+  point 4 (any new migration), not resolved in this pass.
+- **0056_l0_gate_boundary_source.sql** — one bare literal (line 135,
+  `'2026-08-22'::timestamptz`). Same class. Table affected not yet
+  identified in this pass — see P60-4(b)'s own partition-by-table work for
+  the specific column this literal populates and that column's mutability.
+  **Status: not remediated**, same reason as above.
+
+Both entries stay here, unedited, until a later migration (for the mutable
+half) or a rebuild (for any immutable-table half, per the owner's own
+decision) actually resolves the underlying stored values — at which point
+the resolving migration's own header is the right place to say so, and
+this entry should be updated to point at it, not deleted (this section is
+append-only/update-in-place for the same reason B9 above is: the migrations
+it describes are, and always will be, forward-only).
