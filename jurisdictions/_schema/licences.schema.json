@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ledgex.internal/schema/licences.schema.json",
   "title": "LedgeX licence pack (P26)",
-  "description": "Every jurisdictions/<pack>/licences.yaml validates against this. §7.3: 'Channel eligibility for any fact is determined solely by licences.yaml, seeded into licence + licence_channel and enforced by the composer (I6). Nothing else grants a channel.' This file's own shape mirrors db/schema.sql's real licence table plus the four real output_channel enum values -- not independently invented.",
+  "description": "Every jurisdictions/<pack>/licences.yaml validates against this. §7.3: 'Channel eligibility for any fact is determined solely by licences.yaml, seeded into licence + licence_channel and enforced by the composer (I6). Nothing else grants a channel.' This file's own shape mirrors db/schema.sql's real licence table plus the six real output_channel enum values (B10, P59C: corrected from 'four' -- 0031/C9 added analytics and model_training) -- not independently invented.",
   "type": "object",
   "required": ["licences"],
   "additionalProperties": false,
