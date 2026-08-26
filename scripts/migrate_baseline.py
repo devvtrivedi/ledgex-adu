@@ -170,9 +170,13 @@ def main():
                 f"main: DATABASE_URL could not be parsed into a host -- "
                 f"refusing to guess. See infra.env.resolved_host's own docstring."
             )
+        # P60-4: options="-c timezone=UTC" -- same fix as migrate_verify.py's
+        # own identical ref_conn (see that script's own comment); this
+        # connection also replays every migration file, bare timestamptz
+        # literals included, to build the reference this script compares.
         ref_conn = psycopg2.connect(
             host=host, port=u.port or 5432, user=u.username, password=u.password,
-            dbname=ref,
+            dbname=ref, options="-c timezone=UTC",
         )
         ref_conn.autocommit = False
         print("applying every migration to the reference database, from empty")

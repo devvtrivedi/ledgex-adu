@@ -104,7 +104,16 @@ def main():
     # migrate reached a raw psycopg2.OperationalError, not this refusal).
     # Called once, before the only connection this script makes.
     refuse_remote(env("DATABASE_URL"))
-    conn = psycopg2.connect(env("DATABASE_URL"))
+    # P60-4: options="-c timezone=UTC", same fix C7 gave infra.env.get_db()
+    # and AD1 gave check_golden.py's own connection -- this script applies
+    # migration files directly (bare timestamptz literals included, e.g.
+    # 0056's own) via a plain connection with no such protection until now.
+    # Does not correct any value a migration already wrote under a wrong
+    # session timezone (that table may be immutable, forward-only, or both
+    # -- see db/README.md's own "Known timezone-literal defects in landed
+    # migrations" section) -- only prevents a NEW wrong value on the next
+    # database this script ever touches.
+    conn = psycopg2.connect(env("DATABASE_URL"), options="-c timezone=UTC")
     conn.autocommit = False
 
     with conn.cursor() as cur:

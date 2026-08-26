@@ -98,9 +98,15 @@ def main():
                 f"main: DATABASE_URL could not be parsed into a host -- "
                 f"refusing to guess. See infra.env.resolved_host's own docstring."
             )
+        # P60-4: options="-c timezone=UTC" -- this connection replays every
+        # migration file (apply_one() below), bare timestamptz literals
+        # included, to build the reference database this script diffs
+        # against. Same fix as migrate.py's own (see that script's own
+        # comment) -- without it, this reference build is exposed to the
+        # identical hazard, on whatever cluster this script happens to run.
         ref_conn = psycopg2.connect(
             host=host, port=u.port or 5432, user=u.username, password=u.password,
-            dbname=ref,
+            dbname=ref, options="-c timezone=UTC",
         )
         ref_conn.autocommit = False
         print(f"building reference from exactly the {len(recorded_versions)} migration(s) "

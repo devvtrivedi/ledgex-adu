@@ -217,13 +217,30 @@ LEDGER_MIGRATION := 0046_schema_migrations_ledger.sql
 # accepted here, inherited, not re-litigated by this fix). DATABASE_URL
 # travels via the environment, not interpolated into the -c string, so a
 # value containing shell-special characters can never break the quoting.
+#
+# P60-4: PGTZ=UTC prefixed on both $(PSQL) invocations below -- this target
+# is THE path every migration file, bare timestamptz literals included
+# (e.g. 0056's own, see db/README.md's "Known timezone-literal defects in
+# landed migrations"), ever gets applied through, on a fresh database,
+# anywhere: CI (db.yml's schema/p5-acceptance/phaseb-acceptance jobs) and
+# every local `make schema`. Confirmed live this pass: this exact target,
+# run on a cluster whose own server default TimeZone is not UTC (a real,
+# ordinary local Postgres install -- not a hypothetical), produced a wrong,
+# permanently-stuck value for 0056's own `licence.observed_at` (licence is
+# immutable, 0027 -- no later seeder's ON CONFLICT DO NOTHING can ever
+# correct it once wrong). PGTZ is a genuine libpq startup parameter (same
+# mechanism this pass's own timezone-non-utc CI leg uses to PROVE this
+# path safe), not a hack -- sets the CONNECTING SESSION's own `timezone`
+# GUC before either invocation evaluates a single literal. Does not touch
+# any already-written value; only prevents a NEW wrong one on the next
+# fresh database this target ever builds.
 schema:
 	@DATABASE_URL="$(DATABASE_URL)" $(PYTHON) -c "import os, sys; sys.path.insert(0, '.'); from infra.env import refuse_remote; refuse_remote(os.environ['DATABASE_URL'])"
 	@command -v $(PSQL) >/dev/null 2>&1 || { echo "$(PSQL) not found — install PostgreSQL 16 client tools"; exit 1; }
 	@command -v shasum >/dev/null 2>&1 || { echo "shasum not found"; exit 1; }
 	@echo "applying $(MIGRATIONS_DIR)/$(LEDGER_MIGRATION) (bootstrapped first -- see this target's own comment)"
 	@hash0=$$(shasum -a 256 "$(MIGRATIONS_DIR)/$(LEDGER_MIGRATION)" | cut -d' ' -f1); \
-	 $(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 --single-transaction \
+	 PGTZ=UTC $(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 --single-transaction \
 		-f "$(MIGRATIONS_DIR)/$(LEDGER_MIGRATION)" \
 		-c "INSERT INTO schema_migrations (version, file_sha256) VALUES ('0046', '$$hash0')" \
 		|| exit 1
@@ -233,7 +250,7 @@ schema:
 		echo "applying $$f"; \
 		version=$$(echo "$$base" | cut -d_ -f1); \
 		hash=$$(shasum -a 256 "$$f" | cut -d' ' -f1); \
-		$(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 --single-transaction \
+		PGTZ=UTC $(PSQL) "$(DATABASE_URL)" -v ON_ERROR_STOP=1 --single-transaction \
 			-f "$$f" \
 			-c "INSERT INTO schema_migrations (version, file_sha256) VALUES ('$$version', '$$hash')" \
 			|| exit 1; \
