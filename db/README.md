@@ -327,3 +327,40 @@ dropping an expected *column*, not a per-row match-outcome distribution).
 `metrics jsonb` is the general home all of these now sit in uniformly,
 instead of each ingest arguing its way into a column named for something
 else.
+
+## Stale migration header claims — corrections live here, never edited into the migration
+
+B9 (P59C, LEDGEX-P59B-ENGINEERING-REPORT.md sec 3.2.2.9). Migrations are
+forward-only (§3.13) — a migration's own header text cannot be hand-edited
+after it lands, even when the prose it carries stops being true (unlike a
+functional defect, which a *later* migration can fix and explain in its own
+header, e.g. 0048's header explaining what was wrong with 0038). A prose-only
+staleness — nothing to fix, nothing broken, just a comment describing a
+process or dependency that has since changed — had no established place to
+be corrected until this section. This is that place: append an entry below
+whenever a migration's own comment is later found stale, in the same shape
+CLAUDE.md already uses for its own inline `**Corrected (Pxx):**` paragraphs.
+Never remove or renumber an entry once added — this section is itself
+append-only, for the same reason the migrations it corrects are.
+
+- **0031_output_channel_analytics_model_training.sql** — its own header
+  says "This project's migration runner invokes psql -f per file with no
+  explicit BEGIN/COMMIT and AUTOCOMMIT on." No longer true: the Makefile's
+  `schema`/`migrate` recipes now pass `--single-transaction` to every
+  `psql -f` invocation per migration file (confirmed against the Makefile's
+  own recipe text, not assumed). The paragraph's own actual point — that
+  0031 and 0032 must be two separate migration files because
+  `ALTER TYPE ... ADD VALUE` cannot be referenced within the same
+  transaction that added it — is unaffected by this and remains true either
+  way (`--single-transaction` wraps one *file*, not the whole migration
+  run, so the two-file split is still load-bearing).
+- **0032_licence_channel_analytics_model_training.sql** — its own header
+  says "db.yml never runs db/seeds/day4_sources.sql." No longer true since
+  P36 (finding #38): `db.yml`'s `schema` job runs
+  `db/seeds/day4_sources.sql` between `make db-test` and `make golden` —
+  see CLAUDE.md's own corrected paragraph on this exact point. The
+  migration's own FK-safety argument (a blind `INSERT` would raise
+  `foreign_key_violation` against a migrations-only database) is
+  unaffected — `p5-acceptance`/`phaseb-acceptance` still run against their
+  own migrations-only databases, and this migration must still work there
+  regardless of what the `schema` job's database looks like.
