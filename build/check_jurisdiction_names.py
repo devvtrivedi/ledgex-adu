@@ -186,10 +186,15 @@ GRANDFATHERED = {
     # sites, not new violations).
     ("core/exceptions.py", 210, "apn"),
     ("core/exceptions.py", 230, "apn"),
-    ("core/model.py", 541, "apn"),
-    ("core/model.py", 542, "apn"),
-    ("core/model.py", 556, "apn"),
-    ("core/model.py", 557, "situs_address"),
+    # B1 (P59C): shifted from 541/542/556/557 -- core/model.py grew 31
+    # lines earlier in the file (Refusal.detail's MappingProxyType fix).
+    # Content re-verified unchanged at the new positions before updating
+    # (same Parcel docstring / field declarations, not new violations) --
+    # same discipline the P59 shift above this one already used.
+    ("core/model.py", 572, "apn"),
+    ("core/model.py", 573, "apn"),
+    ("core/model.py", 587, "apn"),
+    ("core/model.py", 588, "situs_address"),
     ("core/store.py", 12, "apn"),
     ("core/store.py", 19, "apn"),
 }
