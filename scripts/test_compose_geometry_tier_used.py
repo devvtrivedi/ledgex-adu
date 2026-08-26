@@ -119,9 +119,12 @@ def _seed(conn, suffix, geometry_tier_enabled):
             (parcel_id, jurisdiction_id, field_key, source_id, snapshot_id, now_ts, licence_id, now_ts),
         )
     conn.commit()
-    with conn.cursor() as cur:
-        cur.execute("REFRESH MATERIALIZED VIEW current_fact")
-    conn.commit()
+    # B3 (P59C): no REFRESH MATERIALIZED VIEW current_fact here -- this
+    # test's own compose() call reads current_fact_at(as_of), a function
+    # over LIVE fact rows (scripts/compose_property_file.py:551), never
+    # the current_fact materialized view. The refresh was a superfluous
+    # exclusive lock on a shared view for a read path that never consults
+    # it.
     return parcel_id
 
 
