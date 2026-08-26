@@ -649,6 +649,22 @@ def make_fixture_parcel_and_fact(conn, apn, snapshot_id):
 
 
 def _replace_uuids(obj, token_map):
+    # B2 (P59C): UUID_RE.match (not .search) is a WHOLE-STRING match --
+    # a UUID embedded WITHIN a larger string (e.g. a refusal message like
+    # "No parcel exists with id=<uuid>...", the shape a PARCEL_NO_FACTS/
+    # PARCEL_REFERENCE_UNKNOWN-class fixture's own message text could
+    # carry) is NOT tokenized here. CONFIRMED-NOT-AN-ISSUE, not fixed: no
+    # such fixture exists today (check_golden.py's three fixture classes
+    # -- refused, geometry-disabled, election_required -- carry their
+    # UUIDs only as their OWN dedicated whole-string fields, e.g.
+    # property_file.id, never embedded in prose), and if one ever did,
+    # this fails LOUD, not silent -- the untokenized UUID is fresh every
+    # run (uuid4()), so the blessed fixture's frozen copy would mismatch
+    # the live run's own value on every subsequent comparison, forever,
+    # not pass incorrectly once. If a future fixture DOES embed a UUID in
+    # message/prose text, tokenize that string with UUID_RE.sub(...)
+    # (a substring replace) before blessing it, or the fixture can never
+    # be blessed stably.
     if isinstance(obj, str):
         if UUID_RE.match(obj):
             if obj not in token_map:
