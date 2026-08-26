@@ -269,10 +269,29 @@ def check_website_version_strings():
     that blind spot one layer further out than check_website_current closed
     the docs/*.md one.
     """
+    # B11 (P59C): an empty (or missing) website/*.html glob used to pass
+    # this check silently -- zero files scanned looks identical to
+    # "scanned N files, found zero mismatches," and the same silence would
+    # cover a reworded anchor (SPEC_TITLE_RE/RULES_TITLE_RE finding zero
+    # matches across every file that DOES exist, e.g. "Engineering
+    # Reference Spec v" reworded to something else). A check that passes
+    # on nothing is the same class of defect as B6. Track how many files
+    # and how many matches were actually seen; fail loud if either count
+    # is zero, rather than reporting PASSED for a check that never ran.
     website_dir = ROOT / "website"
-    for html_path in sorted(website_dir.glob("*.html")):
+    html_paths = sorted(website_dir.glob("*.html"))
+    spec_anchor_matches = 0
+    rules_anchor_matches = 0
+    if not html_paths:
+        failures.append(
+            f"{website_dir.relative_to(ROOT)}: no *.html files found -- "
+            f"check_website_version_strings scanned nothing, this is not "
+            f"the same as everything being consistent."
+        )
+    for html_path in html_paths:
         text = html_path.read_text(encoding="utf-8")
         for m in SPEC_TITLE_RE.finditer(text):
+            spec_anchor_matches += 1
             found = m.group(1)
             if found != S.SPEC_VERSION:
                 failures.append(
@@ -280,12 +299,26 @@ def check_website_version_strings():
                     f"Reference Spec v{found}', current SPEC_VERSION is "
                     f"v{S.SPEC_VERSION}")
         for m in RULES_TITLE_RE.finditer(text):
+            rules_anchor_matches += 1
             found = m.group(1)
             if found != S.RULES_VERSION:
                 failures.append(
                     f"{html_path.relative_to(ROOT)}: says 'Implementation "
                     f"Rules v{found}', current RULES_VERSION is "
                     f"v{S.RULES_VERSION}")
+    if html_paths and spec_anchor_matches == 0:
+        failures.append(
+            f"{website_dir.relative_to(ROOT)}: 'Engineering Reference Spec "
+            f"v...' anchor found in NO *.html file -- either reworded "
+            f"(this check needs updating too) or genuinely missing "
+            f"(the version string this check exists to verify is absent)."
+        )
+    if html_paths and rules_anchor_matches == 0:
+        failures.append(
+            f"{website_dir.relative_to(ROOT)}: 'Implementation Rules v...' "
+            f"anchor found in NO *.html file -- either reworded (this "
+            f"check needs updating too) or genuinely missing."
+        )
 
 
 MIGRATIONS_DIR = ROOT / "db" / "migrations"

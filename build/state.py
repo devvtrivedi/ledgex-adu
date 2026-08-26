@@ -54,9 +54,17 @@ def main():
     except Exception as e:
         lines.append(f"SPEC/RULES version: FAILED to import ledgex_source ({e})")
 
+    # B11 (P59C): read_text() on a missing file raises FileNotFoundError,
+    # uncaught -- crashes this whole informational command with a raw
+    # traceback instead of the same graceful "(not found/none)" shape
+    # every other line here already uses (migrations above, via glob()'s
+    # own harmless-empty-on-missing-dir behavior).
     invariants_sql = ROOT / "db" / "tests" / "invariants.sql"
-    floor_match = re.search(r"IF v_pass_count < (\d+) THEN", invariants_sql.read_text())
-    lines.append(f"Invariant floor: {floor_match.group(1) if floor_match else '(not found)'}")
+    if invariants_sql.exists():
+        floor_match = re.search(r"IF v_pass_count < (\d+) THEN", invariants_sql.read_text())
+        lines.append(f"Invariant floor: {floor_match.group(1) if floor_match else '(not found)'}")
+    else:
+        lines.append(f"Invariant floor: (db/tests/invariants.sql does not exist at {invariants_sql})")
 
     status = sh(["git", "status", "--porcelain"])
     if status:
