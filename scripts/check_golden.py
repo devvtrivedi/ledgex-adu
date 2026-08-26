@@ -217,8 +217,30 @@ def golden_get_db():
         f"    make schema DATABASE_URL={DEFAULT_GOLDEN_DB}\n"
         f"    psql {DEFAULT_GOLDEN_DB} -v ON_ERROR_STOP=1 -f db/seeds/day4_sources.sql"
     )
+    # AD1 (P59C addendum): C7 (P59) pinned get_db()'s own connection to
+    # UTC (infra/env.py:271, options="-c timezone=UTC") specifically
+    # because a `date` column promoted to `timestamptz` at SESSION-LOCAL
+    # midnight can disagree by up to 26 hours between servers with
+    # different default TimeZone settings -- C7's own docstring names
+    # this connection as one of several call sites deliberately left
+    # unfixed, out of that pass's scope. It was never fixed here, and it
+    # is consequential here too: check_golden.py's own `as_of` field is
+    # read back through this connection and serialized verbatim
+    # (normalize()'s own "Pinned by the fixture, not by now()" comment,
+    # sec 6.6) for byte comparison against the committed fixture -- a
+    # non-UTC server renders the identical instant with a different
+    # offset (e.g. "-08:00" instead of "+00:00"), which the golden
+    # comparison then reports as a mismatch even though nothing about the
+    # composition itself changed. Same mechanism, same fix, reused: no
+    # other connection site in scripts/ or build/ was found to touch
+    # core.rules/core.calc/compose_property_file's own date-to-
+    # timestamptz comparison, or to serialize a timestamptz for a
+    # byte-exact comparison the way this one does (checked: _acceptance_
+    # db_preflight.py, migrate.py, migrate_verify.py, migrate_baseline.py,
+    # local_up.py, smoke_real.py, test_scoped_unblock.py -- none import
+    # core.rules/core.calc/compose_property_file at all).
     try:
-        conn = psycopg2.connect(golden_url)
+        conn = psycopg2.connect(golden_url, options="-c timezone=UTC")
     except Exception as e:
         raise SystemExit(
             f"cannot connect to the golden database ({type(e).__name__}: {str(e).strip()}).\n"
