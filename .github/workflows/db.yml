@@ -61,6 +61,22 @@ jobs:
       # PostgreSQL 16 service is the same false-diff trap as above.
       PSQL: /usr/lib/postgresql/16/bin/psql
       PG_DUMP: /usr/lib/postgresql/16/bin/pg_dump
+      # Corrected (P60-2): this job's own scripts/test_c19_reconcile_identity_
+      # verified.py step (below) needs a reachable MinIO -- its own docstring
+      # says so, and env("OBJECT_STORE_BUCKET") is not optional. A comment
+      # further down in this job used to claim these vars were "already
+      # configured job-wide, same as the C10/C19 steps above use" -- false:
+      # nothing in this job ever set them, and C10 (test_load_parcels_
+      # identity.py) turns out not to reference OBJECT_STORE at all, so the
+      # gap went unnoticed. First observed when db.yml ran in CI for the
+      # first time ever (P60-1): this step failed outright with "missing
+      # required environment variable: OBJECT_STORE_BUCKET", before ever
+      # reaching a connection. Same values p5-acceptance/phaseb-acceptance
+      # already use for their own throwaway CI MinIO below.
+      OBJECT_STORE_URL: http://localhost:9000
+      OBJECT_STORE_ACCESS_KEY: ledgex_ci
+      OBJECT_STORE_SECRET_KEY: ledgex_ci_throwaway_key
+      OBJECT_STORE_BUCKET: ledgex-snapshots-ci
 
     steps:
       - uses: actions/checkout@v4
@@ -220,6 +236,45 @@ jobs:
       # P59, C10: Phase D canonicalization/identity/single-transaction fixture.
       - name: scripts/test_load_parcels_identity.py
         run: python3 scripts/test_load_parcels_identity.py
+
+      # Corrected (P60-2): C19 below is the only step in this job that needs
+      # a reachable object store -- started here, immediately before it, not
+      # any earlier, to keep the dependency next to the one step that uses
+      # it. Same three-step shape (start, wait, create bucket) p5-acceptance/
+      # phaseb-acceptance already use below in this same file, same pinned
+      # minio/minio tag -- see p5-acceptance's own "Start MinIO" step for the
+      # full reasoning on the pin and on why this can't be a `services:`
+      # entry.
+      - name: Start MinIO
+        run: |
+          docker run -d --name minio -p 9000:9000 \
+            -e MINIO_ROOT_USER="$OBJECT_STORE_ACCESS_KEY" \
+            -e MINIO_ROOT_PASSWORD="$OBJECT_STORE_SECRET_KEY" \
+            minio/minio:RELEASE.2025-09-07T16-13-09Z server /data
+
+      - name: Wait for MinIO
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:9000/minio/health/live && exit 0
+            sleep 1
+          done
+          echo "MinIO never became ready" >&2
+          docker logs minio >&2 || true
+          exit 1
+
+      - name: Create the object store bucket
+        run: |
+          python3 -c "
+          import boto3, os
+          s3 = boto3.client(
+              's3',
+              endpoint_url=os.environ['OBJECT_STORE_URL'],
+              aws_access_key_id=os.environ['OBJECT_STORE_ACCESS_KEY'],
+              aws_secret_access_key=os.environ['OBJECT_STORE_SECRET_KEY'],
+          )
+          s3.create_bucket(Bucket=os.environ['OBJECT_STORE_BUCKET'])
+          print('bucket created:', os.environ['OBJECT_STORE_BUCKET'])
+          "
 
       # P59, C19: Phase E same_as_previous fast path must actually verify
       # identity presence (identity_by_feature_id was built but never
