@@ -13,6 +13,7 @@ that share a constructor with a positive control change exactly one
 field from it).
 """
 import datetime
+import json
 import sys
 from pathlib import Path
 
@@ -386,6 +387,31 @@ class TestRefusal:
         assert not issubclass(Refusal, BaseException)
         refusal = Refusal(code="RIGHTS_BLOCKED", stage="L8", message="blocked")
         assert not isinstance(refusal, BaseException)
+
+    def test_detail_is_immutable_in_place(self):
+        """B1 (P59C): frozen=True on the model blocks REASSIGNING
+        refusal.detail, but a plain dict is still mutable in place
+        (refusal.detail["x"] = "y" bypasses Pydantic's own frozen check
+        entirely, since that check only guards attribute assignment).
+        detail is now a MappingProxyType -- item assignment must raise."""
+        refusal = Refusal(code="RIGHTS_BLOCKED", stage="L8", message="blocked", detail={"a": 1})
+        with pytest.raises(TypeError):
+            refusal.detail["a"] = 2
+        assert dict(refusal.detail) == {"a": 1}
+
+    def test_detail_still_serializes_as_a_plain_dict(self):
+        """The immutability fix must not break model_dump()/
+        model_dump_json() -- scripts/compose_property_file.py calls
+        .model_dump() on every Refusal it builds, then json.dumps() the
+        assembled list; a MappingProxyType surviving into that output
+        would raise (confirmed live while writing this fix:
+        PydanticSerializationError without the field_serializer)."""
+        refusal = Refusal(code="RIGHTS_BLOCKED", stage="L8", message="blocked", detail={"a": 1})
+        dumped = refusal.model_dump()
+        assert type(dumped["detail"]) is dict
+        assert dumped["detail"] == {"a": 1}
+        json.dumps(dumped)  # must not raise
+        assert json.loads(refusal.model_dump_json())["detail"] == {"a": 1}
 
 
 # ---------------------------------------------------------------------------

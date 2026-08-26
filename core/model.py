@@ -200,10 +200,11 @@ from __future__ import annotations
 
 import datetime
 import json
+from types import MappingProxyType
 from typing import Any, Final, Generic, Literal, TypeVar
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 
 def _datetime_lt(field_a_name, a, field_b_name, b, context):
@@ -281,12 +282,42 @@ class Refusal(BaseModel):
     inventing a fourth vocabulary to keep in sync for a guarantee nobody
     asked this package to add."""
 
-    model_config = ConfigDict(frozen=True)
+    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 
     code: RefusalCode
     stage: str = Field(min_length=1)
     message: str = Field(min_length=1)
-    detail: dict[str, Any] = Field(default_factory=dict)
+    # B1 (P59C): frozen=True above blocks REASSIGNING self.detail, but a
+    # plain dict is still mutable in place (refusal.detail["x"] = "y"
+    # bypasses Pydantic entirely -- frozen only guards attribute
+    # assignment, not the mutability of what an attribute already points
+    # at). Typed as the concrete MappingProxyType (not typing.Mapping --
+    # confirmed live that Pydantic silently coerces a Mapping-typed field
+    # back to a plain dict during validation, which would have made this
+    # fix a no-op) with arbitrary_types_allowed above and a before-
+    # validator that wraps any dict/Mapping input; Pydantic then only
+    # isinstance-checks the already-wrapped value, so the proxy survives.
+    # Proven no caller depended on mutating it: grepped, every call site
+    # only ever reads (`.detail[...]` as an rvalue) or constructs
+    # `Refusal(detail={...})` fresh, never `.detail[...] = ...` /
+    # `.update(...)` / `.pop(...)` / `.clear()`. arbitrary_types_allowed
+    # makes MappingProxyType opaque to Pydantic's own serializer (confirmed
+    # live: model_dump()/model_dump_json() both raised
+    # PydanticSerializationError without the field_serializer below) --
+    # explicitly serialized back to a plain dict, so every existing
+    # consumer of model_dump()/model_dump_json() (scripts/
+    # compose_property_file.py's own refusals.append(...model_dump())
+    # call sites, then json.dumps() on the assembled list) is unaffected.
+    detail: MappingProxyType[str, Any] = Field(default_factory=lambda: MappingProxyType({}))
+
+    @field_validator("detail", mode="before")
+    @classmethod
+    def _freeze_detail(cls, value):
+        return MappingProxyType(dict(value)) if value is not None else MappingProxyType({})
+
+    @field_serializer("detail")
+    def _serialize_detail(self, value: MappingProxyType) -> dict:
+        return dict(value)
 
 
 T = TypeVar("T")
