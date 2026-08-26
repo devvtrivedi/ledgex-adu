@@ -234,7 +234,16 @@ INSERT INTO snapshot (
    '{"url":"https://example.com","params":{}}'::jsonb, 200, now(), 'test.unknown_commercial'),
   ('test_ca_san_jose.test_source:sha256:af9a79c43ff57207f122898e73ab04eb8178f6d05ad9e9a0287566337fc68fe3', 'test_ca_san_jose.test_source', 's3://bucket/test-attribution-required',
    'af9a79c43ff57207f122898e73ab04eb8178f6d05ad9e9a0287566337fc68fe3', 'application/json', 100,
-   '{"url":"https://example.com","params":{}}'::jsonb, 200, now(), 'test.attribution_required')
+   '{"url":"https://example.com","params":{}}'::jsonb, 200, now(), 'test.attribution_required'),
+  -- A-N10 (P59C): test.correctly_restricted was only ever used as a
+  -- DERIVED fact's licence before (T110) -- a derived fact has no
+  -- snapshot_id at all, so no pairing was needed. T116 needs it as a
+  -- RETRIEVED (direct) fact's own licence too (a second, distinct
+  -- restriction='no_resale' licence id, so DISTINCT has two rows to
+  -- collapse) -- its own observing snapshot, same pattern as the four above.
+  ('test_ca_san_jose.test_source:sha256:0b89ada173bfb84f781a8f88caf2098e5d88942f68245e19a7aaeb468536d663', 'test_ca_san_jose.test_source', 's3://bucket/test-correctly-restricted',
+   '0b89ada173bfb84f781a8f88caf2098e5d88942f68245e19a7aaeb468536d663', 'application/json', 100,
+   '{"url":"https://example.com","params":{}}'::jsonb, 200, now(), 'test.correctly_restricted')
 ON CONFLICT (id) DO NOTHING;
 
 -- Third snapshot, same source, licence_observed_id='test.cc_by_4_0' (0022's
@@ -403,7 +412,11 @@ INSERT INTO field_definition (
   ('test.t111_field', 'Test Field T111', 'public_record', 'string', 'test', 'T111 invariant test field (C11, 0058: noncommercial drop rejected)'),
   ('test.t112_field', 'Test Field T112', 'public_record', 'string', 'test', 'T112 invariant test field (C11, 0058: unknown restriction carried forward)'),
   ('test.t113_field', 'Test Field T113', 'public_record', 'string', 'test', 'T113 invariant test field (C11, 0058: multi-restriction refusal, input 1 / derived)'),
-  ('test.t113_field_2', 'Test Field T113b', 'public_record', 'string', 'test', 'T113 invariant test field (C11, 0058: multi-restriction refusal, input 2)')
+  ('test.t113_field_2', 'Test Field T113b', 'public_record', 'string', 'test', 'T113 invariant test field (C11, 0058: multi-restriction refusal, input 2)'),
+  ('test.t114_field', 'Test Field T114', 'public_record', 'string', 'test', 'T114 invariant test field (A-N10, P59C: unknown drop rejected)'),
+  ('test.t115_field', 'Test Field T115', 'public_record', 'string', 'test', 'T115 invariant test field (A-N10, P59C: noncommercial carried forward)'),
+  ('test.t116_field', 'Test Field T116', 'public_record', 'string', 'test', 'T116 invariant test field (A-N10, P59C: DISTINCT positive control, input 1 / derived)'),
+  ('test.t116_field_2', 'Test Field T116b', 'public_record', 'string', 'test', 'T116 invariant test field (A-N10, P59C: DISTINCT positive control, input 2)')
 ON CONFLICT (field_key) DO NOTHING;
 
 -- Cross-block scratch state for this run: the fresh parcel id, and (later)
@@ -5737,6 +5750,167 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TESTS T114-T116: A-N10 (P59C, LEDGEX-P59B-ENGINEERING-REPORT.md sec 2.3)
+-- -- 0058's own coverage had three holes: T109/T110/T111/T112 cover
+-- no_resale (both directions) and unknown (positive only) and noncommercial
+-- (negative only) -- deleting the entire `unknown` sticky IF block left
+-- all 130 tests green (T114 closes that); the `noncommercial` branch had
+-- no positive control, so an over-rejection bug would pass unnoticed, the
+-- exact T98 lesson this file already quotes (T115 closes that); and no
+-- positive test covered two inputs sharing ONE non-open restriction, so
+-- dropping DISTINCT from `array_agg(DISTINCT l2.restriction::text ...)`
+-- would wrongly refuse a legitimate derivation as I5_RESTRICTION_
+-- UNREPRESENTABLE, uncaught (T116 closes that).
+-- ============================================================================
+
+\echo '### TEST T114: input carries unknown restriction, derived drops it (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id       uuid;
+    v_input_fact_id   uuid;
+    v_derived_fact_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t114_field', '"input_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:46e29d1835533f9dfef783161eba2d64f8caf1b6a7024c3e5b48aba24b74fb19', now(), 'https://example.com',
+        'test.unknown_commercial', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_input_fact_id;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
+        confidence, confidence_rule_id, effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t114_field', '"derived"'::jsonb, 'derived',
+        'v1.0', 'test.c11_open_unknown_perms',
+        'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_derived_fact_id;
+
+    BEGIN
+        INSERT INTO fact_input (fact_id, input_fact_id, ordinal, role)
+        VALUES (v_derived_fact_id, v_input_fact_id, 1, 'test_input');
+
+        SET CONSTRAINTS fact_licence_inheritance IMMEDIATE;
+
+        RAISE EXCEPTION 'FAIL T114: derived fact dropping a required unknown restriction was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'I5_RESTRICTION_DROPPED:%does not carry unknown, but at least one input does%' THEN
+                RAISE NOTICE 'PASS T114: unknown drop rejected at COMMIT (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T114');
+            ELSE
+                RAISE EXCEPTION 'FAIL T114: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+\echo '### TEST T115: input carries noncommercial, derived carries it forward too (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id       uuid;
+    v_input_fact_id   uuid;
+    v_derived_fact_id uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t115_field', '"input_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:cff19b2a105a07f128fe53e3bef1b5fd2c0820dccfc0f65f94fd767418751fcb', now(), 'https://example.com',
+        'test.noncommercial_only', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_input_fact_id;
+
+    -- Reuses test.noncommercial_only as the DERIVED fact's own licence too
+    -- (not a distinct fixture) -- identical restriction/commercial_use/
+    -- redistribution values trivially satisfy the commercial_use/
+    -- redistribution checks alongside the restriction one, no new licence
+    -- row needed.
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
+        confidence, confidence_rule_id, effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t115_field', '"derived"'::jsonb, 'derived',
+        'v1.0', 'test.noncommercial_only',
+        'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_derived_fact_id;
+
+    INSERT INTO fact_input (fact_id, input_fact_id, ordinal, role)
+    VALUES (v_derived_fact_id, v_input_fact_id, 1, 'test_input');
+
+    SET CONSTRAINTS fact_licence_inheritance IMMEDIATE;
+
+    RAISE NOTICE 'PASS T115: derived fact correctly carrying noncommercial forward accepted (id=%)', v_derived_fact_id;
+    INSERT INTO test_pass VALUES ('T115');
+END $$;
+
+\echo '### TEST T116: TWO inputs share ONE non-open restriction (no_resale) via DIFFERENT licence rows -- derived correctly carries it forward, not refused as unrepresentable (should succeed)'
+
+DO $$
+DECLARE
+    v_parcel_id        uuid;
+    v_input_fact_id_1  uuid;
+    v_input_fact_id_2  uuid;
+    v_derived_fact_id  uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    -- Two DIFFERENT licence ids, both restriction='no_resale' -- proves
+    -- distinct_sticky_restrictions collapses on the RESTRICTION VALUE
+    -- (DISTINCT), not on licence identity. Dropping DISTINCT from the
+    -- trigger's own array_agg would make array_length(...) = 2 here even
+    -- though there is only one real distinct restriction, wrongly
+    -- refusing this legitimate derivation as I5_RESTRICTION_UNREPRESENTABLE.
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t116_field', '"input_value_1"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:bef91ddbcb9895f41aa49c95501153f3d1ad4f5dc2c6f532fe488693c7e49664', now(), 'https://example.com',
+        'test.no_resale_only', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_input_fact_id_1;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t116_field_2', '"input_value_2"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:0b89ada173bfb84f781a8f88caf2098e5d88942f68245e19a7aaeb468536d663', now(), 'https://example.com',
+        'test.correctly_restricted', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_input_fact_id_2;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, method_version, licence_id,
+        confidence, confidence_rule_id, effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t116_field', '"derived"'::jsonb, 'derived',
+        'v1.0', 'test.correctly_restricted',
+        'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_derived_fact_id;
+
+    INSERT INTO fact_input (fact_id, input_fact_id, ordinal, role)
+    VALUES (v_derived_fact_id, v_input_fact_id_1, 1, 'test_input');
+    INSERT INTO fact_input (fact_id, input_fact_id, ordinal, role)
+    VALUES (v_derived_fact_id, v_input_fact_id_2, 2, 'test_input');
+
+    SET CONSTRAINTS fact_licence_inheritance IMMEDIATE;
+
+    RAISE NOTICE 'PASS T116: derived fact over two inputs sharing one non-open restriction accepted, not wrongly refused (id=%)', v_derived_fact_id;
+    INSERT INTO test_pass VALUES ('T116');
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -5834,13 +6008,21 @@ END $$;
 -- this run carries jurisdiction_id='ca_san_jose'; T107 the same for
 -- job_run/rule rows created this run, which T106's own composite-FK
 -- argument does not reach.
+-- Raised 130 -> 133 by A-N10 (P59C, LEDGEX-P59B-ENGINEERING-REPORT.md sec
+-- 2.3): T109-T113's own coverage had three holes -- T114 the missing
+-- `unknown` negative control (deleting that entire IF block left all 130
+-- green); T115 the missing `noncommercial` positive control (T98's lesson,
+-- repeated a third time in this file); T116 the missing positive proof
+-- that TWO inputs sharing ONE non-open restriction (via different licence
+-- rows) still succeed -- proving array_agg's own DISTINCT is load-bearing,
+-- not decorative.
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 130 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 130 passing tests, got %', v_pass_count;
+    IF v_pass_count < 133 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 133 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 
