@@ -1,5 +1,19 @@
 -- Day 4: Register the three confirmed San José sources
 -- Run with: psql "$DATABASE_URL" < db/seeds/day4_sources.sql
+--
+-- Corrected 2026-08-26 (P60-4, the timezone class -- C7, AD1, now here).
+-- Every date literal below used to be bare, `'YYYY-MM-DD'::timestamptz`
+-- -- Postgres resolves that at the CONNECTING SESSION's local midnight,
+-- not a fixed UTC instant, so the identical literal produces a different
+-- real instant depending on the server/session's own TimeZone setting.
+-- This file is applied via plain `psql`, never through infra.env.get_db()
+-- (whose own `options="-c timezone=UTC"` fix, C7/AD1, protects Python
+-- callers but not this file), so its own literals were never covered by
+-- that fix at all. Every literal now carries an explicit UTC offset
+-- (`T00:00:00+00`) -- an unambiguous instant, identical regardless of
+-- the connecting session's TimeZone. Proven under two different PGTZ
+-- settings against two independent fresh databases -- see this fix's
+-- own commit message for the transcript.
 
 \set ON_ERROR_STOP on
 
@@ -35,10 +49,10 @@ INSERT INTO licence (
 ) VALUES
   ('cc0', 'CC0 1.0 Universal', 'open', 'allowed', 'allowed',
    NULL, 'https://creativecommons.org/publicdomain/zero/1.0/', NULL,
-   '2026-07-31'::timestamptz, NULL, NULL),
+   '2026-07-31T00:00:00+00'::timestamptz, NULL, NULL),
   ('cc_by_4_0', 'CC BY 4.0', 'attribution', 'allowed', 'allowed',
    'Data © City of San José', 'https://creativecommons.org/licenses/by/4.0/', NULL,
-   '2026-07-31'::timestamptz, NULL, NULL)
+   '2026-07-31T00:00:00+00'::timestamptz, NULL, NULL)
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================================
@@ -58,7 +72,7 @@ INSERT INTO licence (
 ) VALUES
   ('cc_by_4_0_api_2026_08', 'CC BY 4.0 (api channel, scoped 2026-08)', 'attribution',
    'allowed', 'allowed', 'Data © City of San José',
-   'https://creativecommons.org/licenses/by/4.0/', NULL, '2026-07-31'::timestamptz,
+   'https://creativecommons.org/licenses/by/4.0/', NULL, '2026-07-31T00:00:00+00'::timestamptz,
    NULL, NULL,
    'Owner decision 2026-08-22: licence terms (CC BY 4.0) are identified and permit this '
    'use (commercial use and redistribution both allowed per the licence text itself). '
@@ -77,7 +91,7 @@ INSERT INTO licence (
    'as the latter it would be anachronistic, and must not be read that way.'),
   ('cc0_api_2026_08', 'CC0 1.0 (api channel, scoped 2026-08)', 'open',
    'allowed', 'allowed', NULL,
-   'https://creativecommons.org/publicdomain/zero/1.0/', NULL, '2026-07-31'::timestamptz,
+   'https://creativecommons.org/publicdomain/zero/1.0/', NULL, '2026-07-31T00:00:00+00'::timestamptz,
    NULL, NULL,
    'Owner decision 2026-08-22: licence terms (CC0 1.0) are identified and permit this '
    'use (commercial use and redistribution both allowed per the licence text itself). '
@@ -376,7 +390,7 @@ INSERT INTO source (
    'https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/4bb085cb99a64eff8e83d2bf92a8d5cb/geojson?layers=270',
    'cc_by_4_0_api_2026_08',
    true,
-   '2026-08-06'::timestamptz,
+   '2026-08-06T00:00:00+00'::timestamptz,
    '["parcel.apn","parcel.geometry","parcel.source_parcel_id"]'::jsonb),
 
   ('ca_san_jose.zoning_districts',
@@ -389,7 +403,7 @@ INSERT INTO source (
    'https://gisdata-csj.opendata.arcgis.com/api/download/v1/items/adf17ae739214787ad42945c5f72ccd8/geojson?layers=401',
    'cc_by_4_0_api_2026_08',
    true,
-   '2026-08-06'::timestamptz,
+   '2026-08-06T00:00:00+00'::timestamptz,
    '["zoning.district","zoning.district_verbatim"]'::jsonb),
 
   ('ca_san_jose.building_permits_active',
@@ -402,7 +416,7 @@ INSERT INTO source (
    'https://data.sanjoseca.gov/dataset/fd9ceb0c-75e0-402e-9fe3-3f6e04f2c23f/resource/761b7ae8-3be1-4ad6-923d-c7af6404a904/download/buildingpermitsactive.csv',
    'cc0_api_2026_08',
    true,
-   '2026-08-06'::timestamptz,
+   '2026-08-06T00:00:00+00'::timestamptz,
    '["permits.active","permits.series_earliest"]'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
@@ -460,7 +474,7 @@ INSERT INTO licence (
   'Licence not yet observed',
   'unknown', 'unknown', 'unknown',
   NULL, NULL, NULL,
-  '2026-08-22'::timestamptz,
+  '2026-08-22T00:00:00+00'::timestamptz,
   NULL, NULL,
   'LD-1 gate source (jurisdictions/ca_san_jose/sources.yaml: ca_san_jose.city_limits). '
   'Licence text never observed -- id, display_name and every restriction/commercial_use/'
@@ -582,7 +596,7 @@ INSERT INTO rule (
   '{"first_story_max_ft": 18, "second_story_max_ft": 25, "max_stories": 2}'::jsonb,
   'ca_san_jose_rules@0.1.0',
   'devtrivedi06@gmail.com', 'devtrivedi06@gmail.com', 'solo_founder_attestation',
-  '2026-08-18'::timestamptz,
+  '2026-08-18T00:00:00+00'::timestamptz,
   'https://github.com/devvtrivedi/ledgex-adu/blob/6dca93c330e80cb91571bc24955e71eb6fb95954/jurisdictions/ca_san_jose/evidence/attestation-adu-detached-max-height-city-standards.md'
 )
 ON CONFLICT (id) DO NOTHING;
