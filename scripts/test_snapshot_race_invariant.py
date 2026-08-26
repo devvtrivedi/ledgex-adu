@@ -103,7 +103,31 @@ def check(label, condition, detail=""):
 def seed_reference_rows_parcels(conn):
     """Same honest, non-fabricated pattern as test_refresh_failure_invariant.py's
     seed_reference_rows() -- see its own comment for why observed_at/
-    cleared_by/cleared_at match db/seeds/day4_sources.sql exactly."""
+    cleared_by/cleared_at match db/seeds/day4_sources.sql exactly.
+
+    Corrected (P60-2): the `source` INSERT below used to omit
+    expected_fields entirely, defaulting it to '[]' (0002's own column
+    default). db.yml's schema job runs this script's seed BEFORE
+    db/seeds/day4_sources.sql -- day4's own INSERT for this same id is
+    ALSO `ON CONFLICT (id) DO NOTHING`, so it silently no-ops against the
+    row this script already created, permanently leaving expected_fields
+    empty for the rest of that job's run, including `make conformance`
+    much later. First observed there -- 'ca_san_jose.parcels''s supplies:
+    matches the live source.expected_fields exactly [FAIL] ... database
+    has [] not in the pack -- only reachable once C19's own CI-plumbing
+    gap (this same pass's other fix) stopped blocking every step after it.
+    Fixed by giving this fixture row the same real, corrected
+    expected_fields day4_sources.sql itself uses, so whichever seeder's
+    ON CONFLICT DO NOTHING wins the race, the value is right either way.
+    Same gap exists in test_refresh_failure_invariant.py's/
+    test_zoning_ambiguity_invariant.py's/test_apn_canonicalization_
+    invariant.py's own seed_reference_rows() (this file's own docstring
+    names them as the same copy-pasted pattern) -- harmless there only
+    because each currently runs AFTER day4_sources.sql in every job that
+    wires it in, not because their own INSERTs are correct. Not fixed
+    here -- out of scope for the one defect this pass's CI run actually
+    surfaced; left as a named risk for whoever next reorders these steps
+    or wires one into a job without day4_sources.sql ahead of it."""
     with conn.cursor() as cur:
         cur.execute(
             """
@@ -126,9 +150,11 @@ def seed_reference_rows_parcels(conn):
         cur.execute(
             """
             INSERT INTO source (id, jurisdiction_id, display_name, steward, method, phase_status,
-                                 phase_status_reason, endpoint_url, licence_id, active)
+                                 phase_status_reason, endpoint_url, licence_id, active,
+                                 expected_fields)
             VALUES (%s, %s, 'Parcels', 'City of San Jose', 'bulk', 'active', 'test fixture',
-                    'https://example.com/parcels', %s, false)
+                    'https://example.com/parcels', %s, false,
+                    '["parcel.apn","parcel.geometry","parcel.source_parcel_id"]'::jsonb)
             ON CONFLICT (id) DO NOTHING
             """,
             (ip.SOURCE_ID, ip.JURISDICTION_ID, ip.LICENCE_ID),
@@ -161,9 +187,11 @@ def seed_reference_rows_zoning(conn):
         cur.execute(
             """
             INSERT INTO source (id, jurisdiction_id, display_name, steward, method, phase_status,
-                                 phase_status_reason, endpoint_url, licence_id, active)
+                                 phase_status_reason, endpoint_url, licence_id, active,
+                                 expected_fields)
             VALUES (%s, %s, 'Zoning districts', 'City of San Jose', 'bulk', 'active', 'test fixture',
-                    %s, %s, false)
+                    %s, %s, false,
+                    '["zoning.district","zoning.district_verbatim"]'::jsonb)
             ON CONFLICT (id) DO NOTHING
             """,
             (izp.SOURCE_ID_ZONING, izp.JURISDICTION_ID, izp.ENDPOINT_URL_ZONING, izp.LICENCE_ID_ZONING),
