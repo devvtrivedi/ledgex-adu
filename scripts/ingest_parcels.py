@@ -572,7 +572,18 @@ def phase_c(path):
           f"{EXPECTED_FIELDS}):")
     print("  parcel.apn            -> APN property, present" if "APN" in all_keys_seen
           else "  parcel.apn            -> NOT FOUND")
-    print("  parcel.geometry       -> geometry present on every feature (GeoJSON structural)")
+    # B6 (P59C): this used to claim "geometry present on every feature"
+    # unconditionally, without consulting geometry_types (already computed
+    # above, per-feature, in the same pass) -- a print that cannot be
+    # false is not a check. geometry_types[None] is exactly the tally of
+    # features whose "geometry" key is missing/null (feat.get("geometry")
+    # or {} -> {}.get("type") -> None), so the real answer is on hand.
+    _missing_geometry = geometry_types.get(None, 0)
+    if _missing_geometry:
+        print(f"  parcel.geometry       -> MISSING on {_missing_geometry:,} of {feature_count:,} "
+              f"feature(s) (GeoJSON structural) -- NOT present on every feature")
+    else:
+        print("  parcel.geometry       -> geometry present on every feature (GeoJSON structural)")
     if "SHAPE_Area" in all_keys_seen:
         print("  parcel.lot_area_gis   -> NOT directly supplied. SHAPE_Area is present (a GIS-computed "
               "polygon area) but is NOT the same thing as a declared lot_area_gis field, and its unit "
