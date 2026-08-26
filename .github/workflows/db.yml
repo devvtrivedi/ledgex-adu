@@ -783,3 +783,111 @@ jobs:
       # regression directly above.
       - name: scripts/test_geometry_declared_gap.py (B5 geometry declared-gap regression)
         run: python3 scripts/test_geometry_declared_gap.py
+
+  # P60-4(d): a dedicated non-UTC leg, not a pin on an existing gate. Every
+  # job above connects under the runner's own default session TimeZone,
+  # which happens to be UTC -- so a session-timezone-dependent literal
+  # (the timezone class: C7, AD1, day4_sources.sql/P60-4(a)) could pass
+  # every job above by coincidence, the same way it silently passed for as
+  # long as this repo's own CI was unreachable at all (P60-1). This job
+  # proves the seeding path (`make schema` + db/seeds/day4_sources.sql,
+  # both applied via plain `psql`, never through infra.env.get_db()'s own
+  # get_db()-only UTC-session fix) under a real, deliberately extreme
+  # non-UTC session -- PGTZ=Pacific/Kiritimati, UTC+14, the same zone
+  # P60-4(a)'s own local RED/GREEN proof used, chosen specifically because
+  # it is far enough from UTC to turn a session-timezone bug into a
+  # different CALENDAR DAY, not just a different hour (a smaller offset
+  # could pass by accident on a date literal near local midnight).
+  # PGTZ is a genuine libpq mechanism (not a hack): psql/psycopg2 send it
+  # as a startup parameter, setting the CONNECTING SESSION's own `timezone`
+  # GUC -- exactly the axis the timezone class varies on.
+  timezone-non-utc:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ledgex_ci_tz
+      PSQL: /usr/lib/postgresql/16/bin/psql
+      PGTZ: Pacific/Kiritimati
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install postgresql-client-16
+        timeout-minutes: 5
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-16
+          "$PSQL" --version
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Python dependencies
+        run: pip install -r scripts/requirements.txt
+
+      # PGTZ above governs psql's OWN session, not the plain libpq URL this
+      # step's own `-c "CREATE DATABASE ..."` connects with -- also psql,
+      # also picks up PGTZ from the job env, same as every other psql
+      # invocation in this job. Deliberate: the whole point is that EVERY
+      # plain-psql connection in this job is non-UTC, matching what a real
+      # non-UTC-default server or developer machine would do to every
+      # session equally, not just a hand-picked subset.
+      - name: Create clean database (not the service's TIGER-inited default)
+        run: |
+          "$PSQL" "postgresql://postgres:postgres@localhost:5432/postgres" \
+            -v ON_ERROR_STOP=1 -c "CREATE DATABASE ledgex_ci_tz;"
+
+      - name: make schema (under PGTZ=Pacific/Kiritimati)
+        run: make schema DATABASE_URL="$DATABASE_URL" PSQL="$PSQL"
+
+      - name: db/seeds/day4_sources.sql (under PGTZ=Pacific/Kiritimati)
+        run: |
+          "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -f db/seeds/day4_sources.sql
+
+      # The actual proof: every seeded observed_at/url_verified_at value,
+      # read back and converted to UTC explicitly (AT TIME ZONE 'UTC' --
+      # not relying on the READING session's own default either), must
+      # equal the exact real-world instant day4_sources.sql's own comments
+      # claim (2026-07-31 for the two licences, 2026-08-06 for the three
+      # sources) -- not a same-shape/same-type check, the actual values.
+      # A session-timezone-dependent literal would land 14 hours off (a
+      # different DATE, under this specific PGTZ) and fail this exact
+      # comparison; P60-4(a)'s explicit-UTC-offset fix does not.
+      - name: Verify seeded timestamps are the correct UTC instant, not PGTZ-shifted
+        run: |
+          "$PSQL" "$DATABASE_URL" -v ON_ERROR_STOP=1 -t -A -c "
+            DO \$\$
+            DECLARE
+              bad_count int;
+            BEGIN
+              SELECT count(*) INTO bad_count FROM (
+                SELECT id, observed_at AT TIME ZONE 'UTC' AS observed_utc
+                FROM licence WHERE id IN ('cc0', 'cc_by_4_0')
+                  AND observed_at AT TIME ZONE 'UTC' <> '2026-07-31 00:00:00'::timestamp
+                UNION ALL
+                SELECT id, url_verified_at AT TIME ZONE 'UTC'
+                FROM source WHERE id IN ('ca_san_jose.parcels', 'ca_san_jose.zoning_districts',
+                                          'ca_san_jose.building_permits_active')
+                  AND url_verified_at AT TIME ZONE 'UTC' <> '2026-08-06 00:00:00'::timestamp
+              ) wrong;
+              IF bad_count > 0 THEN
+                RAISE EXCEPTION 'PGTZ=Pacific/Kiritimati shifted % seeded timestamp(s) away from their real UTC instant -- the timezone class regressed', bad_count;
+              END IF;
+              RAISE NOTICE 'all seeded observed_at/url_verified_at values are the correct UTC instant under PGTZ=Pacific/Kiritimati';
+            END \$\$;
+          "
