@@ -151,11 +151,19 @@ all: qa pdf
 # catalogue query (I15's database half) and the no-graph / Track B
 # no-render checks (I17/I19) -- .graphify/ and commerce/'s real schema
 # don't exist yet either.
+#
+# P60-4(d)/(e): build/check_timestamptz_literals.py is NOT one of §1.2's
+# own six named pieces -- it rides along in this target's existing shape
+# (same reasoning the jurisdiction-name grep already established: a static
+# grep that CI can enforce cheaply, on every push) because the timezone
+# class (C7, AD1, day4_sources.sql/P60-4(a)) is exactly the kind of defect
+# a human reviewer reliably misses and a one-line regex reliably catches.
 check-boundary:
 	@command -v $(LINT_IMPORTS) >/dev/null 2>&1 || { echo "$(LINT_IMPORTS) not found — pip install -r scripts/requirements.txt"; exit 1; }
 	$(LINT_IMPORTS)
 	$(PYTHON) build/test_check_jurisdiction_names_accents.py
 	$(PYTHON) build/check_jurisdiction_names.py
+	$(PYTHON) build/check_timestamptz_literals.py
 	$(PYTHON) build/qa_check.py
 
 # Apply every forward-only migration to an empty database, in order, AND
