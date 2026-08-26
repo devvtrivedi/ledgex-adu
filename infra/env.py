@@ -9,8 +9,22 @@ between.
 P39, README finding #43 -- THE DEFAULT BINDING. env() calls
 load_dotenv(override=False), and load_dotenv searches UPWARD from the current
 working directory, so a script run from the repo root picks up the repo-root
-.env. That file's DATABASE_URL points at a live remote database. Running a
-script directly picks this up, and that is the natural thing to do by hand:
+.env. **Corrected 2026-08-26 (P60-3):** this paragraph used to say that
+file's DATABASE_URL points at a live remote database -- true when P39 wrote
+it, no longer true today. The remote credential it named was rotated/revoked
+by the owner (confirmed dead: the host now returns NXDOMAIN, a hard "this
+name does not exist" from the same resolver that resolves an unrelated
+control hostname fine in the same breath -- not a timeout or a local
+network problem) and .env's own DATABASE_URL was demoted to match
+.env.example's own documented local shape
+(postgresql://localhost/ledgex_schema_check). The REASON this paragraph
+exists is unaffected by that demotion: load_dotenv's upward search means
+whatever .env holds on a given machine, at a given time, silently binds
+every script run from the repo root, and refuse_remote() below exists
+because that binding cannot be assumed local by construction. Read this
+paragraph as describing the mechanism, not asserting today's value --
+that current value is git-ignored, machine-specific, and never this
+docstring's to promise.
 
     python3 scripts/compose_property_file.py --parcel-apn 12345678
     python3 scripts/ingest_parcels.py
