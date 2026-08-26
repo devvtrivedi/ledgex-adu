@@ -9,3 +9,33 @@ dist/
 db/schema.sql.tmp
 .venv-ingest/
 .claude/settings.local.json
+
+# P59X: session-artifact patterns, not instances -- P60-LEDGER.md and the two
+# P59-C*.csv extracts (untracked by this same pass) are the first instances this
+# repo ever tracked of these shapes; the rules below exist so a future P61+ ledger
+# or extract never gets tracked again by default. Root-anchored (leading /) on
+# purpose -- these are repository-root session artifacts specifically, not a
+# pattern meant to reach into db/fixtures/ or anywhere else a real, load-bearing
+# CSV or markdown file might legitimately live.
+/P*-LEDGER.md
+/P*-*.csv
+
+# P59X: the two internal-strategy/business-plan documents, exact filenames only.
+# Deliberately NOT a broader text/* rule -- text/LedgeX_Engineering_Reference_
+# Spec_v1_46.txt and text/LedgeX_Implementation_Rules_v1_4.txt are the spec
+# SOURCE (docs/LEDGEX_SPEC.md and docs/LEDGEX_RULES.md are generated from them,
+# build/ledgex_source.py) and must stay tracked; text/LedgeX_San_Jose_Data_
+# Source_Checklist_v1_2.txt is also unaffected. A wildcard here would silently
+# break `make docs`/`make qa` the next time either spec file changed.
+/text/LedgeX_Municipal_Data_and_API_Audit_Internal_Strategy_v1_1.txt
+/text/LedgeX_Vision_and_Early_Stage_Business_Plan_2_1_4.txt
+
+# P59X: one stray root-level prompt file, untracked by this pass.
+/tier-redefinition-prompt.txt
+
+# NOTE, not a rule: the LEDGEX-*.txt prompt corpus at the repository root (and
+# LEDGEX-*.md handoff/report files alongside it) has never been tracked, by
+# convention, since before this repository's history begins -- no .gitignore
+# entry covers it because none has ever been needed. This comment exists so a
+# future reader does not mistake "no rule" for "not yet gitignored" and add one
+# that would make an already-untracked convention look newly enforced.
