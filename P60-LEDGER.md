@@ -156,25 +156,78 @@ literals, ever populated — 9 + 3 = a full accounting, not a sample:
 | `rule` | **immutable** (0013) | `reviewed_at` | `ca_san_jose.adu_detached_max_height_city_standards.v1` | `2026-08-18 00:00:00` | `2026-08-18 00:00:00` | ✅ |
 | `source` | mutable | `url_verified_at` | `ca_san_jose.parcels`, `.zoning_districts`, `.building_permits_active` (2 of these 3 also touched by 0023's own guarded UPDATE) | `2026-08-06 00:00:00` (all three) | `2026-08-06 00:00:00` | ✅ |
 
-**Root cause of why every value is already correct, confirmed directly, not assumed:**
-`SHOW TimeZone` on this exact database returns `Etc/UTC` — its own server default has always
-been UTC. Every one of these literals was applied via plain `psql` with no `PGTZ` override (the
-normal way this database has ever been seeded/migrated), so every bare literal happened to
-resolve at UTC midnight anyway — the SAME real hazard section (a) and (d) prove is genuine
-(a differently-configured server, or any session connecting with a non-UTC `PGTZ`, would have
-produced a wrong value) simply never fired here, because the one condition it depends on
-(a non-UTC session) was never present on this specific database.
+**What is actually verified vs. what is inferred — kept separate deliberately.** VERIFIED
+(read live, this pass, `AT TIME ZONE 'UTC'`, direct SELECT, not derived): the 9 stored values
+in the table above, all correct. INFERRED, not verified, and not to be conflated with the
+above: `SHOW TimeZone` on this database currently returns `Etc/UTC`, offered as a *plausible
+explanation* for why those values came out correct. `SHOW TimeZone` is a present-tense read of
+the server's CURRENT default — it is not proof of what the specific CONNECTING SESSION's own
+timezone was at each historical moment a literal was actually applied (a session default and a
+server default are different things; C7/AD1/section 5(b) below all turn on exactly that
+distinction, and this arc has already substituted one for the other, mistakenly, more than
+once). The correct, narrower claim: the 9 values are verified correct; the server-default
+explanation for why is a reasonable inference, not independently confirmed for each historical
+apply.
 
-**Consequence for pause points 3 and 4:** neither is reached. Pause point 3 (the immutable-row
-rebuild decision) only exists to escalate a confirmed-wrong immutable value with no other fix —
-there is none: both immutable-table rows (`licence`, `rule`) are already correct. Pause point 4
-(any new migration, 0059) only exists to correct a confirmed-wrong mutable value — there is
-none of those either: `source.url_verified_at` is already correct. **Nothing on this database
-needs remediation.** This is a real finding, not a decision made on the owner's behalf — see
-the final response for the explicit check-in on this reading before treating P60-4(b) as fully
-closed (a different database or environment with a non-UTC server default, never checked here,
-could still be affected; this pass's own scope was specifically `ledgex_schema_check`, per the
-prompt's own instruction, not every database everywhere).
+**Consequence for pause points 3 and 4, on `ledgex_schema_check` specifically:** neither is
+reached. Pause point 3 (the immutable-row rebuild decision) only exists to escalate a
+confirmed-wrong immutable value with no other fix — there is none here: both immutable-table
+rows (`licence`, `rule`) are verified correct. Pause point 4 (any new migration, 0059) only
+exists to correct a confirmed-wrong mutable value — there is none of those either:
+`source.url_verified_at` is verified correct. **Nothing on this specific database needs
+remediation.**
+
+**Owner-directed follow-up (same session, after the above was first reported): checked further,
+predicted before checking — and the prediction was right.** AD1 (P59C addendum) already
+established this machine's local Homebrew Postgres cluster's own server default TimeZone is
+`America/Los_Angeles`, not UTC. `ledgex_golden`/`ledgex_test`/`ledgex_smoke` all live on that
+cluster (`ledgex_smoke` has no schema applied at all — not comparable). Checked the same 9
+columns there, read-only, same discipline:
+
+- `ledgex_golden`: `licence.observed_at` for `unknown` reads `2026-08-22 07:00:00` UTC — a real
+  7-hour shift, matching the cluster's own PDT offset in August. Every other one of the 9
+  columns reads correct. Traced why, not left as a coincidence: the 8 correct values are all
+  first-written by a script whose own connection already forces UTC (`check_golden.py`'s
+  `golden_get_db()`, `options="-c timezone=UTC"`, AD1's own fix) or via an `ON CONFLICT DO
+  NOTHING` race won by such a script; `unknown` is instead first-created by **migration 0056
+  itself**, applied by `make schema`'s own plain `psql`, which had no such protection until
+  this pass.
+- `ledgex_test`: same value, same shift (migrations-only database — 0056 is the only writer of
+  this row there at all).
+
+**This is the real, observed instance of exactly the risk db/README.md's P60-4(c) section
+named as unresolved for 0056** — not a second, independent finding, its confirmation. `licence`
+being immutable (0027) means, exactly as CONVENTIONS already establishes, no later seeder's
+`ON CONFLICT DO NOTHING` can ever correct a wrong first-written value.
+
+**Also checked before treating any of this as closed, per explicit instruction: does `make
+golden`'s own committed fixture output reach any of these 9 columns?** Grepped all three
+committed fixtures (`tests/golden/ca_san_jose/*.json`) for the column names and for any
+`YYYY-MM-DD`-shaped string at all — zero matches in either search. Composed property-file
+output carries compliance conclusions (max height, election requirements), not source/licence/
+rule provenance metadata. No fixture exposure, no "mystery diff" risk from either P60-4(a)'s
+own fix or the recurrence-path fix below.
+
+**Fixed: the recurrence path, not the already-written data** (owner instruction: `ledgex_golden`/
+`ledgex_test` are ephemeral, recreatable by their own `make` targets — no migration, no
+remediation of their current stored values). Commit `1d78c4e`: `PGTZ=UTC` prefixed on both
+`make schema` `$(PSQL)` invocations (Makefile); `options="-c timezone=UTC"` added to
+`scripts/migrate.py`'s own connection and to `migrate_baseline.py`'s/`migrate_verify.py`'s own
+`ref_conn` (the connections that actually replay migration files — `target_conn` calls that
+only read/write `schema_migrations`'s own ledger metadata were left alone, no timestamptz
+literal lives in that table). Proven by rebuilding fresh on the SAME non-UTC cluster with the
+fix in place: `make schema` and, independently, `make migrate` both now produce
+`2026-08-22 00:00:00` UTC for 0056's own row, not `07:00:00`. `make migrate-verify` re-run
+after — still `MATCH`, no regression. **Observed green in real CI** at `1d78c4e`
+(https://github.com/devvtrivedi/ledgex-adu/actions/runs/32920916450, all 4 `db.yml` jobs).
+
+This closes the *recurrence* path everywhere this codebase ever builds a fresh database, on any
+cluster, regardless of that cluster's own default TimeZone — including the two
+already-known-affected 0023/0056 sites and any future migration a human writes before this
+pass's own static check (P60-4(e)) catches it in review. It does **not** retroactively correct
+`ledgex_golden`/`ledgex_test`'s own current stored value for `unknown` — by design, per the
+owner's own instruction: those two rows are stale only until the next `make golden`/`make
+db-test`, which will now produce the correct value using the same fix.
 
 **(c) New documentation-pointer mechanism for migrations 0023/0056 — done.** `db/README.md`'s
 new "Known timezone-literal defects in landed migrations" section (commit `69419f7`),
@@ -215,14 +268,26 @@ timezone-independent sentinel values, not dates at all).
   `.env` is local-dev-only, matching `.env.example`. Nothing about local development changed in
   practice — `refuse_remote`/`_is_local` still correctly allow local URLs, `get_db()` still
   connects.
-- **The timezone class is closed as a *class*, not just its three known instances.** A bare
-  `::timestamptz` literal anywhere in `db/seeds/` or `db/migrations/` now fails `make
-  check-boundary` (and CI's own `docs.yml` `qa` job, which runs that target) unless explicitly
-  grandfathered — a fourth instance cannot land silently the way C7/AD1/day4 all once did.
-  A dedicated non-UTC CI leg proves the seeding path specifically, on every push, going forward.
-- **Two landed migrations (0023, 0056) carry a permanently-recorded, now-closed-as-correct
-  functional defect** — `db/README.md`'s new section is the pointer, forever (append-only,
-  same as B9), even though this pass found nothing to remediate on the one database checked.
+- **The timezone class is closed as a *class*, not just its three known instances, on two
+  independent axes.** (1) Static: a bare `::timestamptz` literal anywhere in `db/seeds/` or
+  `db/migrations/` now fails `make check-boundary` (and CI's own `docs.yml` `qa` job, which
+  runs that target) unless explicitly grandfathered. (2) Dynamic/mechanical: `make schema`'s
+  own `psql` invocations and every migration-applying Python connection
+  (`migrate.py`/`migrate_baseline.py`/`migrate_verify.py`) now force a UTC session
+  (`PGTZ=UTC`/`options="-c timezone=UTC"`), same as C7/AD1 already gave `get_db()`/
+  `check_golden.py` — so even a literal this check has not yet been taught to catch (or one
+  written before this pass existed) can no longer resolve wrong, on any cluster, regardless of
+  that cluster's own default TimeZone. A dedicated non-UTC CI leg proves the seeding path
+  specifically, on every push, going forward.
+- **Two landed migrations (0023, 0056) carry a permanently-recorded functional defect** —
+  `db/README.md`'s new section is the pointer, forever (append-only, same as B9). 0056's own
+  instance is **confirmed to have actually fired** — a real, live, 7-hour-shifted value on
+  `ledgex_golden`/`ledgex_test` (this machine's local Homebrew cluster, non-UTC server default)
+  — while the SAME literal, applied on the docker `ledgex_schema_check` (UTC server default),
+  came out correct. Neither database's own current data was remediated (both are ephemeral,
+  recreatable by their own `make` targets, per owner instruction) — but the NEXT recreation of
+  either, on any cluster, will now be correct, because the recurrence-path fix above closes the
+  mechanism, not just this one already-observed symptom.
 - **An observation, not a defect, for whoever next reaches for
   `postgresql://localhost/ledgex_schema_check` on this machine**: it is a separate, near-empty
   Homebrew Postgres database, not the docker container's real 225,077-parcel one — see section
@@ -232,6 +297,9 @@ timezone-independent sentinel values, not dates at all).
   `test_snapshot_race_invariant.py`'s pre-fix gap (an `INSERT INTO source` with no
   `expected_fields`) — harmless today only because each runs after `day4_sources.sql` in every
   job that wires it in; a future reordering could reproduce defect #4 exactly.
-- **Pending the pause-point check-in in this pass's own final response**: whether P60-4(b)'s
-  "nothing to remediate on `ledgex_schema_check`" finding is accepted as closing that item, or
-  whether the owner wants other databases/environments checked too before it's called done.
+- **P60-4(b) is closed.** The owner-directed follow-up (checking `ledgex_golden`/`ledgex_test`/
+  `ledgex_smoke`) is done, found a real instance, and the recurrence path is fixed — see this
+  section's own entry above. Pause points 3 and 4 were reached on neither `ledgex_schema_check`
+  nor the two Homebrew-cluster databases (nothing immutable was wrong beyond repair; nothing
+  mutable needed a new migration) — recorded as verified/inferred exactly as instructed, not
+  collapsed into one claim.
