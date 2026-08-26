@@ -64,9 +64,21 @@ def main():
                '2026-07-31'::timestamptz, NULL, NULL, NULL),
               -- P55: see _p5_setup.py's identical comment -- the real ingest
               -- scripts this run shells out to now write facts citing these
-              -- ids; the OLD rows stay for this script's own hand-written
-              -- reconciliation-test INSERT further down (literal 'cc_by_4_0').
-              -- notes carries the same SUCCESSION mitigation (P55 §12.6).
+              -- ids. notes carries the same SUCCESSION mitigation (P55 §12.6).
+              -- Corrected (P60-2): this comment previously claimed the OLD
+              -- 'cc_by_4_0' row above stays specifically for this script's
+              -- own hand-written reconciliation-test INSERT (finding #21,
+              -- run_phaseb_acceptance.sh) -- that INSERT plants a fact citing
+              -- a real ca_san_jose.zoning_districts snapshot, and the real
+              -- ingest now registers every such snapshot under
+              -- 'cc_by_4_0_api_2026_08' (P55), so fact_snapshot_licence_fk
+              -- (a composite FK on snapshot(id, licence_id)) rejected the old
+              -- literal outright -- first observed when db.yml's
+              -- phaseb-acceptance job ran in CI for the first time ever
+              -- (P60-1). The INSERT was repointed to 'cc_by_4_0_api_2026_08'
+              -- to match; the plain 'cc_by_4_0' row above is no longer read
+              -- by anything in this script and is kept only as a harmless,
+              -- pre-existing licence row (not a load-bearing fixture value).
               ('cc_by_4_0_api_2026_08', 'CC BY 4.0 (api channel, scoped 2026-08)',
                'attribution', 'allowed', 'allowed', 'City of San Jose',
                '2026-07-31'::timestamptz, NULL, NULL,
