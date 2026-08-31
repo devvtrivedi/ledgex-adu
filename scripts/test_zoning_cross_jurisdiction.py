@@ -88,9 +88,7 @@ from ingest_zoning_permits import (  # noqa: E402
 
 FOREIGN_JURISDICTION_ID = "test_p61a_foreign"
 
-# A small valid square, unrelated to the district polygon below -- only
-# `centroid` (pre-set directly, not derived) drives the join; geom just
-# needs to be a real, valid polygon so nothing downstream chokes on NULL.
+# The one throwaway zoning district in the snapshot both scenarios share.
 # Deliberately NOT (0,0)-(10,10): that exact square is already in permanent
 # use by the real database's own test_p59_c4 fixture parcels (verified --
 # `SELECT ST_AsText(geom) FROM parcel WHERE jurisdiction_id='test_p59_c4'`
@@ -102,12 +100,20 @@ FOREIGN_JURISDICTION_ID = "test_p61a_foreign"
 # this test (on the pre-fix tree) showed 4 "matched" parcels, not the 1
 # this script seeded, because test_p59_c4's own fixtures matched the same
 # polygon this test used to use.
-PARCEL_GEOM_WKT = "POLYGON((600 600, 600 601, 601 601, 601 600, 600 600))"
-
-# The one throwaway zoning district in the snapshot both scenarios share.
 DISTRICT_WKT = "POLYGON((500 500, 510 500, 510 510, 500 510, 500 500))"
+
+# Each scenario's parcel geom is a small square drawn AROUND its own
+# centroid, not an unrelated shape elsewhere -- found for real, not by
+# inspection: an unrelated geom whose OWN centroid doesn't contain the
+# pre-set `centroid` value gets that centroid silently overwritten by
+# populate_interior_centroids' own UPDATE on pre-fix (unscoped) code,
+# since `NOT ST_Contains(geom, centroid)` is true for a mismatched pair --
+# the second RED run showed scenario 1's parcel reclassified as
+# zero_match, not matched, because its geom and pre-set centroid disagreed.
 MATCHED_CENTROID_WKT = "POINT(505 505)"       # inside DISTRICT_WKT -> "matched"
-ZERO_MATCH_CENTROID_WKT = "POINT(-500 -500)"  # nowhere near it -> "zero_match"
+MATCHED_GEOM_WKT = "POLYGON((504 504, 504 506, 506 506, 506 504, 504 504))"
+ZERO_MATCH_CENTROID_WKT = "POINT(-500 -500)"  # nowhere near DISTRICT_WKT -> "zero_match"
+ZERO_MATCH_GEOM_WKT = "POLYGON((-501 -501, -501 -499, -499 -499, -499 -501, -501 -501))"
 
 failures = []
 
@@ -138,7 +144,7 @@ def _seed_jurisdiction(conn):
     conn.commit()
 
 
-def _seed_foreign_parcel(conn, centroid_wkt, apn_suffix):
+def _seed_foreign_parcel(conn, geom_wkt, centroid_wkt, apn_suffix):
     with conn.cursor() as cur:
         parcel_id = str(uuid.uuid4())
         apn = f"TEST-P61A-{apn_suffix}-{parcel_id[:8]}"
@@ -148,7 +154,7 @@ def _seed_foreign_parcel(conn, centroid_wkt, apn_suffix):
             VALUES (%s, %s, %s, ST_Multi(ST_GeomFromText(%s, 4326)),
                     ST_GeomFromText(%s, 4326))
             """,
-            (parcel_id, FOREIGN_JURISDICTION_ID, apn, PARCEL_GEOM_WKT, centroid_wkt),
+            (parcel_id, FOREIGN_JURISDICTION_ID, apn, geom_wkt, centroid_wkt),
         )
         cur.execute("SELECT jurisdiction_id FROM parcel WHERE id = %s", (parcel_id,))
         (seeded_jurisdiction,) = cur.fetchone()
@@ -244,7 +250,7 @@ def _assert_no_live_rows(conn, parcel_id, label):
 def scenario_matched(conn):
     """Foreign parcel whose centroid falls inside a real district ->
     "matched" -> reaches insert_facts. Pre-fix: fact_parcel_jurisdiction_fk."""
-    parcel_id, apn = _seed_foreign_parcel(conn, MATCHED_CENTROID_WKT, "MATCHED")
+    parcel_id, apn = _seed_foreign_parcel(conn, MATCHED_GEOM_WKT, MATCHED_CENTROID_WKT, "MATCHED")
     snapshot_id = _seed_snapshot(conn)
     print(f"[scenario 1: matched] seeded {apn} ({parcel_id})")
     try:
@@ -268,7 +274,7 @@ def scenario_zero_match(conn):
     """Foreign parcel whose centroid falls outside every real district ->
     "zero_match" -> reaches insert_exceptions. Pre-fix:
     parcel_exception_parcel_jurisdiction_fk -- the one P61 actually hit."""
-    parcel_id, apn = _seed_foreign_parcel(conn, ZERO_MATCH_CENTROID_WKT, "ZEROMATCH")
+    parcel_id, apn = _seed_foreign_parcel(conn, ZERO_MATCH_GEOM_WKT, ZERO_MATCH_CENTROID_WKT, "ZEROMATCH")
     snapshot_id = _seed_snapshot(conn)
     print(f"[scenario 2: zero-match] seeded {apn} ({parcel_id})")
     try:
@@ -308,13 +314,20 @@ def _cleanup(conn, parcel_ids):
 def main():
     conn = get_db()
     _seed_jurisdiction(conn)
-    parcel_ids = []
-    try:
-        parcel_ids.append(scenario_matched(conn))
-        parcel_ids.append(scenario_zero_match(conn))
-    finally:
-        _cleanup(conn, [p for p in parcel_ids if p is not None])
-        conn.close()
+    # Each scenario is cleaned up before the next one seeds -- found for
+    # real, not by inspection: leaving scenario 1's foreign parcel in place
+    # while scenario 2 runs its own load_zoning() call meant scenario 2's
+    # run ALSO saw scenario 1's still-matched parcel in its own unscoped
+    # (pre-fix) all_parcel_ids, tripping the same earlier fact-path FK and
+    # masking scenario 2's own distinct exception-path failure a second
+    # time, by a different mechanism than the geometry collision above.
+    # Neither scenario function raises -- each catches load_zoning's own
+    # exception internally and returns its parcel_id either way.
+    pid1 = scenario_matched(conn)
+    _cleanup(conn, [pid1])
+    pid2 = scenario_zero_match(conn)
+    _cleanup(conn, [pid2])
+    conn.close()
 
     print(f"\n{len(failures)} failure(s)" if failures else "\nAll assertions passed")
     sys.exit(1 if failures else 0)
