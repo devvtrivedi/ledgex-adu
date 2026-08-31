@@ -395,6 +395,15 @@ jobs:
       - name: scripts/test_zoning_centroid_exclusion.py
         run: python3 scripts/test_zoning_centroid_exclusion.py
 
+      # P61A: scripts/ingest_zoning_permits.py had no jurisdiction filter
+      # on any of its four `FROM parcel` reads, while every write
+      # hardcodes jurisdiction_id=JURISDICTION_ID -- a foreign parcel
+      # reaching a write tripped fact_parcel_jurisdiction_fk or
+      # parcel_exception_parcel_jurisdiction_fk. Same seeded-state
+      # placement as the step above.
+      - name: scripts/test_zoning_cross_jurisdiction.py
+        run: python3 scripts/test_zoning_cross_jurisdiction.py
+
       # A-N8 (P59C): parcel_centroid_not_interior closure-by-exclusion --
       # a repaired parcel's exception must close, a still-bad one must
       # stay open. Same seeded-state placement as the step above.

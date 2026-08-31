@@ -14,7 +14,7 @@
 # diff against the committed file — match PG_DUMP/DATABASE_URL to 16 before
 # regenerating it.
 
-.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state smoke-real local-up local-down test-qa-check test-guard-destructive test-centroid-interior test-apn-canonicalization test-zoning-ambiguity test-compose-collision test-refresh-failure test-reconcile-identity-verified test-load-parcels-identity test-parcel-flap flag-invalid-geometry test-flag-invalid-geometry test-load-permits-attribution test-compose-l0-gate test-zoning-centroid-exclusion test-zoning-centroid-exception-closure test-geometry-declared-gap
+.PHONY: docs pdf site qa all clean check-boundary schema migrate migrate-baseline migrate-verify schema-dump db-test conformance test golden viewer-test liveness state smoke-real local-up local-down test-qa-check test-guard-destructive test-centroid-interior test-apn-canonicalization test-zoning-ambiguity test-compose-collision test-refresh-failure test-reconcile-identity-verified test-load-parcels-identity test-parcel-flap flag-invalid-geometry test-flag-invalid-geometry test-load-permits-attribution test-compose-l0-gate test-zoning-centroid-exclusion test-zoning-cross-jurisdiction test-zoning-centroid-exception-closure test-geometry-declared-gap
 
 # `all: qa pdf`'s ordering (qa before the docs regeneration pdf triggers) is
 # not guaranteed under `make -j`: parallel make can start pdf's docs
@@ -545,6 +545,15 @@ test-compose-l0-gate:
 # zoning/parcel data -- see the script's own docstring.
 test-zoning-centroid-exclusion:
 	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_zoning_centroid_exclusion.py
+
+# P61A: scripts/ingest_zoning_permits.py had no jurisdiction filter on any
+# of its four `FROM parcel` reads, while every write hardcodes
+# jurisdiction_id=JURISDICTION_ID -- a foreign parcel reaching a write
+# tripped fact_parcel_jurisdiction_fk or
+# parcel_exception_parcel_jurisdiction_fk. Same day4_sources.sql /
+# non-bulk-database requirements as test-zoning-centroid-exclusion above.
+test-zoning-cross-jurisdiction:
+	DATABASE_URL="$(DATABASE_URL)" .venv-ingest/bin/python3 scripts/test_zoning_cross_jurisdiction.py
 
 # A-N8 (P59C): parcel_centroid_not_interior closure-by-exclusion -- a
 # repaired parcel's exception must close (condition_cleared), a still-bad
