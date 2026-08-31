@@ -222,6 +222,31 @@ DETECTOR_KEY_PERMIT_ATTRIBUTION_LOST = "permit_attribution_lost"
 DETECTOR_VERSION_PERMIT_ATTRIBUTION_LOST = "1.0"
 REASON_PERMIT_ATTRIBUTION_LOST = "no_fresh_apn_match_this_run"
 
+# P61G (D-6.6, narrowed): shared by populate_interior_centroids' UPDATE and
+# its residual SELECT, interpolated into both rather than hand-copied, so
+# the two statements cannot silently diverge on which rows are "usable"
+# (R4). `g`'s own CASE is the short-circuit that keeps ST_MakeValid off the
+# 225,077-row geom_valid majority (R1); `usable` is the single gate every
+# ST_Contains/ST_Centroid/ST_PointOnSurface call downstream passes through
+# (R2) -- never raw `geom`. One %s placeholder (jurisdiction_id).
+_CENTROID_CANDIDATE_CTE = """
+    WITH candidate AS MATERIALIZED (
+        SELECT id, geom_valid,
+               CASE WHEN geom_valid THEN geom
+                    ELSE ST_CollectionExtract(ST_MakeValid(geom), 3)
+               END AS g
+          FROM parcel
+         WHERE geom IS NOT NULL
+           AND jurisdiction_id = %s
+    ),
+    usable AS MATERIALIZED (
+        SELECT id, g FROM candidate
+         WHERE g IS NOT NULL
+           AND NOT ST_IsEmpty(g)
+           AND CASE WHEN geom_valid THEN TRUE ELSE ST_IsValid(g) END
+    )
+"""
+
 
 def populate_interior_centroids(cur):
     """C1: replaces the old unconditional `UPDATE parcel SET centroid =
@@ -259,18 +284,9 @@ def populate_interior_centroids(cur):
     function had never executed against a database actually carrying
     invalid geometry (0057's geom_valid), and one raising row would abort
     the whole load_zoning transaction, discovered for the first time by
-    C1's own remediation run. Guarded on 0057's geom_valid (a STORED
-    generated column computed via ST_IsValid, which is itself safe on
-    invalid input -- referencing it never calls the risky functions): the
-    UPDATE below only ever touches geom_valid rows, so ST_Centroid/
-    ST_PointOnSurface never see an invalid geometry; the residual SELECT
-    uses a CASE (guaranteed short-circuit in Postgres, unlike a bare OR)
-    so ST_Contains is never evaluated for a NOT geom_valid row either --
-    those rows are routed straight into still_not_interior unconditionally,
-    the same exception path a genuinely-non-interior point already takes.
-    No remediation of the invalid geometry itself happens here -- P61's,
-    under D-6.3, tracked separately via the parcel_geometry_invalid
-    detector (C4).
+    C1's own remediation run. No remediation of the invalid geometry
+    itself happens here -- P61's, under D-6.3, tracked separately via the
+    parcel_geometry_invalid detector (C4).
 
     P61A: both queries below are scoped to jurisdiction_id=JURISDICTION_ID.
     Before this fix neither was, and centroid -- a derived-geometry column
@@ -284,34 +300,95 @@ def populate_interior_centroids(cur):
     touches a foreign parcel's centroid at all, not merely never reports
     on it -- the cleaner boundary the design gate chose over leaving
     centroid a shared, no-owner column repaired by whichever jurisdiction's
-    ingest happens to run last."""
-    cur.execute("""
-        UPDATE parcel
+    ingest happens to run last.
+
+    P61G (D-6.6, narrowed by owner decision 2026-08-31): A-N4's guard above
+    used to route every NOT geom_valid row straight into still_not_interior,
+    unconditionally, because deriving ANYTHING from an invalid polygon was
+    unsafe. That conflated two different claims: "this function must never
+    call a raise-capable geometry function on raw invalid input" (still
+    true, still enforced below) and "a point derived from ANY treatment of
+    invalid geometry can never be trusted" (which the codebase already
+    contradicts on the zoning SOURCE side -- ST_MakeValid +
+    ST_CollectionExtract(_, 3) repairs the zoning snapshot's own
+    self-intersecting polygons at load_zoning's own staging-load time,
+    scripts/ingest_zoning_permits.py:771 -- while parcel geometry got no
+    equivalent treatment; see flag_invalid_geometry.py's own module
+    docstring, "NOT repaired", for the asymmetry this closes). The narrowed
+    rule: a parcel whose geometry repairs into a genuinely valid,
+    non-empty polygon, and whose derived point is provably interior to
+    THAT REPAIRED geometry, is not "known-non-interior" and is not
+    excluded. A parcel whose repair fails (ST_CollectionExtract(
+    ST_MakeValid(geom), 3) empty, or -- defensively -- still not
+    ST_IsValid) is unchanged from A-N4's original behavior: no centroid,
+    still_not_interior, parcel_centroid_not_interior exception.
+
+    R1/R2 (P61G): `_CENTROID_CANDIDATE_CTE` below computes a `g` column via
+    `CASE WHEN geom_valid THEN geom ELSE ST_CollectionExtract(ST_MakeValid(
+    geom), 3) END` -- a SQL CASE, which Postgres guarantees short-circuits
+    (unlike a bare OR/AND, which the planner may reorder), so ST_MakeValid
+    is evaluated ONLY in the ELSE branch, i.e. only for the ~28 NOT
+    geom_valid rows, never for the 225,077-row majority. Every
+    ST_Contains/ST_Centroid/ST_PointOnSurface call in both statements below
+    takes this `g` value (via the `usable` CTE, itself filtered to
+    non-NULL, non-empty, valid `g`) -- never raw `geom` -- so no
+    raise-capable function is ever called with unrepaired invalid input.
+    `parcel.geom` itself is never written by this function (nor anywhere
+    else in this file); `geom_valid`, a STORED generated column over
+    ST_IsValid(geom), is untouched and continues to read false for these
+    parcels, exactly as before -- the repair is derivation-time-only, never
+    persisted, so C4's own parcel_geometry_invalid exception (raised by
+    the separate flag_invalid_geometry.py, not this function) stays open
+    and remains the queryable record that this parcel's own geometry is
+    invalid. R4: the UPDATE and the residual SELECT below share the
+    IDENTICAL `_CENTROID_CANDIDATE_CTE` text (interpolated into both, not
+    hand-copied twice), so they cannot silently diverge on which rows are
+    "usable" -- an edit to one automatically edits both.
+
+    Design gate (P61G): relies on the EXISTING parcel_geometry_invalid
+    exception as the discoverable record of "this classification rests on
+    repaired geometry" (option (i) in P61G's own prompt), rather than
+    attaching a flag_invalid_geometry.py:473-style `detail.note` to a new
+    write here (option (ii)) -- these successfully-repaired parcels no
+    longer reach ANY exception write inside this function at all (they are
+    excluded from `still_not_interior` precisely because the repair
+    succeeded), so option (ii) has no natural write site without either
+    inventing a new detector key (out of scope) or modifying
+    flag_invalid_geometry.py (a separate script, out of this package's
+    scope). Consequence, stated plainly: the repaired-derivation qualifier
+    is discoverable (I12 -- parcel_geometry_invalid is a stored, queryable
+    row) but not spelled out on the zoning.district fact's own exception
+    trail -- a reader must already know to cross-reference geom_valid /
+    parcel_geometry_invalid against a live classification to find it."""
+    cur.execute(_CENTROID_CANDIDATE_CTE + """
+        UPDATE parcel p
            SET centroid = CASE
-                             WHEN ST_Contains(geom, ST_Centroid(geom)) THEN ST_Centroid(geom)
-                             ELSE ST_PointOnSurface(geom)
+                             WHEN ST_Contains(u.g, ST_Centroid(u.g)) THEN ST_Centroid(u.g)
+                             ELSE ST_PointOnSurface(u.g)
                            END
-         WHERE geom IS NOT NULL
-           AND geom_valid
-           AND jurisdiction_id = %s
-           AND (centroid IS NULL OR NOT ST_Contains(geom, centroid))
+          FROM usable u
+         WHERE p.id = u.id
+           AND (p.centroid IS NULL OR NOT ST_Contains(u.g, p.centroid))
     """, (JURISDICTION_ID,))
     recomputed = cur.rowcount
 
     # Residual check: even ST_PointOnSurface is not guaranteed interior
-    # for an INVALID polygon (self-intersecting etc. -- C4's own
-    # concern). Record a typed, non-blocking exception rather than
-    # silently classifying against a point that still is not interior.
-    # A-N4: NOT geom_valid rows are flagged unconditionally, via the CASE's
-    # own short-circuit, without ever calling ST_Contains on them.
-    cur.execute("""
-        SELECT id FROM parcel
-         WHERE geom IS NOT NULL
-           AND jurisdiction_id = %s
-           AND CASE
-                 WHEN NOT geom_valid THEN TRUE
-                 ELSE (centroid IS NULL OR NOT ST_Contains(geom, centroid))
-               END
+    # for an INVALID (or repaired-from-invalid) polygon. Record a typed,
+    # non-blocking exception rather than silently classifying against a
+    # point that still is not interior. P61G: a row is "still not
+    # interior" iff it never reached `usable` (repair failed or was
+    # empty/invalid -- the LEFT JOIN's u.id IS NULL) OR it did but its
+    # (just-updated, or pre-existing) centroid still fails containment
+    # against the repaired/original geometry -- mirrors the UPDATE's own
+    # inclusion predicate exactly, via the shared CTE text.
+    cur.execute(_CENTROID_CANDIDATE_CTE + """
+        SELECT c.id
+          FROM candidate c
+          JOIN parcel p ON p.id = c.id
+          LEFT JOIN usable u ON u.id = c.id
+         WHERE u.id IS NULL
+            OR p.centroid IS NULL
+            OR NOT ST_Contains(u.g, p.centroid)
     """, (JURISDICTION_ID,))
     still_not_interior = [r[0] for r in cur.fetchall()]
 
