@@ -270,21 +270,7 @@ def populate_interior_centroids(cur):
     the same exception path a genuinely-non-interior point already takes.
     No remediation of the invalid geometry itself happens here -- P61's,
     under D-6.3, tracked separately via the parcel_geometry_invalid
-    detector (C4).
-
-    P61A: both queries below are scoped to jurisdiction_id=JURISDICTION_ID.
-    Before this fix neither was, and centroid -- a derived-geometry column
-    with no per-jurisdiction ownership marker of its own -- got populated
-    and flagged for every parcel on the database regardless of which
-    jurisdiction's ingest was running. That's how a foreign (non-
-    ca_san_jose) parcel could reach DETECTOR_KEY_CENTROID_NOT_INTERIOR's
-    write below with this module's own hardcoded JURISDICTION_ID and trip
-    parcel_exception_parcel_jurisdiction_fk -- see P61A-LEDGER.md. Scoping
-    the UPDATE too (not just the residual SELECT) means this ingest never
-    touches a foreign parcel's centroid at all, not merely never reports
-    on it -- the cleaner boundary the design gate chose over leaving
-    centroid a shared, no-owner column repaired by whichever jurisdiction's
-    ingest happens to run last."""
+    detector (C4)."""
     cur.execute("""
         UPDATE parcel
            SET centroid = CASE
@@ -293,9 +279,8 @@ def populate_interior_centroids(cur):
                            END
          WHERE geom IS NOT NULL
            AND geom_valid
-           AND jurisdiction_id = %s
            AND (centroid IS NULL OR NOT ST_Contains(geom, centroid))
-    """, (JURISDICTION_ID,))
+    """)
     recomputed = cur.rowcount
 
     # Residual check: even ST_PointOnSurface is not guaranteed interior
@@ -307,12 +292,11 @@ def populate_interior_centroids(cur):
     cur.execute("""
         SELECT id FROM parcel
          WHERE geom IS NOT NULL
-           AND jurisdiction_id = %s
            AND CASE
                  WHEN NOT geom_valid THEN TRUE
                  ELSE (centroid IS NULL OR NOT ST_Contains(geom, centroid))
                END
-    """, (JURISDICTION_ID,))
+    """)
     still_not_interior = [r[0] for r in cur.fetchall()]
 
     return recomputed, still_not_interior
@@ -855,9 +839,8 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
                 FROM parcel p
                 JOIN zoning_staging z2 ON ST_Contains(z2.geom, p.centroid)
                 WHERE p.centroid IS NOT NULL
-                  AND p.jurisdiction_id = %s
                   AND NOT (p.id = ANY(%s::uuid[]))
-            """, (JURISDICTION_ID, list(centroid_still_bad_set)))
+            """, (list(centroid_still_bad_set),))
             join_rows = cur.fetchall()
             print(f"  spatial join: {len(join_rows):,} (parcel, candidate zoning) pairs in {time.monotonic()-t_join_start:.1f}s")
 
@@ -866,15 +849,7 @@ def load_zoning(conn, path, snapshot_id, retrieved_at):
             by_parcel.setdefault(parcel_id, []).append((facilityid, zoning, zoning_verbatim))
 
         with conn.cursor() as cur:
-            # P61A: scoped to JURISDICTION_ID -- see populate_interior_
-            # centroids' own docstring for why. Without this, a foreign
-            # parcel with a centroid (however it got one) entered this
-            # classification loop and could reach a write below that
-            # hardcodes jurisdiction_id=JURISDICTION_ID, tripping
-            # fact_parcel_jurisdiction_fk or
-            # parcel_exception_parcel_jurisdiction_fk depending on whether
-            # it matched a district or not (see P61A-LEDGER.md).
-            cur.execute("SELECT id FROM parcel WHERE centroid IS NOT NULL AND jurisdiction_id = %s", (JURISDICTION_ID,))
+            cur.execute("SELECT id FROM parcel WHERE centroid IS NOT NULL")
             all_parcel_ids = {r[0] for r in cur.fetchall()}
 
         matched = {}     # parcel_id -> classify_zoning_candidates() "matched" data
@@ -1210,12 +1185,7 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
         print(f"  parsed {rows_in:,} permit rows ({len(by_apn):,} distinct non-blank APNs) in {time.monotonic()-t0:.1f}s")
 
         with conn.cursor() as cur:
-            # P61A: scoped to JURISDICTION_ID, same reasoning as
-            # load_zoning's own all_parcel_ids scoping above -- an APN
-            # collision with a foreign-jurisdiction parcel would otherwise
-            # let this half's write sites reach fact_parcel_jurisdiction_fk
-            # too.
-            cur.execute("SELECT apn, id FROM parcel WHERE apn IS NOT NULL AND jurisdiction_id = %s", (JURISDICTION_ID,))
+            cur.execute("SELECT apn, id FROM parcel WHERE apn IS NOT NULL")
             parcel_by_apn = {}
             dup_apns = set()
             for apn, pid in cur.fetchall():
