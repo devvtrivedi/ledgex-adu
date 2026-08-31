@@ -91,12 +91,23 @@ FOREIGN_JURISDICTION_ID = "test_p61a_foreign"
 # A small valid square, unrelated to the district polygon below -- only
 # `centroid` (pre-set directly, not derived) drives the join; geom just
 # needs to be a real, valid polygon so nothing downstream chokes on NULL.
-PARCEL_GEOM_WKT = "POLYGON((100 100, 100 101, 101 101, 101 100, 100 100))"
+# Deliberately NOT (0,0)-(10,10): that exact square is already in permanent
+# use by the real database's own test_p59_c4 fixture parcels (verified --
+# `SELECT ST_AsText(geom) FROM parcel WHERE jurisdiction_id='test_p59_c4'`
+# returns MULTIPOLYGON(((0 0,10 0,10 10,0 10,0 0))) for all four of them).
+# Reusing it here would let load_zoning's centroid-population UPDATE (on
+# unscoped/pre-fix code) drag those OTHER foreign fixtures into this
+# script's own snapshot's candidate set too, contaminating scenario
+# isolation -- found for real, not by inspection: the first RED run of
+# this test (on the pre-fix tree) showed 4 "matched" parcels, not the 1
+# this script seeded, because test_p59_c4's own fixtures matched the same
+# polygon this test used to use.
+PARCEL_GEOM_WKT = "POLYGON((600 600, 600 601, 601 601, 601 600, 600 600))"
 
 # The one throwaway zoning district in the snapshot both scenarios share.
-DISTRICT_WKT = "POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))"
-MATCHED_CENTROID_WKT = "POINT(5 5)"        # inside DISTRICT_WKT -> "matched"
-ZERO_MATCH_CENTROID_WKT = "POINT(1000 1000)"  # nowhere near it -> "zero_match"
+DISTRICT_WKT = "POLYGON((500 500, 510 500, 510 510, 500 510, 500 500))"
+MATCHED_CENTROID_WKT = "POINT(505 505)"       # inside DISTRICT_WKT -> "matched"
+ZERO_MATCH_CENTROID_WKT = "POINT(-500 -500)"  # nowhere near it -> "zero_match"
 
 failures = []
 
@@ -184,7 +195,7 @@ def _write_snapshot_geojson():
                 },
                 "geometry": {
                     "type": "Polygon",
-                    "coordinates": [[[0, 0], [10, 0], [10, 10], [0, 10], [0, 0]]],
+                    "coordinates": [[[500, 500], [510, 500], [510, 510], [500, 510], [500, 500]]],
                 },
             }],
         }, f)
