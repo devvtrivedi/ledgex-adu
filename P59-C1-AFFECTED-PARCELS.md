@@ -139,6 +139,58 @@ This is a plan, not work performed. Executing it is a separate authorization
    `get_db()`'s connection attempt (`psycopg2.OperationalError: ... database
    "ledgex_does_not_exist_dryrun" does not exist`) -- proving the flags parse and
    dispatch correctly without ever reaching a real database or writing anything.
+
+   **Corrected 2026-08-31 (P61).** The A-N12-corrected command above still names the
+   wrong DATABASE: `@localhost:5432`. The flags are right; the HOST is not. On this
+   machine `postgresql://...@localhost:5432/ledgex_schema_check` does not reach the
+   docker container `ledgex` (225,077 parcels, ledger 0058) that this whole evidence
+   document is about. It reaches a SEPARATE, near-empty `ledgex_schema_check` on the
+   host's Homebrew postgresql@16 cluster — 1 parcel, 3 facts, and (the trap)
+   ledger 0058 as well, so a ledger check alone does not tell the two apart. Mechanism,
+   established live by P60 §4 and re-verified by P61: `lsof -nP -iTCP:5432 -sTCP:LISTEN`
+   shows Homebrew's postgres bound specifically to `127.0.0.1` and `[::1]`, while Docker
+   Desktop's proxy is bound only to the wildcard `*:5432` — a client naming `localhost`
+   resolves `::1` first and lands on Homebrew every time. The container's mapped port is
+   never Docker's to answer for a plain localhost client here. `refuse_remote()` cannot
+   catch this: both databases are local, and the near-empty one is the one it is
+   happiest about. This is exactly the residual case `Makefile:276-278` (the P56a block
+   above the `migrate` recipe — NOT migration 0056, as the 2026-08-31 handoff
+   miscited it) names as the one `--DATABASE_URL`'s semantics can never distinguish
+   from "the database you meant": "a shell already pointing DATABASE_URL at a
+   local-but-wrong database."
+
+   As it happens, on this machine today the command above fails loudly rather than
+   silently: the Homebrew cluster has no `postgres` role at all (only `dev`), so it
+   dies at authentication with `FATAL: role "postgres" does not exist`. That is luck,
+   not a safeguard — drop the `postgres:x@` and the same URL connects fine as `dev` to
+   the wrong, near-empty database, finds nothing to supersede, and exits 0.
+
+   **Correct form.** The docker container publishes only to the wildcard address, so it
+   needs an explicit loopback route. P61 used a throwaway TCP forwarder (this does not
+   touch, restart or reconfigure the `ledgex` container):
+
+   ```
+   docker run --rm -d --name ledgex-fwd -p 127.0.0.1:5433:5432 \
+     alpine/socat tcp-listen:5432,fork,reuseaddr tcp:172.17.0.2:5432
+   ```
+
+   (`172.17.0.2` is `ledgex`'s address on the default bridge — re-derive it with
+   `docker inspect ledgex`, do not hardcode it blind. Note that attaching the forwarder
+   with `--network container:ledgex` and `-p` together does NOT work: docker refuses
+   with `conflicting options: port publishing and the container type network mode`.)
+   `127.0.0.1` is in `infra/env.py`'s `_LOCAL_HOSTS` (line 110), so `refuse_remote`
+   allows it and no `LEDGEX_ALLOW_REMOTE_DB` override is needed or permitted. The
+   command then becomes:
+   `DATABASE_URL="postgresql://postgres:x@127.0.0.1:5433/ledgex_schema_check" \
+   .venv-ingest/bin/python3 scripts/ingest_zoning_permits.py --source zoning \
+   --phase load \
+   --snapshot-id ca_san_jose.zoning_districts:sha256:eae7823a22e72537d5738d473c6c8289e0e2af78e76be782ea5e432fdd5d04ba`
+
+   Assert identity BEFORE running it, on that exact connection, every time — the row
+   counts, not the ledger, are what separate the two databases:
+   `SELECT current_database(), (SELECT count(*) FROM parcel), (SELECT count(*) FROM fact),
+   (SELECT max(version) FROM schema_migrations);` must return 225,077 parcels and
+   ledger 0058. Anything else: stop.
 5. Expected result: the **identity-restricted** code-predicate query (AD4, above — not the
    raw form) returns 0 on `ledgex_schema_check` afterward, and at least the 1,057
    facts in the CSV above each show a non-null `superseded_at` with a real
