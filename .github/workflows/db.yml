@@ -168,15 +168,6 @@ jobs:
       - name: scripts/test_snapshot_race_invariant.py
         run: python3 scripts/test_snapshot_race_invariant.py
 
-      # P59, C1: the geometry-interior-point regression fixture (the C1
-      # acceptance criterion (d) fixture). Same job, same disposable
-      # ledgex_ci database, same reason as the snapshot-race step directly
-      # above -- needs a real Python process, not psql. Touches only
-      # jurisdiction/parcel/parcel_exception (test_p59_c1 namespace), never
-      # licence -- no seeding-order dependency on the day4 step below.
-      - name: scripts/test_centroid_interior_invariant.py
-        run: python3 scripts/test_centroid_interior_invariant.py
-
       # P36, README finding #38 (built, not left as a candidate -- finding
       # #36's own gap, cross-seeder drift between db/seeds/day4_sources.sql
       # and scripts/check_golden.py's own rule seed, was CI-unreachable
@@ -384,6 +375,23 @@ jobs:
       # placement as the two compose tests directly above.
       - name: scripts/test_compose_l0_gate.py
         run: python3 scripts/test_compose_l0_gate.py
+
+      # P59, C1 (moved here 2026-08-31, P61G -- was above make db-test,
+      # BEFORE day4_sources.sql, with a comment claiming "no seeding-order
+      # dependency on the day4 step below"; P61A's own jurisdiction scoping
+      # (commit b7aa8dc) made that false without anyone noticing, since
+      # populate_interior_centroids now only ever touches
+      # jurisdiction_id='ca_san_jose' parcels -- this fixture's rows are
+      # invisible to it unless seeded under that real jurisdiction, which
+      # requires day4_sources.sql having already run. See
+      # P61G-LEDGER.md): the geometry-interior-point regression fixture
+      # (the C1 acceptance criterion (d) fixture, plus P61G's two new
+      # repaired/unrepairable-geometry arms). Same job, same disposable
+      # ledgex_ci database as every other scripts/test_*.py step here --
+      # needs a real Python process, not psql. Needs day4_sources.sql
+      # (already applied above).
+      - name: scripts/test_centroid_interior_invariant.py
+        run: python3 scripts/test_centroid_interior_invariant.py
 
       # A-N2 (P59C): D-6.6 exclusion regression -- a parcel whose centroid
       # is known-non-interior gets no zoning.district fact and is recorded

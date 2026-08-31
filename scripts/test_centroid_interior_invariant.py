@@ -40,17 +40,65 @@ insert time, closes that gap.
 A-N4 (P59C): a third fixture, a self-intersecting ("bowtie") polygon --
 ST_IsValid = false, 0057's geom_valid -- proves populate_interior_
 centroids does not raise a GEOS error and abort its caller's transaction
-when invalid geometry is present, and that the row is routed to the
-still_not_interior exception path rather than silently skipped.
+when invalid geometry is present.
 
-Requires DATABASE_URL only. Writes three parcel rows under jurisdiction_id=
-'test_p59_c1', then DELETES them itself at the end of every run, pass or
-fail (same unconditional discipline db/tests/teardown.sql uses, and the
-same zero-fact-only safety check: this fixture never writes a fact,
-verified directly before deleting, not assumed). No licence/source rows
-touched at all (sidesteps the C15 attribution-contamination hazard
-entirely -- this invariant needs only jurisdiction + parcel, neither of
-which touch licence).
+P61G (D-6.6, narrowed, 2026-08-31): that same bowtie fixture is now the
+REPAIRABLE-invalid arm, not the "stays excluded forever" arm its own name
+used to promise -- checked directly, not assumed, before repurposing it:
+`ST_CollectionExtract(ST_MakeValid(bowtie), 3)` returns
+`MULTIPOLYGON(((0 0,0 10,5 5,0 0)),((10 0,5 5,10 10,10 0)))`, two real
+triangles, not empty. Under the narrowed rule this parcel now gets a
+centroid (interior to the REPAIRED geometry) and is excluded from
+`still_not_interior`. The test below asserts exactly that -- and asserts
+`parcel.geom` itself is byte-unchanged and `geom_valid` still reads false,
+since the repair is derivation-time-only, never persisted (R5). A fourth
+fixture, a genuinely unrepairable degenerate "polygon" (a ring that
+doubles back on itself with zero enclosed area -- confirmed directly:
+`ST_CollectionExtract(ST_MakeValid(...), 3)` on it returns `POLYGON
+EMPTY`), proves the opposite: no centroid, routed to still_not_interior,
+unchanged from A-N4's original behavior for the case repair cannot help.
+
+**Corrected 2026-08-31 (P61G) -- a real, pre-existing regression, found
+while extending this file, not by inspection.** This fixture used to seed
+its four parcels under a private `jurisdiction_id='test_p59_c1'`, isolated
+from any real jurisdiction. P61A (commit b7aa8dc) scoped
+`populate_interior_centroids`'s own UPDATE and residual SELECT to
+`jurisdiction_id = JURISDICTION_ID` (the ingest module's own hardcoded
+`'ca_san_jose'` constant) -- correctly, for its own stated reason -- but
+that silently made this entire suite inert: `test_p59_c1` is not
+`ca_san_jose`, so none of this file's fixtures were ever touched by the
+function under test again. Confirmed directly, not inferred: running the
+UNMODIFIED pre-P61G version of this file against the current (P61A-fixed)
+tree fails 6 of its original assertions, every one with the same
+symptom -- `rowcount=0`, `still_bad=[]`, a value that should have been
+derived reading back NULL -- because the fixture parcels were invisible
+to the scoped function the whole time. Landed in P61A, never caught
+because P61A's own verification ran ITS OWN new test
+(test_zoning_cross_jurisdiction.py), not this pre-existing one; see
+P61G-LEDGER.md for the full account.
+
+Fixed the same way test_zoning_centroid_exclusion.py already handles this
+exact constraint: fixtures now seed under `jurisdiction_id=JURISDICTION_ID`
+(imported from `ingest_zoning_permits`, i.e. `'ca_san_jose'`), APN-prefixed
+`TEST-C1-*` so they can never collide with a real parcel. Needs
+`day4_sources.sql` applied first (the real `ca_san_jose` jurisdiction row
+comes from there, not from any migration -- confirmed: `grep ca_san_jose
+db/migrations/*.sql` finds no INSERT, `db/seeds/day4_sources.sql:268`
+does) -- refuses loudly, naming the exact command, if not. NOT safe
+against a database already carrying real bulk zoning/parcel data:
+`populate_interior_centroids` is now, correctly, a jurisdiction-wide bulk
+operation, so calling it recomputes every `ca_san_jose` parcel's centroid,
+not just this file's own four -- same caveat
+test_zoning_centroid_exclusion.py's own docstring already carries. Safe
+against `ledgex_test`/`ledgex_ci` and a disposable local
+`ledgex_schema_check` with no real bulk parcels loaded; NOT safe against
+the real long-lived `ledgex_schema_check`.
+
+Writes four parcel rows under `jurisdiction_id='ca_san_jose'`, then
+DELETES them itself at the end of every run, pass or fail (same
+unconditional discipline db/tests/teardown.sql uses, and the same
+zero-fact-only safety check: this fixture never writes a fact, verified
+directly before deleting, not assumed). No licence rows touched.
 
 Corrected (P59->P60, follow-up finding): this docstring previously
 claimed permanence was a deliberate, "harmless" convention -- the same
@@ -75,9 +123,7 @@ sys.path.insert(0, REPO_ROOT)
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 
 from infra.env import get_db  # noqa: E402
-from ingest_zoning_permits import populate_interior_centroids  # noqa: E402
-
-JURISDICTION_ID = "test_p59_c1"
+from ingest_zoning_permits import populate_interior_centroids, JURISDICTION_ID  # noqa: E402
 
 C_SHAPE_WKT = (
     "POLYGON((0 0, 10 0, 10 4, 4 4, 4 6, 10 6, 10 10, 0 10, 0 0))"
@@ -88,7 +134,16 @@ NEIGHBOR_DISTRICT_WKT = "POLYGON((4 0, 10 0, 10 10, 4 10, 4 0))"
 # A-N4: self-intersecting "bowtie" -- ST_IsValid(this) is FALSE (0057's
 # geom_valid generated column computes it), so ST_Centroid/ST_PointOnSurface/
 # ST_Contains are all liable to raise a GEOS error on it (A-N4's concern).
+# P61G: repairs into two real triangles -- verified directly, see module
+# docstring -- so this is now the REPAIRABLE-invalid arm.
 BOWTIE_INVALID_WKT = "POLYGON((0 0, 10 10, 10 0, 0 10, 0 0))"
+
+# P61G: a degenerate ring that doubles back along itself with zero
+# enclosed area -- invalid (ST_IsValid = false), and its repair does NOT
+# recover a usable polygon: ST_CollectionExtract(ST_MakeValid(this), 3) is
+# verified directly (module docstring) to be POLYGON EMPTY. The
+# unrepairable arm.
+DEGENERATE_LINE_WKT = "POLYGON((0 0, 10 0, 5 0, 0 0))"
 
 failures = []
 
@@ -102,14 +157,15 @@ def check(label, condition, detail=""):
 
 def _seed(conn):
     with conn.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO jurisdiction (id, display_name, kind, state_code, pack_version, supported)
-            VALUES (%s, 'P59 C1 test fixture', 'city', 'CA', 'v1.0', true)
-            ON CONFLICT (id) DO NOTHING
-            """,
-            (JURISDICTION_ID,),
-        )
+        cur.execute("SELECT 1 FROM source WHERE id = 'ca_san_jose.zoning_districts'")
+        if cur.fetchone() is None:
+            raise SystemExit(
+                "No ca_san_jose.zoning_districts source row -- this test needs "
+                "the real ca_san_jose jurisdiction row from db/seeds/day4_sources.sql, "
+                "which populate_interior_centroids is now scoped to (P61A). Run it "
+                "first: psql \"$DATABASE_URL\" -v ON_ERROR_STOP=1 "
+                "-f db/seeds/day4_sources.sql"
+            )
         parcel_id = str(uuid.uuid4())
         cur.execute(
             """
@@ -146,12 +202,13 @@ def _seed_pre_stored_bad_centroid(conn):
     return parcel_id
 
 
-def _seed_invalid_geometry(conn):
-    """A-N4: a self-intersecting polygon (ST_IsValid = false, 0057's
-    geom_valid). Proves populate_interior_centroids does not raise a GEOS
-    error and abort the caller's transaction when an invalid geometry is
-    present, and that the row is routed into still_not_interior instead of
-    silently skipped or silently classified against an unverifiable point."""
+def _seed_repairable_invalid_geometry(conn):
+    """P61G: the bowtie polygon -- ST_IsValid = false, but its repair
+    (ST_CollectionExtract(ST_MakeValid(geom), 3)) yields two real,
+    non-empty triangles. Proves both A-N4's original guarantee (no GEOS
+    error/abort on invalid input) and the narrowed D-6.6 rule (a repairable
+    parcel gets a centroid interior to the REPAIRED geometry and is no
+    longer routed to still_not_interior)."""
     with conn.cursor() as cur:
         parcel_id = str(uuid.uuid4())
         cur.execute(
@@ -159,16 +216,68 @@ def _seed_invalid_geometry(conn):
             INSERT INTO parcel (id, jurisdiction_id, apn, geom)
             VALUES (%s, %s, %s, ST_Multi(ST_GeomFromText(%s, 4326)))
             """,
-            (parcel_id, JURISDICTION_ID, f"TEST-C1-INVALID-{parcel_id[:8]}",
+            (parcel_id, JURISDICTION_ID, f"TEST-C1-REPAIRABLE-{parcel_id[:8]}",
              BOWTIE_INVALID_WKT),
         )
-        cur.execute("SELECT geom_valid FROM parcel WHERE id = %s", (parcel_id,))
-        (is_valid,) = cur.fetchone()
+        cur.execute(
+            """
+            SELECT geom_valid,
+                   ST_IsEmpty(ST_CollectionExtract(ST_MakeValid(geom), 3))
+              FROM parcel WHERE id = %s
+            """,
+            (parcel_id,),
+        )
+        is_valid, repair_is_empty = cur.fetchone()
     conn.commit()
     check(
         "fixture check: the bowtie polygon is genuinely invalid (geom_valid = false)",
         is_valid is False,
         f"got geom_valid={is_valid} -- fixture does not exercise A-N4's failure mode",
+    )
+    check(
+        "fixture check: the bowtie's repair is NOT empty (this is the repairable arm)",
+        repair_is_empty is False,
+        f"got repair_is_empty={repair_is_empty} -- fixture does not exercise the repairable case",
+    )
+    return parcel_id
+
+
+def _seed_unrepairable_geometry(conn):
+    """P61G: a degenerate zero-area "polygon" (a ring that doubles back
+    along itself) -- ST_IsValid = false, AND its repair is genuinely
+    unusable (ST_CollectionExtract(ST_MakeValid(geom), 3) is empty).
+    Proves the narrowed D-6.6 rule's other half: a parcel whose geometry
+    does not repair into a usable polygon is unchanged from A-N4's
+    original behavior -- no centroid, routed to still_not_interior."""
+    with conn.cursor() as cur:
+        parcel_id = str(uuid.uuid4())
+        cur.execute(
+            """
+            INSERT INTO parcel (id, jurisdiction_id, apn, geom)
+            VALUES (%s, %s, %s, ST_Multi(ST_GeomFromText(%s, 4326)))
+            """,
+            (parcel_id, JURISDICTION_ID, f"TEST-C1-UNREPAIRABLE-{parcel_id[:8]}",
+             DEGENERATE_LINE_WKT),
+        )
+        cur.execute(
+            """
+            SELECT geom_valid,
+                   ST_IsEmpty(ST_CollectionExtract(ST_MakeValid(geom), 3))
+              FROM parcel WHERE id = %s
+            """,
+            (parcel_id,),
+        )
+        is_valid, repair_is_empty = cur.fetchone()
+    conn.commit()
+    check(
+        "fixture check: the degenerate-line polygon is genuinely invalid (geom_valid = false)",
+        is_valid is False,
+        f"got geom_valid={is_valid} -- fixture does not exercise the invalid-geometry case",
+    )
+    check(
+        "fixture check: the degenerate line's repair IS empty (this is the unrepairable arm)",
+        repair_is_empty is True,
+        f"got repair_is_empty={repair_is_empty} -- fixture does not exercise the unrepairable case",
     )
     return parcel_id
 
@@ -283,25 +392,107 @@ def test_pre_stored_bad_centroid_is_rederived(conn, parcel_id):
     )
 
 
-def test_invalid_geometry_does_not_abort(conn, parcel_id):
-    """A-N4: proves an invalid (self-intersecting) geometry present in the
-    same UPDATE/SELECT pass does not raise a GEOS error (which would abort
-    the whole caller's transaction -- load_zoning's, in production), and
-    that the invalid-geometry parcel is routed into still_not_interior
-    rather than silently classified or silently dropped."""
+def test_repairable_invalid_geometry_gets_interior_centroid(conn, parcel_id):
+    """A-N4 (unchanged guarantee) + P61G (narrowed D-6.6): the bowtie's
+    repair does not raise a GEOS error, AND -- the new part -- the parcel
+    now receives a centroid provably interior to the REPAIRED geometry,
+    is excluded from still_not_interior, and both parcel.geom and
+    geom_valid are left exactly as they were (the repair never persists)."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT ST_AsText(geom), geom_valid FROM parcel WHERE id = %s", (parcel_id,))
+        geom_before, geom_valid_before = cur.fetchone()
+
     with conn.cursor() as cur:
         recomputed, still_bad = populate_interior_centroids(cur)
     conn.commit()
 
     check(
-        "A-N4 FIX: populate_interior_centroids did not raise on invalid geometry "
+        "P61G FIX: populate_interior_centroids did not raise on repairable invalid geometry "
         "(reached this line at all)",
         True,
     )
     check(
-        "A-N4 FIX: invalid-geometry parcel is routed to still_not_interior",
+        "P61G FIX: repairable-invalid parcel is recomputed (not skipped)",
+        recomputed >= 1,
+        f"rowcount={recomputed}",
+    )
+    check(
+        "P61G FIX: repairable-invalid parcel is EXCLUDED from still_not_interior "
+        "(the narrowed part -- A-N4 alone would have kept it in still_bad forever)",
+        parcel_id not in still_bad,
+        f"still_bad={still_bad}",
+    )
+
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            SELECT centroid IS NOT NULL,
+                   ST_Contains(ST_CollectionExtract(ST_MakeValid(geom), 3), centroid),
+                   ST_AsText(geom), geom_valid
+              FROM parcel WHERE id = %s
+            """,
+            (parcel_id,),
+        )
+        has_centroid, interior_to_repaired, geom_after, geom_valid_after = cur.fetchone()
+
+    check(
+        "P61G FIX: repairable-invalid parcel received a centroid",
+        has_centroid is True,
+        f"got has_centroid={has_centroid}",
+    )
+    check(
+        "P61G FIX: the derived centroid is provably interior to the REPAIRED geometry",
+        interior_to_repaired is True,
+        f"got interior_to_repaired={interior_to_repaired}",
+    )
+    check(
+        "P61G R5: parcel.geom is byte-unchanged (the repair is derivation-time-only)",
+        geom_after == geom_before,
+        f"before={geom_before!r} after={geom_after!r}",
+    )
+    check(
+        "P61G R5: geom_valid still reads false (stored geometry is still invalid, correctly)",
+        geom_valid_after is False and geom_valid_before is False,
+        f"before={geom_valid_before} after={geom_valid_after}",
+    )
+
+
+def test_unrepairable_geometry_stays_excluded(conn, parcel_id):
+    """P61G: the mirror image of the repairable case above. A parcel whose
+    repair does not yield a usable polygon must be unchanged from A-N4's
+    original behavior in every particular: no centroid, routed to
+    still_not_interior, and does not raise."""
+    with conn.cursor() as cur:
+        cur.execute("SELECT centroid IS NULL FROM parcel WHERE id = %s", (parcel_id,))
+        (centroid_was_null,) = cur.fetchone()
+    check(
+        "fixture check: unrepairable parcel starts with no centroid",
+        centroid_was_null is True,
+        f"got centroid_was_null={centroid_was_null}",
+    )
+
+    with conn.cursor() as cur:
+        recomputed, still_bad = populate_interior_centroids(cur)
+    conn.commit()
+
+    check(
+        "P61G: populate_interior_centroids did not raise on unrepairable invalid geometry "
+        "(reached this line at all)",
+        True,
+    )
+    check(
+        "P61G: unrepairable-invalid parcel is routed to still_not_interior, unchanged from A-N4",
         parcel_id in still_bad,
         f"still_bad={still_bad}",
+    )
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT centroid IS NULL FROM parcel WHERE id = %s", (parcel_id,))
+        (centroid_still_null,) = cur.fetchone()
+    check(
+        "P61G: unrepairable-invalid parcel received NO centroid",
+        centroid_still_null is True,
+        f"got centroid_still_null={centroid_still_null}",
     )
 
 
@@ -342,9 +533,13 @@ def main():
         parcel_ids.append(stored_bad_id)
         test_pre_stored_bad_centroid_is_rederived(conn, stored_bad_id)
 
-        invalid_id = _seed_invalid_geometry(conn)
-        parcel_ids.append(invalid_id)
-        test_invalid_geometry_does_not_abort(conn, invalid_id)
+        repairable_id = _seed_repairable_invalid_geometry(conn)
+        parcel_ids.append(repairable_id)
+        test_repairable_invalid_geometry_gets_interior_centroid(conn, repairable_id)
+
+        unrepairable_id = _seed_unrepairable_geometry(conn)
+        parcel_ids.append(unrepairable_id)
+        test_unrepairable_geometry_stays_excluded(conn, unrepairable_id)
     finally:
         # Unconditional, pass or fail -- same discipline as
         # db/tests/teardown.sql, run here because nothing else ever will
