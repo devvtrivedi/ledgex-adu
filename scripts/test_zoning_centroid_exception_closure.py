@@ -8,17 +8,39 @@ same precondition core.exceptions.close_resolved_exceptions already
 requires for DETECTOR_KEY_ZONING_UNRESOLVABLE's own closure two blocks
 below it in the same file -- reused here, not a second hand-rolled UPDATE).
 
+**Corrected 2026-09-01 (P61Y).** Both arms used to seed the SAME bowtie
+(self-intersecting) geometry. Under narrowed D-6.6 (P61G, 2026-08-31),
+populate_interior_centroids derives from
+`ST_CollectionExtract(ST_MakeValid(geom), 3)`, and that exact bowtie
+repairs into two real triangles (verified directly below, the same fact
+recorded for the identical shape in test_centroid_interior_invariant.py
+and test_zoning_centroid_exclusion.py) -- so run 1 no longer opened an
+exception for EITHER arm, the precondition this test's own design
+requires never held, and the two arms were not being distinguished at
+all. Fixed by starting both arms from a genuinely UNREPAIRABLE geometry
+instead (`DEGENERATE_LINE_WKT`, verified directly below to repair to
+`POLYGON EMPTY`) -- the file's contract is unchanged, only the starting
+fixture is corrected to actually exercise it. This is a re-point, not a
+weakened assertion: run 1's own two checks ("exception opens") are
+exactly as strict as before, now against a fixture that actually
+satisfies their own precondition.
+
 Two parcels, two real load_zoning() runs:
-  - REPAIRED: seeded with an invalid (bowtie) geometry -- opens a
+  - REPAIRED: seeded with an UNREPAIRABLE geometry -- opens a
     parcel_centroid_not_interior exception on run 1. Its geometry is
     corrected to a valid polygon between runs (0057's geom_valid tracks it
     automatically -- no exception-table code touches this). Run 2's
     populate_interior_centroids can now derive a real interior centroid
     for it, so it drops out of centroid_still_bad -- the exception must
     close (condition_cleared).
-  - STILL-BAD: seeded with the same invalid geometry, left untouched
-    between runs -- stays in centroid_still_bad on both runs. The
-    exception must stay open across both.
+  - STILL-BAD: seeded with the same UNREPAIRABLE geometry, left untouched
+    between runs -- stays in centroid_still_bad on both runs (still
+    unrepairable, not merely still invalid -- narrowed D-6.6 would
+    repair-and-classify a merely-invalid-but-repairable geometry, which
+    would silently defeat this arm's own purpose). The exception must
+    stay open across both. Proven distinguishable from REPAIRED, not
+    merely asserted correct in isolation -- a run where both arms behave
+    identically is exactly the failure this fix exists to prevent.
 
 Requires DATABASE_URL only (no day4_sources.sql dependency for the
 REPAIRED/STILL-BAD parcels themselves, but load_zoning's own job_run.
@@ -61,7 +83,17 @@ from ingest_zoning_permits import (  # noqa: E402
     SOURCE_ID_ZONING, LICENCE_ID_ZONING,
 )
 
+# P61Y: the former starting fixture for both arms -- ST_IsValid = false,
+# but ST_CollectionExtract(ST_MakeValid(this), 3) is two real triangles
+# (verified in _seed below), so it repairs under narrowed D-6.6 and no
+# longer belongs here. Kept only as a named reference for that fact, not
+# used to seed anything in this file anymore.
 BOWTIE_INVALID_WKT = "POLYGON((0 0, 10 10, 10 0, 0 10, 0 0))"
+# P61Y: the real starting fixture for both arms now -- the same degenerate,
+# zero-area, self-doubling-back ring P61G verified
+# (test_centroid_interior_invariant.py:146) repairs to POLYGON EMPTY.
+# Re-verified directly in _seed below, not trusted from that citation.
+DEGENERATE_LINE_WKT = "POLYGON((0 0, 10 0, 5 0, 0 0))"
 VALID_SQUARE_WKT = "POLYGON((0 0, 10 0, 10 10, 0 10, 0 0))"
 # Far away from both fixture geometries -- an empty zoning-districts
 # snapshot is fine (this test is about the centroid detector, not
@@ -107,15 +139,38 @@ def _seed(conn):
         cur.execute(
             "INSERT INTO parcel (id, jurisdiction_id, apn, geom) "
             "VALUES (%s, %s, %s, ST_Multi(ST_GeomFromText(%s, 4326)))",
-            (repaired_id, JURISDICTION_ID, f"TEST-AN8-REPAIRED-{repaired_id[:8]}", BOWTIE_INVALID_WKT),
+            (repaired_id, JURISDICTION_ID, f"TEST-AN8-REPAIRED-{repaired_id[:8]}", DEGENERATE_LINE_WKT),
         )
         still_bad_id = str(uuid.uuid4())
         cur.execute(
             "INSERT INTO parcel (id, jurisdiction_id, apn, geom) "
             "VALUES (%s, %s, %s, ST_Multi(ST_GeomFromText(%s, 4326)))",
-            (still_bad_id, JURISDICTION_ID, f"TEST-AN8-STILLBAD-{still_bad_id[:8]}", BOWTIE_INVALID_WKT),
+            (still_bad_id, JURISDICTION_ID, f"TEST-AN8-STILLBAD-{still_bad_id[:8]}", DEGENERATE_LINE_WKT),
         )
+        # P61Y: verify the starting fixture is genuinely unrepairable for
+        # BOTH parcels, not trusted from the module-level comment alone --
+        # this is exactly the property the original bowtie silently lost
+        # under narrowed D-6.6.
+        cur.execute(
+            "SELECT id, geom_valid, ST_IsEmpty(ST_CollectionExtract(ST_MakeValid(geom), 3)) "
+            "FROM parcel WHERE id = ANY(%s::uuid[])",
+            ([repaired_id, still_bad_id],),
+        )
+        by_id = {r[0]: (r[1], r[2]) for r in cur.fetchall()}
     conn.commit()
+    for label, pid in (("REPAIRED", repaired_id), ("STILL-BAD", still_bad_id)):
+        is_valid, repair_is_empty = by_id[pid]
+        check(
+            f"fixture check ({label}): starting geometry is genuinely invalid (geom_valid = false)",
+            is_valid is False,
+            f"got geom_valid={is_valid}",
+        )
+        check(
+            f"fixture check ({label}): starting geometry's repair is genuinely empty "
+            f"(so run 1 will actually open an exception for it)",
+            repair_is_empty is True,
+            f"got repair_is_empty={repair_is_empty}",
+        )
     return repaired_id, still_bad_id
 
 
@@ -203,6 +258,27 @@ def test_closure_by_exclusion(conn, repaired_id, still_bad_id):
         "A-N8: STILL-BAD parcel's exception stays OPEN across both runs",
         still_bad_open_2 == still_bad_open_1,
         f"run1={still_bad_open_1} run2={still_bad_open_2}",
+    )
+
+    # P61Y: the two arms must be ACTUALLY distinguishable, not merely each
+    # individually correct in isolation -- a run where both arms behave
+    # identically (both closed, or both still open) is exactly the failure
+    # narrowed D-6.6's repairable bowtie silently produced before this fix,
+    # and two individually-"correct" checks can both pass on such a run if
+    # read in isolation. State per-arm, per-run, explicitly:
+    print(f"  REPAIRED  run1_open={repaired_open_1}  run2_open={repaired_open_2}")
+    print(f"  STILL-BAD run1_open={still_bad_open_1}  run2_open={still_bad_open_2}")
+    check(
+        "P61Y: REPAIRED and STILL-BAD are distinguishable after run 2 "
+        "(one closed, one still open -- not both the same)",
+        (len(repaired_open_2) == 0) != (len(still_bad_open_2) == 0),
+        f"repaired_open_2={repaired_open_2} still_bad_open_2={still_bad_open_2}",
+    )
+    check(
+        "P61Y: both arms actually opened an exception on run 1 (the precondition "
+        "this test's own design requires -- silently false before this fix)",
+        len(repaired_open_1) == 1 and len(still_bad_open_1) == 1,
+        f"repaired_open_1={repaired_open_1} still_bad_open_1={still_bad_open_1}",
     )
 
 
