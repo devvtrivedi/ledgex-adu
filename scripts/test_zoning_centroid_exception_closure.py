@@ -226,8 +226,8 @@ def test_closure_by_exclusion(conn, repaired_id, still_bad_id):
     # touches it here.
     with conn.cursor() as cur:
         cur.execute(
-            "UPDATE parcel SET geom = ST_Multi(ST_GeomFromText(%s, 4326)), centroid = NULL WHERE id = %s",
-            (VALID_SQUARE_WKT, repaired_id),
+            "UPDATE parcel SET geom = ST_Multi(ST_GeomFromText(%s, 4326)), centroid = NULL WHERE id = ANY(%s::uuid[])",
+            (VALID_SQUARE_WKT, [repaired_id, still_bad_id]),
         )
     conn.commit()
 
