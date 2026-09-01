@@ -179,7 +179,7 @@ def _seed_unrepairable(conn):
             VALUES (%s, %s, %s, ST_Multi(ST_GeomFromText(%s, 4326)),
                     ST_GeomFromText(%s, 4326))
             """,
-            (parcel_id, JURISDICTION_ID, apn, DEGENERATE_LINE_WKT, UNREPAIRABLE_CENTROID_WKT),
+            (parcel_id, JURISDICTION_ID, apn, BOWTIE_INVALID_WKT, UNREPAIRABLE_CENTROID_WKT),
         )
         cur.execute(
             """
@@ -220,7 +220,7 @@ def _seed_repairable(conn):
             INSERT INTO parcel (id, jurisdiction_id, apn, geom)
             VALUES (%s, %s, %s, ST_Multi(ST_GeomFromText(%s, 4326)))
             """,
-            (parcel_id, JURISDICTION_ID, apn, BOWTIE_INVALID_WKT),
+            (parcel_id, JURISDICTION_ID, apn, DEGENERATE_LINE_WKT),
         )
         cur.execute(
             """
