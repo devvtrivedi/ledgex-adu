@@ -3092,7 +3092,15 @@ BEGIN
         RAISE EXCEPTION 'FAIL T50: derived fact dropping a required attribution was accepted';
     EXCEPTION
         WHEN raise_exception THEN
-            IF SQLERRM LIKE 'I5 violated:%does not require attribution, but at least one input does%' THEN
+            -- P62B (D-6.7, Option 2, 0059): attribution's message text
+            -- changed from 0029/0058's "I5 violated: ... does not require
+            -- attribution ..." to the generic sticky rule's
+            -- "I5_RESTRICTION_DROPPED: ... does not carry attribution ..."
+            -- -- see 0059's own header and db/README.md's stale migration
+            -- header claims section for the full reasoning. This assertion
+            -- was rewritten in place, not added; T50's own fixtures,
+            -- licences and structure are unchanged.
+            IF SQLERRM LIKE 'I5_RESTRICTION_DROPPED:%does not carry attribution, but at least one input does%' THEN
                 RAISE NOTICE 'PASS T50: attribution violation rejected at COMMIT (%)', SQLERRM;
                 INSERT INTO test_pass VALUES ('T50');
             ELSE

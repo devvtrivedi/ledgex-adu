@@ -364,6 +364,27 @@ append-only, for the same reason the migrations it corrects are.
   unaffected — `p5-acceptance`/`phaseb-acceptance` still run against their
   own migrations-only databases, and this migration must still work there
   regardless of what the `schema` job's database looks like.
+- **0058_fact_licence_restriction_sticky.sql** — its own header, at the
+  comment directly above the attribution sticky block, says the message
+  text is "UNCHANGED from 0029's original... this check itself is not new...
+  db/tests/invariants.sql's own pre-existing T50/T51 assert this exact
+  wording and must not need to change alongside a fix that does not touch
+  this check's own behavior." That claim was true when 0058 was written and
+  is superseded by `0059_fact_licence_restriction_generic.sql` (P62B, D-6.7
+  Option 2, owner decision 2026-09-02): 0059 folds attribution into a fully
+  generic sticky-restriction rule, and attribution's message text changes
+  from `'I5 violated: ... does not require attribution, but at least one
+  input does.'` to `'I5_RESTRICTION_DROPPED: ... does not carry attribution,
+  but at least one input does.'` — a real, visible change, not prose drift,
+  and the reason D-6.7 needed an owner decision rather than a judgment call.
+  T50 was rewritten in place (not added) to assert the new wording; T51 and
+  every other invariant test are unaffected (grepped, zero other assertions
+  depend on either wording). 0058's own logic (which restriction values are
+  sticky, and under what condition a derivation is refused) is unchanged by
+  0059 — only attribution's special-cased message text and the mechanism
+  (one generic block instead of four literal ones) changed. See 0059's own
+  header for the full argument and P62B-LEDGER.md for the four-quadrant
+  proof that this change is real and precisely targeted.
 
 ## Known timezone-literal defects in landed migrations — not prose, tracked here until remediated
 
