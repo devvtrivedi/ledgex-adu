@@ -385,6 +385,46 @@ append-only, for the same reason the migrations it corrects are.
   (one generic block instead of four literal ones) changed. See 0059's own
   header for the full argument and P62B-LEDGER.md for the four-quadrant
   proof that this change is real and precisely targeted.
+- **0018_provenance_integrity.sql** — its own header originally said a
+  derived fact has "source_id, snapshot_id and method_version all NULL
+  (fact_provenance_complete, 0006)." Backwards on the third: `0006`'s
+  `fact_provenance_complete` CHECK requires `method_version IS NOT NULL`
+  for a derived fact — it is `source_id`/`snapshot_id` that must be NULL
+  there. The migration's own FK argument is unaffected either way — none
+  of its composite FKs reference `method_version` at all; only this
+  introductory claim about the column was wrong. **This correction was
+  originally made in place, in the migration file itself** (P59 D17,
+  `bc51c0b`, 2026-08-25) — before this section existed to hold it. That
+  in-place edit changed the file's bytes after the real `ledgex_schema_check`
+  had already recorded its original hash (during the 2026-08-23 P55
+  rebuild), so `scripts/migrate.py`'s own file-hash integrity gate began
+  refusing every further migration against that database from 2026-08-25
+  onward (surfaced eight days later, at P62C, 2026-09-02 — see
+  `P62D-DECISION-PACKET.md`). **The owner chose Option A of that packet's
+  five on 2026-09-02**: P62E reverted the migration file to its original
+  landing bytes (byte-identical, hash-verified) and relocated this same
+  correction here. **The correction itself was right on the merits the
+  whole time — only its location was wrong**; `db/README.md`'s stale-header
+  convention did not exist yet when D17 was made.
+- **0056_l0_gate_boundary_source.sql** — its own header originally said
+  every statement in it is guarded to be "a TRUE no-op — zero rows
+  touched, no FK violation possible — on a FRESH, migrations-only
+  database." Overstated: steps 1–3 (the `licence` 'unknown' row, its six
+  `licence_channel` rows, and the `field_definition` row) are unconditional
+  `INSERT`s that write eight rows every time on a fresh database — real
+  writes, not no-ops. `ON CONFLICT DO NOTHING` makes a *re-run* a no-op,
+  not the first run. Only steps 4–5 (the FK-guarded source INSERT and the
+  jurisdiction UPDATE) are genuine zero-row no-ops on a fresh database,
+  because `ca_san_jose` does not exist yet at migration time. The
+  migration's own behaviour is correct and intended either way — only the
+  summary line's claim about it was wrong. **This correction was
+  originally made in place, in the migration file itself** (P59 D16,
+  `e83132c`, 2026-08-25) — the same day and the same class of edit as
+  0018's D17 correction above, and blocking `scripts/migrate.py`'s
+  integrity gate for the identical reason. **The owner chose Option A on
+  2026-09-02**: P62E reverted this file to its original landing bytes
+  (byte-identical, hash-verified) and relocated this same correction here.
+  **Right on the merits, wrong location** — same as 0018 above.
 
 ## Known timezone-literal defects in landed migrations — not prose, tracked here until remediated
 

@@ -42,21 +42,8 @@
 -- database that already exists.
 --
 -- THE ORDERING PROBLEM, RESOLVED EXPLICITLY (P53-l0-gate.md sec 2). Every
--- statement below is guarded so it never errors -- no FK violation
--- possible -- on a FRESH, migrations-only database:
---
--- **Corrected (D16, P59):** "TRUE no-op -- zero rows touched" above
--- overstates what actually happens. Steps 1-3 (licence 'unknown', its six
--- licence_channel rows, and the field_definition row) are unconditional
--- INSERTs that DO touch rows on a fresh database -- eight rows total,
--- every time. "No-op" there means "never errors, never violates a
--- constraint" (ON CONFLICT DO NOTHING makes a RE-run a no-op, not the
--- first run) -- it does not mean zero rows written. Only steps 4-5 (the
--- FK-guarded source INSERT and jurisdiction UPDATE) are genuine zero-row
--- no-ops on a fresh database, because ca_san_jose does not exist yet at
--- migration time. The migration's own BEHAVIOUR is correct and intended
--- either way -- this corrects only the summary line's claim about it,
--- forward-only migrations are not rewritten after the fact.
+-- statement below is guarded so it is a TRUE no-op -- zero rows touched, no
+-- FK violation possible -- on a FRESH, migrations-only database:
 --   1. licence 'unknown': no FK dependency on jurisdiction/source at all.
 --      INSERT ... ON CONFLICT (id) DO NOTHING is safe unconditionally, same
 --      shape cc0/cc_by_4_0 already use. licence is immutable (0027) with NO
