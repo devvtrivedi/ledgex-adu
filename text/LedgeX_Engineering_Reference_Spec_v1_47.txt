@@ -1,6 +1,6 @@
 LEDGEX / ADU.X
 
- Engineering Reference Spec v1.46
+ Engineering Reference Spec v1.47
  Current controlling engineering contract - Phase 1, Step 1, incorporated City of San Jose
 
  Contents
@@ -1923,7 +1923,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-                     Engineering Reference Spec v1.46
+                     Engineering Reference Spec v1.47
 
  S
  The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1984,7 +1984,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
   condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-                   Engineering Reference Spec v1.46
+                   Engineering Reference Spec v1.47
 
  C
  Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -2013,7 +2013,7 @@ and school attendance boundaries. Deferred means not integrated; it never means 
 
  • Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-                Engineering Reference Spec v1.46
+                Engineering Reference Spec v1.47
 
 Section 9 — Refusal and error codes
 Refusals (HTTP 200, status: "refused"):
@@ -3156,6 +3156,15 @@ signal to a caching artifact would be an expensive way to save tokens.
                                              long-lived databases are grandfathered (CREATE OR REPLACE never             unknown to be silently dropped by
                                              retroactively re-validates existing rows), stated in the migration's own    a derivation whose inputs
                                              header, not retroactively caught.                                           disagreed with each other.
+
+   Aug 2026             1.47                 P62B: db/migrations/0059_fact_licence_restriction_generic.sql replaces      D-6.7, decided by the owner on
+                                             0058's four literal sticky-restriction blocks with one generic              2026-09-02 against P62A's decision
+                                             single-distinct-value rule, correct because the representability check      packet (Option 2 of two presented).
+                                             above it guarantees at most one distinct non-open input restriction.        Closes the enum-extension fragility
+                                             attribution is folded in rather than special-cased, so its exception        A-N10 named: a future use_restriction
+                                             text changes from “I5 violated: ... does not require attribution” to        value is covered automatically, where
+                                             “I5_RESTRICTION_DROPPED: ... does not carry attribution”. Not a new sec     four literal blocks would silently
+                                             9 refusal code.                                                             miss it.
 
       Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
                                                                                           Review” → “Composition &                review stage.
