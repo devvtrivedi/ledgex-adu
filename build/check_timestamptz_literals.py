@@ -132,7 +132,7 @@ def check():
 GRANDFATHERED = {
     ("db/migrations/0023_correct_seeded_endpoint_urls.sql", 41, "2026-08-06"),
     ("db/migrations/0023_correct_seeded_endpoint_urls.sql", 49, "2026-08-06"),
-    ("db/migrations/0056_l0_gate_boundary_source.sql", 135, "2026-08-22"),
+    ("db/migrations/0056_l0_gate_boundary_source.sql", 122, "2026-08-22"),
 }
 
 
