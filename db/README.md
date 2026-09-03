@@ -502,3 +502,31 @@ and this practice were adopted afterward, the mismatched rows could not be corre
 only a fresh licence id and a fresh set of rows could replace them (P63A packet §7.3(b)). D-6.4
 cites this record for exactly which channels its rows should cover — decide that by reading
 this entry, not by re-deriving P55's shape from scratch.
+
+## Known pre-external-distribution decision: map-specific rights grants and stored `licence_id` (2026-09-03)
+
+P63D investigated D-6.4 (the map-serving rights instrument) and found the mechanical question
+narrower than the original proposal assumed: `evaluate_rights_gate` resolves permission from
+the `licence_id` **stored on each fact**, not from the source, the field, or anything
+resolvable at read time
+(~/Desktop/ledgex-p63-evidence/P63D-DESIGN-PACKET.md §2). Every existing `parcel.geometry`
+fact already carries `cc_by_4_0_api_2026_08`, which the internal viewer's own `api`-channel
+grant already covers (`db/seeds/day4_sources.sql:186-191`, 2026-08-22).
+
+`licence_channel`'s PK is `(licence_id, channel)` and the table is immutable (`0033`), so an
+existing licence id can never gain a second row for a channel it already has. **Therefore any
+future map-specific rights grant must account for the `licence_id` already stored on existing
+`parcel.geometry` facts, and cannot be assumed to govern them prospectively.** Making a new
+grant govern existing facts requires superseding those facts — the P55 pattern
+(`prompts/P55-scoped-unblock.md`), `scripts/ingest_parcels.py:88`'s own repoint comment
+("facts cite THIS constant at write time"), and the `_p55_stage6_*` replay are the precedent
+for what that costs: a 225,077-fact replay, not a row insert.
+
+The owner **deferred** this on 2026-09-03 rather than deciding it — a fresh, narrower grant
+was judged premature until an internal map exists and its real serving architecture can be
+evaluated (P63E, the internal-viewer-only geometry rendering, is that evaluation ground). **This
+deferral is not approval for external map serving.** Default-deny remains in force for every
+external/customer-facing path: no `licence` or `licence_channel` row changed as a result of
+this decision or of P63E, and P63E renders geometry only through the existing gated
+`GET /v1/parcels/{id}/facts` route, on the existing `api` channel, in the existing
+localhost-only, no-auth internal viewer.

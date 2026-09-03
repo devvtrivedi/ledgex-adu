@@ -56,6 +56,10 @@
   .pill-derived { background: rgba(210,153,34,.15); color: var(--warn); }
   .fact-row.derived td { border-left: 3px solid var(--warn); }
   .fact-row.derived .field { font-style: italic; }
+  .geom-flex { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  .geom-meta { font-size: 12px; max-width: 380px; }
+  .geom-meta > div { margin-bottom: 4px; }
+  .geom-svg-wrap { background: #0a0d11; border: 1px solid var(--border); border-radius: 6px; }
 </style>
 </head>
 <body>
@@ -115,6 +119,15 @@
          Rights tab. Empty/hidden until loadFacts() below finds an
          attribution-restricted licence among the rendered facts. -->
     <div id="facts-attribution-banner" class="attribution-banner" style="display:none"></div>
+    <!-- P63E: renders the parcel.geometry FACT already present in facts[]/
+         omitted_for_rights[] above -- never a second query, never the
+         parcel.geom column (which carries no licence and cannot be gated;
+         see this section's own loadFacts() comment). Inline SVG only, no
+         map library, no tile source (D-6.13/P70 territory, not this). -->
+    <div id="geometry-panel" class="card" style="display:none">
+      <h2 style="margin-top:0">Geometry (<code class="mono">parcel.geometry</code> fact)</h2>
+      <div id="geometry-content"></div>
+    </div>
     <table id="tbl-facts"><thead><tr>
       <th>Field</th><th>Value</th><th>Licence</th><th>Source</th><th>Retrieved</th><th>Status</th>
     </tr></thead><tbody></tbody></table>
@@ -221,6 +234,104 @@ function rightsPositionPill(rp) {
 function diligencePill(d) {
   const label = DILIGENCE_LABEL[d] || { text: d || "?", cls: "pill-absent" };
   return `<span class="pill ${label.cls}">${esc(label.text)}</span>`;
+}
+
+// P63E. Normalizes Polygon/MultiPolygon GeoJSON (both shapes occur in the
+// live parcel.geometry facts, confirmed directly against the database
+// before writing this) into a flat list of rings -- each ring an array of
+// [lng, lat] points, GeoJSON's own coordinate order. Any other geometry
+// type (Point, LineString, GeometryCollection -- none currently occur for
+// parcel.geometry, but the shape is not schema-enforced) returns no rings
+// rather than guessing at one, so renderGeometrySvg's own empty-rings
+// branch handles it as "not renderable," never a silent wrong shape.
+function geoJsonToRings(geom) {
+  if (!geom || typeof geom !== "object") return [];
+  if (geom.type === "Polygon") return geom.coordinates || [];
+  if (geom.type === "MultiPolygon") return (geom.coordinates || []).flat();
+  return [];
+}
+
+// Fits every ring to a viewBox and draws them as one <path> with
+// fill-rule="evenodd" -- correct for both a Polygon's own holes (rings
+// after the first) and for a MultiPolygon's multiple parts, without
+// needing to know which is which. Sufficient to inspect geometry (P63E's
+// own charter: "a polygon on a plain background," not a basemap) -- no
+// projection beyond a plain degree-space fit, which is adequate at a
+// single-parcel scale where curvature is not visible either way.
+function renderGeometrySvg(geom) {
+  const rings = geoJsonToRings(geom);
+  let vertexCount = 0;
+  rings.forEach(ring => { vertexCount += (ring || []).length; });
+  if (!rings.length || !vertexCount) return { svg: "", ringCount: rings.length, vertexCount };
+
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  rings.forEach(ring => (ring || []).forEach(([x, y]) => {
+    if (x < minX) minX = x; if (x > maxX) maxX = x;
+    if (y < minY) minY = y; if (y > maxY) maxY = y;
+  }));
+  const w = (maxX - minX) || 0.0001, h = (maxY - minY) || 0.0001;
+  const pad = Math.max(w, h) * 0.08;
+  const vbW = w + pad * 2, vbH = h + pad * 2;
+  // SVG y grows downward; GeoJSON latitude grows upward -- flip so north
+  // renders at the top, not upside down.
+  const toSvg = ([lng, lat]) => [(lng - minX) + pad, vbH - ((lat - minY) + pad)];
+  const d = rings
+    .filter(ring => ring && ring.length)
+    .map(ring => "M" + ring.map(pt => toSvg(pt).map(n => n.toFixed(6)).join(",")).join("L") + "Z")
+    .join(" ");
+  const strokeWidth = Math.max(vbW, vbH) * 0.006;
+  const svg = `<svg class="geom-svg-wrap" viewBox="0 0 ${vbW.toFixed(6)} ${vbH.toFixed(6)}" width="320" height="320">`
+    + `<path d="${esc(d)}" fill="rgba(79,143,247,.35)" stroke="var(--accent)" `
+    + `stroke-width="${strokeWidth.toFixed(6)}" fill-rule="evenodd"/></svg>`;
+  return { svg, ringCount: rings.length, vertexCount };
+}
+
+// P63E's own D-6.12 discipline: renders exactly what the fact's own
+// provenance says (retrieved_at, licence_id, source_id -- all already
+// gate-cleared context, same fields the facts table already shows) and
+// never asserts the parcel is verified-anything. jurisdiction_id is not
+// displayed here at all -- D-6.12 (whether a map may colour a parcel as
+// San José while jurisdiction is only asserted, not verified) is an open
+// owner decision this panel does not get to answer by omission or by
+// implication.
+function renderGeometryPanel(facts, omitted_for_rights) {
+  const panel = document.getElementById("geometry-panel");
+  const content = document.getElementById("geometry-content");
+  const geomFact = facts.find(f => f.field_key === "parcel.geometry");
+  const geomOmitted = omitted_for_rights.find(o => o.field_key === "parcel.geometry");
+
+  panel.style.display = "";
+  if (geomFact) {
+    const { svg, ringCount, vertexCount } = renderGeometrySvg(geomFact.value);
+    content.innerHTML = `
+      <div class="geom-flex">
+        <div>${svg || '<p class="empty">Geometry value present but not renderable (unexpected GeoJSON type).</p>'}</div>
+        <div class="mono geom-meta">
+          <div><b>Licence:</b> ${esc(geomFact.licence_id)}</div>
+          <div><b>Source:</b> ${esc(geomFact.source_id)}</div>
+          <div><b>Snapshot:</b> ${esc(geomFact.snapshot_id)}</div>
+          <div><b>Method:</b> ${esc(geomFact.method)}</div>
+          <div><b>Retrieved:</b> ${esc(geomFact.retrieved_at)}</div>
+          <div><b>Rights position:</b> ${rightsPositionPill(geomFact.rights_position)}</div>
+          <div><b>Diligence:</b> ${diligencePill(geomFact.diligence)}</div>
+          <div><b>Derived:</b> ${geomFact.is_derived ? "yes" : "no"}</div>
+          <div><b>Rings:</b> ${ringCount} &middot; <b>Vertices:</b> ${vertexCount}</div>
+        </div>
+      </div>`;
+  } else if (geomOmitted) {
+    // The specific defect this panel exists to prevent: an empty canvas
+    // that reads as "no geometry" when the truth is "not permitted." The
+    // reason text is the SAME string the facts table's own Status column
+    // already shows for this row -- not a second, possibly-drifting copy.
+    content.innerHTML = `
+      <p class="rights-detail" style="max-width:600px">
+        <span class="pill pill-blocked">GEOMETRY WITHHELD</span><br>
+        This parcel has a <code class="mono">parcel.geometry</code> fact, but it is not visible
+        on this channel: ${esc(geomOmitted.reason)}
+      </p>`;
+  } else {
+    content.innerHTML = '<p class="empty">No parcel.geometry fact for this parcel.</p>';
+  }
 }
 
 async function loadRights() {
@@ -337,6 +448,13 @@ async function loadFacts() {
     banner.style.display = "none";
     banner.innerHTML = "";
   }
+
+  // P63E: same facts[]/omitted_for_rights[] this call already fetched --
+  // no second request, no new endpoint. See renderGeometryPanel's own
+  // comment for why this is the whole of the binding contract from the
+  // viewer's side: it has no way to read parcel.geom at all, only ever
+  // this gated JSON.
+  renderGeometryPanel(facts, omitted_for_rights);
 
   // I9: a derived conclusion never renders in the visual/structural
   // treatment reserved for a retrieved fact -- distinct border, italic
