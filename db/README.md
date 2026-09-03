@@ -530,3 +530,43 @@ external/customer-facing path: no `licence` or `licence_channel` row changed as 
 this decision or of P63E, and P63E renders geometry only through the existing gated
 `GET /v1/parcels/{id}/facts` route, on the existing `api` channel, in the existing
 localhost-only, no-auth internal viewer.
+
+## `current_fact_at()` was not inlined for 24 migrations (0039-0060) — fixed by `0061` (2026-09-03)
+
+`0039` added `SET search_path = public, pg_temp` to `current_fact_at()` as defense-in-depth
+alongside its own "reliable fix" (explicit `public.` qualification on every table reference in
+the body). That `SET` clause is a per-call GUC scope, and PostgreSQL will not inline a
+`LANGUAGE sql` function that sets one — silently reintroducing the exact cost `0036` chose
+`LANGUAGE sql` specifically to avoid, for every caller filtering by anything other than the
+function's own unfiltered form: `Function Scan on current_fact_at`, the WHERE predicate applied
+as a `Filter` *above* the function call rather than pushed inside it, `Rows Removed by Filter`
+on the order of the whole `fact` table. Measured live, single-parcel read: ~2,500-3,600ms before,
+~4.5ms after. Unnoticed for 24 migrations because nothing asserted the function stayed inlined —
+`db/tests/invariants.sql`'s T57 (matview parity), T58 (point-in-time correctness) and T63
+(table-shadow resistance) all pass identically whether the function is inlined or not; none of
+them inspects the plan.
+
+`0061_current_fact_at_inlining.sql` removes the `SET` clause. The table-shadow property T63
+checks is unaffected — it was always carried by the explicit qualification layer, not the `SET`
+clause, confirmed both by T63 continuing to pass with the clause removed and adversarially: a
+session that explicitly overrides its own `search_path` to favor `pg_temp` before attempting the
+same shadow still cannot make `current_fact_at` read it
+(`~/Desktop/ledgex-p64-evidence/P64A2-RUN-EVIDENCE/r4-adversarial-t63.txt`). Full evidence trail:
+`~/Desktop/ledgex-p64-evidence/P64A1-RUN-EVIDENCE/` (the causal A/B), `P64A2-RUN-EVIDENCE/` (four
+remedies evaluated, this one selected on all five axes), `P64A3-RUN-EVIDENCE/` (the migration
+itself, rehearsed, applied).
+
+`scripts/test_current_fact_at_inlined.py` (wired into `db.yml` the same commit as `0061`) is the
+regression test this defect existed without: it asserts the absence of a `Function Scan` node in
+`EXPLAIN` output for a single-parcel call, deterministically (a rewrite-stage decision,
+independent of table contents or statistics, so it will not flake on a small CI database the way
+an assertion about which index gets chosen would).
+
+**The operator/cast-shadowing residual is UNRESOLVED, not closed by `0061` or by anything before
+it.** Whether a same-named operator or function created in `pg_temp` could be resolved by one of
+`current_fact_at`'s bare comparison operators (`<=`, `>`, `=`) or the `confidence` enum's
+ordering opclass was never tested — `0039` itself never claimed to close this (its own header
+frames the `SET` clause as protection against an *accidental* future unqualified table
+reference, never against adversarial operator shadowing), so `0061` leaves an existing,
+pre-existing gap exactly where it already was. Not this record's to close; named here so it is
+not mistaken for settled.

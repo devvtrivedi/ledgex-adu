@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.48
+# LedgeX / ADU.X — Engineering Reference Spec v1.49
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.48 | Machine-executed build contract. |
+| 1 | This Spec v1.49 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -118,7 +118,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.48 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.49 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -602,6 +602,19 @@ unqualified. Reproduced directly: CREATE TEMP TABLE fact (LIKE public.fact INCLU
 current_fact_at(now()) return zero rows for a parcel with real, live facts -- a caller (the composer, a
 replay, an audit) would silently read "no facts" instead of the real table. Fixed the same way: explicit
 public. qualification plus SET search_path = public, pg_temp.
+
+db/migrations/0061_current_fact_at_inlining.sql removes that SET search_path clause. It was defense-in-
+depth (0039's own header) layered on top of the explicit public. qualification above, which 0039 itself
+calls "the reliable fix"; the qualification alone continues to defend the table-shadow threat 0039
+documented, re-confirmed both by db/tests/invariants.sql's T63 and adversarially, by a session that
+explicitly overrides its own search_path before attempting the same shadow (P64A.2/P64A.3,
+~/Desktop/ledgex-p64-evidence/). What the SET clause cost, silently, for 22 migrations: a LANGUAGE sql
+function that sets a GUC for its own call cannot be inlined by PostgreSQL, reintroducing exactly the cost
+0036 chose LANGUAGE sql to avoid ("the function body inlines into the calling query's plan," this
+section, above) for every filtered caller -- api/'s viewer, the composer, scripts/smoke_real.py -- one
+measured live at ~2,500-3,600ms per single-parcel read, ~4.5ms once inlined. Nothing about this section's
+semantics changes: current_fact_at(ts) resolves identically, row for row (T57 unchanged); only the
+planner's treatment of the call does. See §12's 1.49 entry.
 
 ### 3.9 Rules — review-mode contract
 
@@ -1919,7 +1932,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.48
+Engineering Reference Spec v1.49
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1980,7 +1993,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.48
+Engineering Reference Spec v1.49
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -2011,7 +2024,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.48
+Engineering Reference Spec v1.49
 
 ## 9. Refusal and error codes
 
@@ -3198,6 +3211,20 @@ row touched. db/README.md and prompts/CONVENTIONS.md each gain a new
 written record (D1's licence_channel insertion practice; D5's four-tier
 authority convention) -- no new enforcement machinery for either.
 
+Sep 2026              1.49                 P64A.3: db/migrations/0061_current_fact_at_inlining.sql removes         Performance only, no product
+the SET search_path clause 0039 added to current_fact_at() --           decision -- P64A.1 (~/Desktop/
+defense-in-depth layered on top of 0039's own "reliable fix"            ledgex-p64-evidence/P64A1-RUN-
+(explicit public. qualification), which alone continues to defend       EVIDENCE/) proved the SET clause,
+the table-shadow threat, re-confirmed by T63 and adversarially          not the DISTINCT ON/JOIN shape,
+(a session overriding its own search_path still cannot make            blocked PostgreSQL from inlining
+current_fact_at read a pg_temp shadow). Restores the inlining          the function; P64A.2 evaluated
+§3.8's own text has described since 0036 -- silently false since       four remedies and selected this
+0039, true again here, confirmed by EXPLAIN (Subquery Scan, not        one on all five axes. Semantics
+Function Scan). Ships with scripts/test_current_fact_at_inlined.py,    unchanged: T57/T58 (row-for-row
+wired into db.yml the same commit, asserting the ABSENCE of a          identity, point-in-time
+Function Scan node -- nothing asserted this before, which is why       correctness) hold before and
+the regression stood for 24 migrations unnoticed.                      after, unchanged.
+
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
 Review” → “Composition &                review stage.
 Delivery”; core/review/ →
@@ -3854,4 +3881,4 @@ These checks are required and not asserted complete by this PDF. Record CI outpu
 
 ---
 
-*Generated 2026-09-02 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*
+*Generated 2026-09-03 by `build/build_spec.py`. Source of record: `build/ledgex_source.py`.*

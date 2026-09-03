@@ -446,6 +446,18 @@ jobs:
       - name: scripts/seed_internal_test_licences.py
         run: SEED_INTERNAL_TEST_LICENCES=1 python3 scripts/seed_internal_test_licences.py
 
+      # 0061 (P64A.3): current_fact_at() was not inlined for 24 migrations (0039-0060) because
+      # nothing asserted it -- T57/T58/T63 in db/tests/invariants.sql all pass whether it is
+      # inlined or not. This is the plan-shape assertion that would have caught the regression:
+      # asserts the ABSENCE of a Function Scan node (deterministic, rewrite-stage, does not
+      # depend on table contents), never the index choice (cost-based, would flake on this
+      # job's small database). Creates no fixture data of its own -- see the script's own
+      # docstring. Placement is not seed-dependent (it needs nothing day4_sources.sql or the
+      # step above provides); kept here, in the same standalone-script block as its siblings,
+      # rather than moved earlier, so this diff stays a pure addition.
+      - name: scripts/test_current_fact_at_inlined.py
+        run: python3 scripts/test_current_fact_at_inlined.py
+
       # P43: proves the I6 rights gate holds on api/'s one fact-rendering
       # route (GET /v1/parcels/{id}/facts), on the fixture the step above
       # just seeded -- see the Makefile's own viewer-test: target comment for

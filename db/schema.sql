@@ -335,7 +335,6 @@ CREATE TABLE public.fact (
 
 CREATE FUNCTION public.current_fact_at(ts timestamp with time zone) RETURNS SETOF public.fact
     LANGUAGE sql STABLE
-    SET search_path TO 'public', 'pg_temp'
     AS $$
     SELECT DISTINCT ON (f.parcel_id, f.field_key)
            f.*
