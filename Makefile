@@ -650,9 +650,10 @@ golden:
 # db/seeds/day4_sources.sql, a different seed-dependent step with the
 # identical shape.
 viewer-test:
-	@echo "VIEWER-TEST: proves the I6 rights gate on api/'s ONE fact-rendering route (GET /v1/parcels/{id}/facts) -- one parcel, one channel ('api'), the internal_test.* licence pair plus one real cc_by_4_0 fixture fact (scripts/seed_internal_test_licences.py, P42). Asserts the blocked fact's value is absent from the real serialized response body, not eyeballed."
-	@echo "VIEWER-TEST: NOT covered -- the other six api/ routes (rights, sources, job-runs, exceptions, property-files, schema), any channel but 'api', any parcel but the one the seed script creates, and whether the HTML viewer itself renders correctly. This proves the gate does not leak on the seeded fixture; it does not prove the viewer is correct."
+	@echo "VIEWER-TEST: proves the I6 rights gate on api/'s ONE fact-rendering route (GET /v1/parcels/{id}/facts) -- one parcel, one channel ('api'), the internal_test.* licence pair plus one real cc_by_4_0 fixture fact (scripts/seed_internal_test_licences.py, P42) -- and (P63G) the parcel.geometry binding contract: that geometry resolves through the parcel.geometry FACT and its licence, never through the parcel.geom column, which carries no licence linkage at all (P63D/P63E). Asserts the blocked fact's value is absent from the real serialized response body, not eyeballed, for both."
+	@echo "VIEWER-TEST: NOT covered -- the other six api/ routes (rights, sources, job-runs, exceptions, property-files, schema), any channel but 'api', any parcel but the ones these two scripts create, and whether the HTML viewer itself renders correctly. This proves the gate does not leak on the seeded fixtures; it does not prove the viewer is correct."
 	DATABASE_URL="$(DATABASE_URL)" $(PYTHON) scripts/test_viewer_rights_gate.py
+	DATABASE_URL="$(DATABASE_URL)" $(PYTHON) scripts/test_viewer_geometry_binding.py
 
 # P50. The one command that answers "is this machine wired up right now, and
 # does a real byte from a real San Jose endpoint still reach a rights-gated

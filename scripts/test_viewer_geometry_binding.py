@@ -4,17 +4,24 @@ api.main.get_parcel_facts, must always resolve through the parcel.geometry FACT 
 licence, never through the parcel.geom column (which carries no licence linkage at all,
 confirmed in P63D's own audit and re-confirmed by this file's own fixture below).
 
-Two fixture parcels, both self-contained (no seed script run, no licence/licence_channel row
-created -- both reuse ALREADY-LIVE test licence ids, confirmed present before this test ever
-runs):
-  - PERMITTED: parcel.geometry fact under internal_test.cc_by_4_0 (licence_channel.api=true,
-    confirmed live before this file was written) -- must appear in facts[], with its real
-    value, gated correctly.
-  - BLOCKED: parcel.geometry fact under a p25-geom test licence with no api-channel row at
-    all (default-deny, I6) -- must appear in omitted_for_rights[], never in facts[], and its
-    value must never appear anywhere in the serialized response (same I6 assertion
-    scripts/test_viewer_rights_gate.py already makes for other fields, applied here
-    specifically to geometry).
+Two fixture parcels, both self-contained (this file runs no seed script and creates no
+licence/licence_channel row itself -- both fixtures reuse ALREADY-LIVE licence ids, and
+confirm_fixture_licences_preexist() below refuses loudly, before writing anything, if either
+is missing rather than seeding it). Both must actually be present on whatever database
+DATABASE_URL points at -- in CI (P63G), db.yml's job runs db/seeds/day4_sources.sql and
+scripts/seed_internal_test_licences.py, in that order, before `make viewer-test`, which is
+what makes both of the following true there:
+  - PERMITTED: parcel.geometry fact under internal_test.cc_by_4_0 (licence_channel.api=true;
+    created by scripts/seed_internal_test_licences.py) -- must appear in facts[], with its
+    real value, gated correctly.
+  - BLOCKED: parcel.geometry fact under the REAL cc_by_4_0 licence (licence_channel.api=false
+    on every channel, "counsel/owner sign-off Pending"; created by db/seeds/day4_sources.sql)
+    -- must appear in omitted_for_rights[], never in facts[], and its value must never appear
+    anywhere in the serialized response (same I6 assertion scripts/test_viewer_rights_gate.py
+    already makes for other fields, applied here specifically to geometry). Reusing the real,
+    always-seeded base licence rather than an ad-hoc test-only id is deliberate -- P63E found
+    a prior draft's choice of a p25-numbered test licence was never reproducible from the
+    tracked repo at all (no script creates it), which P63G's own dependency check caught.
 
 Calls api.main.get_parcel_facts directly, as a plain function -- not over HTTP, same
 convention as scripts/test_viewer_rights_gate.py.
