@@ -196,10 +196,10 @@ ON CONFLICT (id) DO NOTHING;
 -- source records (source_active_requires_verification exists precisely to
 -- keep an unchecked source off).
 INSERT INTO source (
-  id, jurisdiction_id, display_name, steward, method, phase_status,
+  id, jurisdiction_id, display_name, steward, steward_class, method, phase_status,
   phase_status_reason, endpoint_url, licence_id, active
 ) VALUES
-  ('test_ca_san_jose.test_source', 'test_ca_san_jose', 'Test Source', 'City of San José',
+  ('test_ca_san_jose.test_source', 'test_ca_san_jose', 'Test Source', 'City of San José', 'unknown',
    'direct', 'active', 'Test source for invariant testing',
    'https://example.com/api', 'test.cc0', false)
 ON CONFLICT (id) DO NOTHING;
@@ -286,10 +286,10 @@ ON CONFLICT (id) DO NOTHING;
 -- declared method to prove fact_source_method_fk (0018's other composite
 -- FK) actually discriminates on method, not just on source identity.
 INSERT INTO source (
-  id, jurisdiction_id, display_name, steward, method, phase_status,
+  id, jurisdiction_id, display_name, steward, steward_class, method, phase_status,
   phase_status_reason, endpoint_url, licence_id, active
 ) VALUES
-  ('test_ca_san_jose.test_source_b', 'test_ca_san_jose', 'Test Source B', 'City of San José',
+  ('test_ca_san_jose.test_source_b', 'test_ca_san_jose', 'Test Source B', 'City of San José', 'unknown',
    'bulk', 'active', 'Second test source for provenance-integrity tests',
    'https://example.com/api-b', 'test.cc0', false)
 ON CONFLICT (id) DO NOTHING;
@@ -331,11 +331,11 @@ INSERT INTO jurisdiction (
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO source (
-  id, jurisdiction_id, display_name, steward, method, phase_status,
+  id, jurisdiction_id, display_name, steward, steward_class, method, phase_status,
   phase_status_reason, endpoint_url, licence_id, active
 ) VALUES
   ('test_other_jurisdiction.test_source', 'test_other_jurisdiction', 'Test Source (Other Jurisdiction)',
-   'Test Steward', 'direct', 'active', 'Test source under a different jurisdiction, for jurisdiction-consistency tests',
+   'Test Steward', 'unknown', 'direct', 'active', 'Test source under a different jurisdiction, for jurisdiction-consistency tests',
    'https://example.com/api-other', 'test.cc0', false)
 ON CONFLICT (id) DO NOTHING;
 
@@ -416,7 +416,8 @@ INSERT INTO field_definition (
   ('test.t114_field', 'Test Field T114', 'public_record', 'string', 'test', 'T114 invariant test field (A-N10, P59C: unknown drop rejected)'),
   ('test.t115_field', 'Test Field T115', 'public_record', 'string', 'test', 'T115 invariant test field (A-N10, P59C: noncommercial carried forward)'),
   ('test.t116_field', 'Test Field T116', 'public_record', 'string', 'test', 'T116 invariant test field (A-N10, P59C: DISTINCT positive control, input 1 / derived)'),
-  ('test.t116_field_2', 'Test Field T116b', 'public_record', 'string', 'test', 'T116 invariant test field (A-N10, P59C: DISTINCT positive control, input 2)')
+  ('test.t116_field_2', 'Test Field T116b', 'public_record', 'string', 'test', 'T116 invariant test field (A-N10, P59C: DISTINCT positive control, input 2)'),
+  ('test.t118_field', 'Test Field T118', 'public_record', 'string', 'test', 'T118 invariant test field (P63B.1: exception_evidence_no_update fixture fact)')
 ON CONFLICT (field_key) DO NOTHING;
 
 -- Cross-block scratch state for this run: the fresh parcel id, and (later)
@@ -5919,6 +5920,114 @@ BEGIN
 END $$;
 
 -- ============================================================================
+-- TEST T117: D2 (P63B, 0060_source_steward_classification.sql) -- no ACTIVE source may
+-- carry steward_class='unknown'. 'unknown' is a real, legitimate value for a source
+-- genuinely not yet established -- but every source this database has ever marked
+-- active=true is a real, live production feed, and P63A's own investigation found the
+-- governmental/private classification question had never been asked of one. This is the
+-- mechanical check that keeps that true going forward: an active source with an unresolved
+-- steward classification is exactly the state D2 exists to eliminate. Whole-table, same
+-- shape as T108 -- an offending row is a real defect regardless of when it was inserted.
+-- No test.%/internal_test.% carve-out, unlike T108: every one of this database's 47
+-- test/fixture source rows has active=false (confirmed live before writing this test, and
+-- source_active_matches_phase/source_active_requires_verification already make active=true
+-- hard to reach by accident), so there is no legitimate reason a test fixture should ever
+-- need to bypass this check -- if a future test creates an active test source, it should
+-- classify it for real, the same as production.
+-- ============================================================================
+
+\echo '### TEST T117: no active source carries steward_class=unknown (should succeed)'
+
+DO $$
+DECLARE
+    v_bad_count int;
+BEGIN
+    SELECT count(*) INTO v_bad_count
+      FROM source
+     WHERE active
+       AND steward_class = 'unknown';
+
+    IF v_bad_count > 0 THEN
+        RAISE EXCEPTION 'FAIL T117: % active source(s) carry steward_class=unknown', v_bad_count;
+    END IF;
+
+    RAISE NOTICE 'PASS T117: no active source carries steward_class=unknown';
+    INSERT INTO test_pass VALUES ('T117');
+END $$;
+
+-- ============================================================================
+-- TEST T118: P63B.1 -- an exception_evidence row cannot be updated
+-- (0060_source_steward_classification.sql's exception_evidence_no_update()).
+-- D3's approved half landed in 0060 with no test proving the trigger actually
+-- fires -- this closes that gap. Same class as T52 (licence_channel_no_update),
+-- an unconditional raise; fixture chain follows T5's own pattern
+-- (parcel_exception + fact + exception_evidence), but points the fact at the
+-- SAME parcel as the exception (T5 deliberately uses a different one, to
+-- trigger exception_evidence_fact_parcel_fk instead). Reuses the suite's
+-- shared v_parcel_id (test_state, jurisdiction_id='test_ca_san_jose',
+-- apn LIKE 'TEST-%') so db/tests/teardown.sql's own filter reaches it;
+-- exception_id/fact_id both come from fresh INSERTs this test performs
+-- itself, so no gen_random_uuid()-suffixed literal is needed the way T52's
+-- licence id is -- Postgres's own gen_random_uuid() default on both parent
+-- tables' primary keys already guarantees no second-run collision.
+-- detector_key is 'test_detector_t118', not T5's own 'test_detector': T5
+-- already opens a 'test_detector'/'v1' exception against this same shared
+-- parcel, and parcel_exception_one_open_per_detector_reason_coalesced (0049)
+-- is a partial unique index on (parcel_id, detector_key, detector_version,
+-- COALESCE(detail->>'reason','')) WHERE outcome='open' -- reusing T5's key
+-- collided with it (caught in rehearsal before this test ever ran clean).
+-- Asserts on the 'D3 violated:%' prefix only, not the full sentence (P63A's
+-- own recommendation for future assertions of this shape) -- written this
+-- way from the start rather than added in the old sentence-matching style
+-- and left for a later loosening pass.
+-- ============================================================================
+
+\echo '### TEST T118: UPDATE exception_evidence (should fail)'
+
+DO $$
+DECLARE
+    v_parcel_id     uuid;
+    v_exception_id  uuid;
+    v_fact_id       uuid;
+BEGIN
+    SELECT value::uuid INTO v_parcel_id FROM test_state WHERE key = 'parcel_id';
+
+    INSERT INTO parcel_exception (
+        parcel_id, jurisdiction_id, type, severity, detector_key,
+        detector_version, detail, outcome
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'staleness', 'warning', 'test_detector_t118',
+        'v1', '{}'::jsonb, 'open'
+    ) RETURNING id INTO v_exception_id;
+
+    INSERT INTO fact (
+        parcel_id, jurisdiction_id, field_key, value, method, source_id, snapshot_id,
+        retrieved_at, source_url, licence_id, confidence, confidence_rule_id,
+        effective_from, pack_version
+    ) VALUES (
+        v_parcel_id, 'test_ca_san_jose', 'test.t118_field', '"t118_value"'::jsonb, 'direct',
+        'test_ca_san_jose.test_source', 'test_ca_san_jose.test_source:sha256:65886d9ab8d523000964f9ee2238a74c6a3fa60a9a6fc11691dc90ab5efa0f28',
+        now(), 'https://example.com', 'test.cc0', 'high', 'rule_1', now(), 'v1.0'
+    ) RETURNING id INTO v_fact_id;
+
+    INSERT INTO exception_evidence (exception_id, fact_id, role, parcel_id)
+    VALUES (v_exception_id, v_fact_id, 'test_role', v_parcel_id);
+
+    BEGIN
+        UPDATE exception_evidence SET role = 'changed' WHERE exception_id = v_exception_id AND fact_id = v_fact_id;
+        RAISE EXCEPTION 'FAIL T118: UPDATE exception_evidence was accepted';
+    EXCEPTION
+        WHEN raise_exception THEN
+            IF SQLERRM LIKE 'D3 violated:%' THEN
+                RAISE NOTICE 'PASS T118: exception_evidence update rejected (%)', SQLERRM;
+                INSERT INTO test_pass VALUES ('T118');
+            ELSE
+                RAISE EXCEPTION 'FAIL T118: wrong error: %', SQLERRM;
+            END IF;
+    END;
+END $$;
+
+-- ============================================================================
 -- SUMMARY
 -- ============================================================================
 -- The count below is real, not a maintained literal: it's
@@ -6024,13 +6133,20 @@ END $$;
 -- that TWO inputs sharing ONE non-open restriction (via different licence
 -- rows) still succeed -- proving array_agg's own DISTINCT is load-bearing,
 -- not decorative.
+-- Raised 133 -> 134 by P63B (D2, 0060_source_steward_classification.sql):
+-- T117, the one invariant this migration adds -- no ACTIVE source may
+-- carry steward_class='unknown'. See T117's own header above for why this
+-- is the single test P63A's §3.4 scope allows, not the first of a suite.
+-- Raised 134 -> 135 by P63B.1: T118, proving exception_evidence_no_update
+-- (D3's approved half, landed in 0060 with no test that it actually fires)
+-- rejects an UPDATE -- see T118's own header above.
 DO $$
 DECLARE
     v_pass_count int;
 BEGIN
     SELECT count(*) INTO v_pass_count FROM test_pass;
-    IF v_pass_count < 133 THEN
-        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 133 passing tests, got %', v_pass_count;
+    IF v_pass_count < 135 THEN
+        RAISE EXCEPTION 'FAIL: coverage dropped -- expected at least 135 passing tests, got %', v_pass_count;
     END IF;
 END $$;
 

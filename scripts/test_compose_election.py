@@ -81,9 +81,9 @@ def _seed(conn, suffix):
             (licence_id,),
         )
         cur.execute(
-            "INSERT INTO source (id, jurisdiction_id, display_name, steward, method, phase_status, "
+            "INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, phase_status, "
             "phase_status_reason, endpoint_url, licence_id, active) "
-            "VALUES (%s, %s, 'Test Source', 'Test', 'bulk', 'active', 'test fixture', "
+            "VALUES (%s, %s, 'Test Source', 'Test', 'unknown', 'bulk', 'active', 'test fixture', "
             "'https://example.com', %s, false) ON CONFLICT (id) DO NOTHING",
             (source_id, jurisdiction_id, licence_id),
         )

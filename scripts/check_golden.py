@@ -468,10 +468,10 @@ def seed_reference_rows(conn):
         )
         cur.execute(
             """
-            INSERT INTO source (id, jurisdiction_id, display_name, steward, method, phase_status,
+            INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, phase_status,
                                  phase_status_reason, endpoint_url, licence_id, active)
             VALUES ('ca_san_jose.city_limits', %s, 'City limits / jurisdiction boundary',
-                    'City of San Jose', 'manual', 'blocked_rights',
+                    'City of San Jose', 'governmental', 'manual', 'blocked_rights',
                     'Licence not observed. Supplies the L0 gate, so under I6 this blocks ALL '
                     'channels including free_snapshot. Launch dependency LD-1. method=''manual'' '
                     'here, not sources.yaml''s own declared method: direct -- no real, verified '
@@ -482,6 +482,7 @@ def seed_reference_rows(conn):
                 jurisdiction_id = EXCLUDED.jurisdiction_id,
                 display_name = EXCLUDED.display_name,
                 steward = EXCLUDED.steward,
+                steward_class = EXCLUDED.steward_class,
                 method = EXCLUDED.method,
                 phase_status = EXCLUDED.phase_status,
                 phase_status_reason = EXCLUDED.phase_status_reason,
@@ -501,9 +502,9 @@ def seed_reference_rows(conn):
 
         cur.execute(
             """
-            INSERT INTO source (id, jurisdiction_id, display_name, steward, method, phase_status,
+            INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, phase_status,
                                  phase_status_reason, endpoint_url, licence_id, active)
-            VALUES (%s, %s, 'Parcels', 'City of San Jose', 'bulk', 'active', 'golden fixture',
+            VALUES (%s, %s, 'Parcels', 'City of San Jose', 'governmental', 'bulk', 'active', 'golden fixture',
                     'https://example.com/parcels', %s, false)
             ON CONFLICT (id) DO NOTHING
             """,

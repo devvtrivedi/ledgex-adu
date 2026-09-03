@@ -162,3 +162,38 @@ Named so a prompt can point at one in three words.
   `COALESCE` sentinel), or possible and NOT handled (say so as a known gap, not a silent
   omission). "The constraint compiled" is not evidence it constrains anything on the rows
   where its key expression is NULL — say what happens there, explicitly, every time.
+
+## The four-tier authority model — D5 (P63A/P63B, 2026-09-02)
+
+Ratified by the owner as a written convention, derived from
+~/Desktop/ledgex-p63-evidence/P63A-DESIGN-PACKET.md §14.6. Four tiers, in decreasing order of
+authority over what the codebase must currently do:
+
+- **Tier 1 — current normative requirements.** The spec's invariants (§1), safety and rights
+  boundaries, architectural contracts. What LedgeX is required to do now.
+- **Tier 2 — executable current state.** Schema, code, migrations, tests, runtime contracts.
+  Implements and verifies Tier 1; evolves prospectively through controlled changes (a new
+  migration, a new invariant).
+- **Tier 3 — internal evidentiary record.** `fact`, `snapshot`, `licence`/`licence_channel`,
+  `exception_evidence`, `db/README.md`'s append-only correction sections and their kin.
+  Append-only or otherwise preserved to reconstruct source lineage, rights state, and
+  material decisions. Preserves evidence; does not itself dictate future implementation.
+- **Tier 4 — historical development record.** Prior prompts, packages, handoffs, audits,
+  superseded specifications, migration commentary. Explain repository history. **They are
+  evidence of prior state, not precedent binding future architecture.**
+
+**A Tier-4 artifact going stale because the system legitimately evolved is not itself a
+defect.** A prompt, handoff, or audit that asserted something true on the day it was written,
+and is no longer true because a later, deliberate change superseded it, needs no correction
+and no apology — that is the system working, not failing. This is *distinct* from a Tier-2
+mechanism whose own claim about itself goes stale (e.g. a migration header's prose describing
+its own behavior incorrectly) — that kind of staleness belongs in `db/README.md`'s
+"Stale migration header claims" section (B9), because it is a live artifact whose own
+self-description can mislead; a superseded Tier-4 document is not that.
+
+**No new enforcement machinery accompanies this entry.** No check, script, CI step, or gate
+verifies that a historical artifact "knows" it has been superseded, and none should be built
+for that purpose — a convention that arrives with a tool to enforce it is not a convention,
+it is Tier-2 pretending to be Tier-1. Judgment about which tier a given document occupies, and
+whether a stale Tier-4 claim matters, stays a human (or an agent reading this file) reading and
+deciding, the same way every other convention in this file already works.

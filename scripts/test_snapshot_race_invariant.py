@@ -149,10 +149,10 @@ def seed_reference_rows_parcels(conn):
         )
         cur.execute(
             """
-            INSERT INTO source (id, jurisdiction_id, display_name, steward, method, phase_status,
+            INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, phase_status,
                                  phase_status_reason, endpoint_url, licence_id, active,
                                  expected_fields)
-            VALUES (%s, %s, 'Parcels', 'City of San Jose', 'bulk', 'active', 'test fixture',
+            VALUES (%s, %s, 'Parcels', 'City of San Jose', 'governmental', 'bulk', 'active', 'test fixture',
                     'https://example.com/parcels', %s, false,
                     '["parcel.apn","parcel.geometry","parcel.source_parcel_id"]'::jsonb)
             ON CONFLICT (id) DO NOTHING
@@ -186,10 +186,10 @@ def seed_reference_rows_zoning(conn):
         )
         cur.execute(
             """
-            INSERT INTO source (id, jurisdiction_id, display_name, steward, method, phase_status,
+            INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, phase_status,
                                  phase_status_reason, endpoint_url, licence_id, active,
                                  expected_fields)
-            VALUES (%s, %s, 'Zoning districts', 'City of San Jose', 'bulk', 'active', 'test fixture',
+            VALUES (%s, %s, 'Zoning districts', 'City of San Jose', 'governmental', 'bulk', 'active', 'test fixture',
                     %s, %s, false,
                     '["zoning.district","zoning.district_verbatim"]'::jsonb)
             ON CONFLICT (id) DO NOTHING

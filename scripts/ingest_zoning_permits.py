@@ -1472,7 +1472,18 @@ def load_permits(conn, path, snapshot_id, retrieved_at):
                     source_url=ENDPOINT_URL_PERMITS, licence_id=LICENCE_ID_PERMITS,
                     confidence=FACT_CONFIDENCE, confidence_rule_id=FACT_CONFIDENCE_RULE_ID_PERMITS,
                     effective_from=retrieved_at, pack_version=FACT_PACK_VERSION,
-                    supersedes_fact_id=live_fact_id, supersession_reason="world_change",
+                    # D4 (P63A/P63B, LEDGEX-P63A-PREDESIGN-PROVENANCE-SIMPLIFICATION.txt §12
+                    # B4; P63A packet §12 item 5): "world_change" claimed more than this diff
+                    # actually knows. This branch observes that the source's rendering of
+                    # permits.active/permits.series_earliest differs from the live fact -- it
+                    # has no way to tell a genuine world change (the permit really did become
+                    # active, or the earliest date really moved) apart from the source
+                    # correcting its own prior data. :1081's sibling branch (the analogous
+                    # zoning diff, above) already writes "unknown" for exactly this reason;
+                    # this branch claiming "world_change" was the inconsistency, not the
+                    # correct value. Prospective only -- see this file's own D4 handling: no
+                    # historical fact row is touched by this change.
+                    supersedes_fact_id=live_fact_id, supersession_reason="unknown",
                 ))
                 counts["different"] += 1
                 attribution_confirmed_parcels.add(parcel_id)

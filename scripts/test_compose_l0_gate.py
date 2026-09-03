@@ -108,17 +108,17 @@ def _seed_l0_gate_fixture(conn, suffix, set_boundary_source_id):
             (licence_id,),
         )
         cur.execute(
-            "INSERT INTO source (id, jurisdiction_id, display_name, steward, method, "
+            "INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, "
             "phase_status, phase_status_reason, licence_id, active) "
-            "VALUES (%s, %s, 'Test P53 boundary source stub', 'Test', 'manual', "
+            "VALUES (%s, %s, 'Test P53 boundary source stub', 'Test', 'unknown', 'manual', "
             "'blocked_rights', 'test fixture -- never produces a fact, I13', %s, false) "
             "ON CONFLICT (id) DO NOTHING",
             (boundary_source_id, jurisdiction_id, licence_id),
         )
         cur.execute(
-            "INSERT INTO source (id, jurisdiction_id, display_name, steward, method, "
+            "INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, "
             "phase_status, phase_status_reason, endpoint_url, licence_id, active) "
-            "VALUES (%s, %s, 'Test P53 parcel source', 'Test', 'bulk', 'active', "
+            "VALUES (%s, %s, 'Test P53 parcel source', 'Test', 'unknown', 'bulk', 'active', "
             "'test fixture', 'https://example.invalid/p53', %s, false) "
             "ON CONFLICT (id) DO NOTHING",
             (parcel_source_id, jurisdiction_id, licence_id),

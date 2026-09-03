@@ -1,4 +1,4 @@
-# LedgeX / ADU.X — Engineering Reference Spec v1.47
+# LedgeX / ADU.X — Engineering Reference Spec v1.48
 
 **Current controlling engineering contract — Phase 1, Step 1 - City of San Jose, incorporated City of San José — August 2026.**
 
@@ -44,7 +44,7 @@ Never write jurisdiction-specific logic into `core/`. See §1.I1 and §6.2.
 
 | Rank | Document | Role |
 |---|---|---|
-| 1 | This Spec v1.47 | Machine-executed build contract. |
+| 1 | This Spec v1.48 | Machine-executed build contract. |
 | 2 | Implementation Rules v1.4 | Operational restatement. |
 | 3 | Business Plan 2.1.4 | Commercial master. |
 | 4 | Municipal Data & API Audit v1.1 | Municipal evidence and rights. |
@@ -118,7 +118,7 @@ A fact used to resolve jurisdiction participates in composition even if it is no
 
 ## Appendix — full technical body
 
-Converted verbatim from the v1.47 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
+Converted verbatim from the v1.48 source document: schema DDL, API contracts, runtime workflow, San José source list, field vocabulary, refusal codes, measurement, environment, change record, subscription commerce and launch dependencies. Section numbering follows the original.
 
 ## 2. Repository layout
 
@@ -370,6 +370,14 @@ not fixed: licence.commercial_use/redistribution are 'allowed' against cleared_b
      old NULL value, matching 0023/0026/0030's own pattern) -- safe on both a fresh migrations-only database and one
      already seeded before this pass. db/seeds/day4_sources.sql carries the same rows, byte-identical, for every
      install after this point. See sec 12's 1.45 entry.
+
+     db/migrations/0060_source_steward_classification.sql adds source.steward_class (enum: governmental / private /
+     unknown, NOT NULL) -- D2, closing the gap P63A's investigation found: nothing in this schema typed a source as
+     a governmental or private publisher. Backfilled from the live steward text for all existing rows (a normalizing
+     UPDATE first unifies 'City of San Jose'/'City of San José' to one spelling for the same real government body,
+     then the classification UPDATE runs); 'unknown' is a real value for a source genuinely not yet established, not
+     a default -- ALTER COLUMN ... SET NOT NULL fails loudly if any row is missed rather than leaving one silently
+     unclassified. No fact row is touched (fact carries source_id, not steward text). See sec 12's 1.48 entry.
 ```
 
 ### 3.3 Canonical field vocabulary
@@ -656,6 +664,11 @@ is the actor; the original detector never re-evaluated these rows), resolution_n
 detail/exception_evidence/reopened_from_id untouched. Not wired into any ingest call site -- run once, by hand, at
 a version bump, not by any regular run. No change to parcel_exception_outcome_resolution_biconditional (0015) or
 parcel_exception_resolved_after_detected (0020), same reasoning 0047 already gave. See §12's 1.34 entry.
+db/migrations/0060_source_steward_classification.sql adds exception_evidence_no_update -- D3, approved
+conditionally (P63A packet §5): mechanically additive, no backfill, closing the risk that evidence behind an
+exception could be silently altered after the fact. The no-delete half of D3 does NOT land here -- db/tests/
+teardown.sql deletes from exception_evidence with no bypass mechanism, so a no-delete trigger would break
+make db-test; deferred post-MVP, recorded in db/README.md and P63B-LEDGER.md. See §12's 1.48 entry.
 db/schema.sql is the generated record of the applied result.
 
 ### 3.11 Support requests — post-delivery, never pre-delivery
@@ -1906,7 +1919,7 @@ ordinance.rent_restriction                           public_record              
 
 hazard.flood_zone                                    public_record                 string             —             365                                    FEMA.
 
-Engineering Reference Spec v1.47
+Engineering Reference Spec v1.48
 
 S
 The second half completes the same normative vocabulary. The def. column marks a declared deferred source; deferral never weakens a required-input rule.
@@ -1967,7 +1980,7 @@ assumption.monthly_rent                            user_assumption              
 
 condition.roof_hvac_foundation                     user_assumption              object            —            —                                     Separate non-fact input.
 
-Engineering Reference Spec v1.47
+Engineering Reference Spec v1.48
 
 C
 Migration 0003a and jurisdictions/ca_san_jose/conclusions.yaml are part of the build contract. Required inputs are declared before code runs; no detector or calculator may silently weaken them at request time.
@@ -1998,7 +2011,7 @@ Requiredness rules
 
 - Deferred is a source phase status, not permission to weaken a conclusion. Deferred required inputs still cascade a named refusal.
 
-Engineering Reference Spec v1.47
+Engineering Reference Spec v1.48
 
 ## 9. Refusal and error codes
 
@@ -3170,6 +3183,20 @@ attribution is folded in rather than special-cased, so its exception        A-N1
 text changes from “I5 violated: ... does not require attribution” to        value is covered automatically, where
 “I5_RESTRICTION_DROPPED: ... does not carry attribution”. Not a new sec     four literal blocks would silently
 9 refusal code.                                                             miss it.
+
+Sep 2026              1.48                 P63B: db/migrations/0060_source_steward_classification.sql adds           D2, D3 (conditional half), D4 --
+source.steward_class (governmental/private/unknown, NOT NULL, D2) and       owner-approved 2026-09-02 against
+exception_evidence_no_update (D3's approved half only -- no-delete           P63A's design packet
+deferred post-MVP, db/tests/teardown.sql collision). db/tests/               (~/Desktop/ledgex-p63-evidence/
+invariants.sql gains T117 and T118 (floor 133 -> 135): T117, no active      P63A-DESIGN-PACKET.md), which
+source carries steward_class=unknown; T118 (P63B.1), the                    found source had no governmental/
+exception_evidence_no_update trigger actually rejects an UPDATE, not         private classification anywhere
+merely that the migration creates it. scripts/ingest_zoning_permits.py's    and one ingest branch (:1475)
+genuine-difference branch now writes supersession_reason='unknown'          claimed knowledge of a diff's
+instead of 'world_change' (D4) -- prospective only, no historical fact       cause it did not have.
+row touched. db/README.md and prompts/CONVENTIONS.md each gain a new
+written record (D1's licence_channel insertion practice; D5's four-tier
+authority convention) -- no new enforcement machinery for either.
 
 Aug 2026                                1.1                                         L8 renamed “Composition &               Delivery is automated; there is no
 Review” → “Composition &                review stage.

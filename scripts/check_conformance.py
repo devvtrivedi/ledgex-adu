@@ -255,17 +255,17 @@ def seed_reference_rows(conn):
         )
         cur.execute(
             """
-            INSERT INTO source (id, jurisdiction_id, display_name, steward, method, phase_status,
+            INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, phase_status,
                                  phase_status_reason, endpoint_url, licence_id, active, url_verified_at,
                                  expected_fields)
             VALUES
-              (%s, %s, 'Parcels', 'City of San José', 'bulk', 'active', 'Licence confirmed: CC BY 4.0.',
+              (%s, %s, 'Parcels', 'City of San José', 'governmental', 'bulk', 'active', 'Licence confirmed: CC BY 4.0.',
                %s, %s, true, '2026-08-06'::timestamptz,
                '["parcel.apn","parcel.geometry","parcel.source_parcel_id"]'::jsonb),
-              (%s, %s, 'Zoning Districts', 'City of San José', 'bulk', 'active', 'Licence confirmed: CC BY 4.0.',
+              (%s, %s, 'Zoning Districts', 'City of San José', 'governmental', 'bulk', 'active', 'Licence confirmed: CC BY 4.0.',
                %s, %s, true, '2026-08-06'::timestamptz,
                '["zoning.district","zoning.district_verbatim"]'::jsonb),
-              (%s, %s, 'Active Building Permits', 'City of San José', 'bulk', 'active', 'Licence confirmed: CC0.',
+              (%s, %s, 'Active Building Permits', 'City of San José', 'governmental', 'bulk', 'active', 'Licence confirmed: CC0.',
                %s, %s, true, '2026-08-06'::timestamptz,
                '["permits.active","permits.series_earliest"]'::jsonb)
             ON CONFLICT (id) DO NOTHING

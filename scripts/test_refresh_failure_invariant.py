@@ -79,9 +79,9 @@ def seed_reference_rows(conn):
         )
         cur.execute(
             """
-            INSERT INTO source (id, jurisdiction_id, display_name, steward, method, phase_status,
+            INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, phase_status,
                                  phase_status_reason, endpoint_url, licence_id, active)
-            VALUES (%s, %s, 'Parcels', 'City of San Jose', 'bulk', 'active', 'test fixture',
+            VALUES (%s, %s, 'Parcels', 'City of San Jose', 'governmental', 'bulk', 'active', 'test fixture',
                     'https://example.com/parcels', %s, false)
             ON CONFLICT (id) DO NOTHING
             """,

@@ -827,9 +827,9 @@ def _ensure_blocked_fixture(conn, parcel_id):
             (SMOKE_FIXTURE_LICENCE_ID,),
         )
         cur.execute(
-            "INSERT INTO source (id, jurisdiction_id, display_name, steward, method, "
+            "INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, "
             "phase_status, phase_status_reason, endpoint_url, licence_id, active) "
-            "VALUES (%s, %s, 'smoke_real.py step 15 fixture source', 'smoke_real.py', "
+            "VALUES (%s, %s, 'smoke_real.py step 15 fixture source', 'smoke_real.py', 'unknown', "
             "'bulk', 'active', 'P55 Phase 2 Stage 4 fixture -- not a real ingest source; "
             "method=bulk (not manual) so I13 does not forbid this fact from existing.', "
             "'https://smoke-fixture.invalid/p55', %s, false) ON CONFLICT (id) DO NOTHING",

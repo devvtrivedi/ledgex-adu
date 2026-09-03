@@ -474,3 +474,31 @@ the resolving migration's own header is the right place to say so, and
 this entry should be updated to point at it, not deleted (this section is
 append-only/update-in-place for the same reason B9 above is: the migrations
 it describes are, and always will be, forward-only).
+
+## `licence_channel` insertion practice — D1 (P63A/P63B, 2026-09-02)
+
+P63A's investigation (~/Desktop/ledgex-p63-evidence/P63A-DESIGN-PACKET.md §7.1) found that
+of the 6-value `output_channel` enum, only `paid_property_file` and `api` had ever been
+granted `allowed=true` for any real licence, in this database's entire history — the P55
+precedent (`db/seeds/day4_sources.sql`) minted all 6 `licence_channel` rows per licence
+regardless of whether a given channel was actually in use. The owner approved D1 on
+2026-09-02: **insert only the `licence_channel` rows genuinely required by the current
+use/distribution model, going forward.**
+
+What this practice changes: future `licence_channel` INSERTs, and nothing else. What it
+preserves, unchanged: the six-value `output_channel` enum itself (no value is removed —
+`ALTER TYPE ... DROP VALUE` does not exist in Postgres, and no case was made for wanting
+one); the default-deny gate in `core/rights.py::evaluate_rights_gate` (a missing row already
+reads identically to an explicit `false` — this practice makes that the normal case for an
+unused channel rather than an accident of history); and every actual rights restriction any
+existing `licence_channel` row already carries (no existing row is touched by this practice —
+`licence_channel` is immutable, 0033, and this is a practice for new rows, not a data
+migration).
+
+Why here, before D-6.4: D-6.4 (the map-serving rights instrument, P63C or later) will mint at
+least one new licence id and its `licence_channel` rows, and those rows are immutable the
+moment they land — if D-6.4 reflexively minted all 6 channels the way the P55 precedent did,
+and this practice were adopted afterward, the mismatched rows could not be corrected in place;
+only a fresh licence id and a fresh set of rows could replace them (P63A packet §7.3(b)). D-6.4
+cites this record for exactly which channels its rows should cover — decide that by reading
+this entry, not by re-deriving P55's shape from scratch.

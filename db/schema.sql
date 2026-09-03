@@ -232,6 +232,17 @@ CREATE TYPE public.source_phase_status AS ENUM (
 
 
 --
+-- Name: steward_class; Type: TYPE; Schema: public; Owner: -
+--
+
+CREATE TYPE public.steward_class AS ENUM (
+    'governmental',
+    'private',
+    'unknown'
+);
+
+
+--
 -- Name: supersession_reason; Type: TYPE; Schema: public; Owner: -
 --
 
@@ -343,6 +354,25 @@ CREATE FUNCTION public.current_fact_at(ts timestamp with time zone) RETURNS SETO
               f.confidence ASC,                      -- enum order: high < medium < low
               f.retrieved_at DESC NULLS LAST,
               f.id;                                   -- deterministic tiebreak; no ranking meaning
+$$;
+
+
+--
+-- Name: exception_evidence_no_update(); Type: FUNCTION; Schema: public; Owner: -
+--
+
+CREATE FUNCTION public.exception_evidence_no_update() RETURNS trigger
+    LANGUAGE plpgsql
+    SET search_path TO 'public', 'pg_temp'
+    AS $$
+BEGIN
+    RAISE EXCEPTION
+        'D3 violated: exception_evidence row (exception_id=%, fact_id=%) is immutable once '
+        'written -- it is the retained evidence behind an exception, and evidence that can '
+        'be silently altered after the fact is not evidence. Deletion (not blocked by this '
+        'migration -- see 0060''s own header for why) remains the only way to remove one.',
+        OLD.exception_id, OLD.fact_id;
+END;
 $$;
 
 
@@ -1212,6 +1242,7 @@ CREATE TABLE public.source (
     url_verified_at timestamp with time zone,
     active boolean DEFAULT false NOT NULL,
     created_at timestamp with time zone DEFAULT now() NOT NULL,
+    steward_class public.steward_class NOT NULL,
     CONSTRAINT source_active_matches_phase CHECK (((active = false) OR (phase_status = 'active'::public.source_phase_status))),
     CONSTRAINT source_active_requires_machine_access CHECK (((active = false) OR (method = ANY (ARRAY['direct'::public.access_method, 'bulk'::public.access_method])))),
     CONSTRAINT source_active_requires_verification CHECK (((active = false) OR (url_verified_at IS NOT NULL))),
@@ -1631,6 +1662,13 @@ CREATE INDEX support_by_file ON public.support_request USING btree (property_fil
 --
 
 CREATE INDEX support_rate_idx ON public.support_request USING btree (jurisdiction_id, opened_at);
+
+
+--
+-- Name: exception_evidence exception_evidence_no_update; Type: TRIGGER; Schema: public; Owner: -
+--
+
+CREATE TRIGGER exception_evidence_no_update BEFORE UPDATE ON public.exception_evidence FOR EACH ROW EXECUTE FUNCTION public.exception_evidence_no_update();
 
 
 --

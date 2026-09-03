@@ -108,14 +108,14 @@ def main():
             ON CONFLICT (id) DO NOTHING
         """)
         cur.execute("""
-            INSERT INTO source (id, jurisdiction_id, display_name, steward, method, phase_status,
+            INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, phase_status,
                                  phase_status_reason, endpoint_url, licence_id, active)
             VALUES
-              ('ca_san_jose.parcels', 'ca_san_jose', 'Parcels', 'City of San Jose', 'bulk', 'active',
+              ('ca_san_jose.parcels', 'ca_san_jose', 'Parcels', 'City of San Jose', 'governmental', 'bulk', 'active',
                'P5 acceptance run', 'https://example.com/parcels', 'cc_by_4_0_api_2026_08', false),
-              ('ca_san_jose.zoning_districts', 'ca_san_jose', 'Zoning', 'City of San Jose', 'bulk', 'active',
+              ('ca_san_jose.zoning_districts', 'ca_san_jose', 'Zoning', 'City of San Jose', 'governmental', 'bulk', 'active',
                'P5 acceptance run', 'https://example.com/zoning', 'cc_by_4_0_api_2026_08', false),
-              ('ca_san_jose.building_permits_active', 'ca_san_jose', 'Permits', 'City of San Jose', 'bulk', 'active',
+              ('ca_san_jose.building_permits_active', 'ca_san_jose', 'Permits', 'City of San Jose', 'governmental', 'bulk', 'active',
                'P5 acceptance run', 'https://example.com/permits', 'cc0_api_2026_08', false)
             ON CONFLICT (id) DO NOTHING
         """)

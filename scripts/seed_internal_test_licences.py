@@ -224,9 +224,9 @@ def seed(conn):
 
             _insert_reporting(
                 cur, f"source {source_id!r}",
-                "INSERT INTO source (id, jurisdiction_id, display_name, steward, method, "
+                "INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, "
                 "phase_status, phase_status_reason, endpoint_url, licence_id, active) "
-                "VALUES (%s, %s, %s, 'P40 internal test', 'bulk', 'active', "
+                "VALUES (%s, %s, %s, 'P40 internal test', 'unknown', 'bulk', 'active', "
                 "'P40 internal-test fixture -- not a real ingest source', "
                 "'https://internal-test.invalid/p40', %s, false) ON CONFLICT (id) DO NOTHING",
                 (source_id, jurisdiction_id, f"Internal Test Source ({suffix})", licence_id), None,
@@ -283,9 +283,9 @@ def seed(conn):
 
         _insert_reporting(
             cur, f"source {blocked_source_id!r} (cites REAL licence {real_licence_id!r})",
-            "INSERT INTO source (id, jurisdiction_id, display_name, steward, method, "
+            "INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, "
             "phase_status, phase_status_reason, endpoint_url, licence_id, active) "
-            "VALUES (%s, %s, 'Internal Test Source (blocked fixture)', 'P40 internal test', "
+            "VALUES (%s, %s, 'Internal Test Source (blocked fixture)', 'P40 internal test', 'unknown', "
             "'bulk', 'active', 'P42 fixture -- proves the gate blocks a REAL licence on the "
             "seeded parcel', 'https://internal-test.invalid/p40', %s, false) "
             "ON CONFLICT (id) DO NOTHING",

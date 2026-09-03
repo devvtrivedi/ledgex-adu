@@ -84,9 +84,9 @@ def _seed(conn):
         for method, source_id in SOURCES.items():
             cur.execute(
                 """
-                INSERT INTO source (id, jurisdiction_id, display_name, steward, method, phase_status,
+                INSERT INTO source (id, jurisdiction_id, display_name, steward, steward_class, method, phase_status,
                                      phase_status_reason, endpoint_url, licence_id, active)
-                VALUES (%s, %s, 'Test Source', 'Test', %s, 'active', 'test fixture',
+                VALUES (%s, %s, 'Test Source', 'Test', 'unknown', %s, 'active', 'test fixture',
                         'https://example.com', %s, false)
                 ON CONFLICT (id) DO NOTHING
                 """,

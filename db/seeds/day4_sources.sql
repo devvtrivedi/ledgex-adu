@@ -376,7 +376,7 @@ ON CONFLICT (field_key) DO NOTHING;
 -- checked, not status code alone -- a landing page also returns 200.
 -- url_verified_at is the literal date this check was run, not now().
 INSERT INTO source (
-  id, jurisdiction_id, display_name, steward, method, phase_status,
+  id, jurisdiction_id, display_name, steward, steward_class, method, phase_status,
   phase_status_reason, endpoint_url, licence_id, active, url_verified_at,
   expected_fields
 ) VALUES
@@ -384,6 +384,7 @@ INSERT INTO source (
    'ca_san_jose',
    'Parcels (Santa Clara County Assessor / City of San José GIS)',
    'City of San José',
+   'governmental',
    'bulk',
    'active',
    'Licence confirmed: CC BY 4.0. Endpoint verified 2026-08-06: GET, 200, Content-Type application/json, body is a well-formed GeoJSON FeatureCollection (225,039 Polygon features). expected_fields corrected 2026-08-07: scripts/ingest_parcels.py Phase C found the source supplies neither parcel.lot_area_gis nor parcel.situs_address -- see field_definition.deferral_reason on both. parcel.source_parcel_id added 2026-08-07 (0035): PARCELID confirmed unique and fully populated across all 225,039 features by the parcel identity diagnostic.',
@@ -397,6 +398,7 @@ INSERT INTO source (
    'ca_san_jose',
    'Zoning Districts (City of San José)',
    'City of San José',
+   'governmental',
    'bulk',
    'active',
    'Licence confirmed: CC BY 4.0. Endpoint verified 2026-08-06: GET, 200, Content-Type application/json, body is a well-formed GeoJSON FeatureCollection (13,691 Polygon features).',
@@ -410,6 +412,7 @@ INSERT INTO source (
    'ca_san_jose',
    'Active Building Permits (City of San José)',
    'City of San José',
+   'governmental',
    'bulk',
    'active',
    'Licence confirmed: CC0. Endpoint verified 2026-08-06: GET, 200, Content-Type text/csv, body is 17,492 real permit rows (not HTML).',
@@ -529,11 +532,11 @@ VALUES (
 -- target only, never as an ingest path (I13 forbids a manual source from
 -- ever producing a fact -- P53-l0-gate.md Obstacle 3).
 INSERT INTO source (
-  id, jurisdiction_id, display_name, steward, method, phase_status, phase_status_reason,
+  id, jurisdiction_id, display_name, steward, steward_class, method, phase_status, phase_status_reason,
   endpoint_url, licence_id, active
 ) VALUES (
   'ca_san_jose.city_limits', 'ca_san_jose', 'City limits / jurisdiction boundary',
-  'City of San José', 'manual', 'blocked_rights',
+  'City of San José', 'governmental', 'manual', 'blocked_rights',
   'Licence not observed. Supplies the L0 gate, so under I6 this blocks ALL channels '
   'including free_snapshot. Launch dependency LD-1. Plan App K: "Blocked for paid output '
   '-- required for the jurisdiction gate; confirm licence." method=''manual'' here, not '
@@ -546,6 +549,7 @@ INSERT INTO source (
   jurisdiction_id = EXCLUDED.jurisdiction_id,
   display_name = EXCLUDED.display_name,
   steward = EXCLUDED.steward,
+  steward_class = EXCLUDED.steward_class,
   method = EXCLUDED.method,
   phase_status = EXCLUDED.phase_status,
   phase_status_reason = EXCLUDED.phase_status_reason,
